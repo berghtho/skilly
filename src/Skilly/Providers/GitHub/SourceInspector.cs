@@ -22,6 +22,7 @@ public sealed record SourceInspection(
     GitHubSourceReference Reference,
     RepositoryFacts Repository,
     string RequestedTrackingRule,
+    State.TrackingRuleKind TrackingRuleKind,
     ResolvedCommit Commit,
     string ProviderVersion,
     IReadOnlyList<SourceSkill> Skills);
@@ -33,6 +34,7 @@ public sealed class SourceInspector(GhClient client, RollingLog log)
         log.Info($"Inspecting GitHub source '{reference.Normalized}'.");
         var repository = client.GetRepository(reference.Owner, reference.Repository);
         var requestedRef = reference.RequestedRef ?? repository.DefaultBranch;
+        var trackingRuleKind = ClassifyTrackingRule(reference, repository, requestedRef);
         var commit = client.ResolveCommit(reference.Owner, reference.Repository, requestedRef);
         var tree = client.GetTree(reference.Owner, reference.Repository, commit.Sha);
 
@@ -102,6 +104,38 @@ public sealed class SourceInspector(GhClient client, RollingLog log)
         }
 
         log.Info($"Inspection found {skills.Count} Source Skill(s) below '{(reference.RequestedPath ?? "(root)")}' at commit {commit.Sha}.");
-        return new SourceInspection(reference, repository, requestedRef, commit, providerVersion, skills);
+        return new SourceInspection(reference, repository, requestedRef, trackingRuleKind, commit, providerVersion, skills);
+    }
+
+    private State.TrackingRuleKind ClassifyTrackingRule(
+        GitHubSourceReference reference,
+        RepositoryFacts repository,
+        string requestedRef)
+    {
+        if (reference.RequestedRef is null
+            || string.Equals(requestedRef, repository.DefaultBranch, StringComparison.Ordinal))
+        {
+            return State.TrackingRuleKind.Branch;
+        }
+
+        if (System.Text.RegularExpressions.Regex.IsMatch(
+                requestedRef,
+                "^[0-9a-fA-F]{40}$",
+                System.Text.RegularExpressions.RegexOptions.CultureInvariant))
+        {
+            return State.TrackingRuleKind.Commit;
+        }
+
+        if (client.ReferenceExists(reference.Owner, reference.Repository, GitHubReferenceKind.Branch, requestedRef))
+        {
+            return State.TrackingRuleKind.Branch;
+        }
+
+        if (client.ReferenceExists(reference.Owner, reference.Repository, GitHubReferenceKind.Tag, requestedRef))
+        {
+            return State.TrackingRuleKind.Tag;
+        }
+
+        throw new GhSourceUnavailableException($"The requested GitHub ref '{requestedRef}' is neither a branch nor a tag.");
     }
 }

@@ -36,6 +36,8 @@ public sealed class ManagementRecord
 
     public OperationOutcome? LastOperationOutcome { get; set; }
 
+    public CheckSnapshot? LatestCheck { get; set; }
+
     [JsonIgnore]
     public string DisplayRevision => InstalledRevision.Length > 12 ? InstalledRevision[..12] : InstalledRevision;
 }
@@ -57,6 +59,8 @@ public sealed class ProvenanceInfo
     public required string SourceSkillPath { get; set; }
 
     public required string TrackingRule { get; set; }
+
+    public TrackingRuleKind TrackingRuleKind { get; set; }
 
     public required string ResolvedCommit { get; set; }
 
@@ -80,12 +84,55 @@ public sealed class PendingOperation
 public enum MutationType
 {
     Install,
+    Update,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum OperationOutcome
 {
     Installed,
+    Updated,
+}
+
+public sealed class CheckSnapshot
+{
+    public required UpdateStatus Status { get; set; }
+
+    public required string InstalledRevision { get; set; }
+
+    public DateTimeOffset? InstalledRevisionDate { get; set; }
+
+    public string? AvailableRevision { get; set; }
+
+    public DateTimeOffset? AvailableRevisionDate { get; set; }
+
+    public string? AvailablePayloadHash { get; set; }
+
+    public required DateTimeOffset CheckedAt { get; set; }
+
+    public bool IsStale { get; set; }
+
+    public string? Warning { get; set; }
+
+    public string? Failure { get; set; }
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum UpdateStatus
+{
+    Current,
+    UpdateAvailable,
+    Pinned,
+    SourceUnavailable,
+    CheckFailed,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum TrackingRuleKind
+{
+    Branch,
+    Tag,
+    Commit,
 }
 
 public sealed class StateStore(RollingLog log, string? filePath = null)

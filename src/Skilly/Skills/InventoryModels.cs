@@ -79,6 +79,8 @@ public sealed class InventoryEntry
 
     public required IReadOnlyDictionary<Harness, HarnessExposure> Exposures { get; init; }
 
+    public State.ManagementRecord? ManagementRecord { get; init; }
+
     public bool NeedsAttention =>
         Health is InstallationHealth.InvalidMetadata
             or InstallationHealth.ExposureProblem

@@ -217,6 +217,7 @@ public sealed class GitHubInstaller(
                 RequestedPath = inspection.Reference.RequestedPath,
                 SourceSkillPath = skill.SkillPath,
                 TrackingRule = inspection.RequestedTrackingRule,
+                TrackingRuleKind = inspection.TrackingRuleKind,
                 ResolvedCommit = inspection.Commit.Sha,
                 ProviderVersion = inspection.ProviderVersion,
             },

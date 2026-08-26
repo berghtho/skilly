@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using Skilly.Skills;
+using Skilly.State;
 
 namespace Skilly.ViewModels;
 
@@ -44,7 +45,21 @@ public sealed class InventoryRow
 
     public string RootLabel { get; }
 
-    public string Provenance => "Not recorded";
+    private ManagementRecord? Record => Entry.ManagementRecord;
+
+    private CheckSnapshot? Check => Record?.LatestCheck;
+
+    public string Provenance => Record is null
+        ? "Not recorded"
+        : $"GitHub - {Record.Provenance.Owner}/{Record.Provenance.Repository}";
+
+    public string Source => Record?.Provenance.OriginalReference ?? "Not recorded";
+
+    public string SourceSkillPath => Record?.Provenance.SourceSkillPath ?? "Not recorded";
+
+    public string TrackingRule => Record is null
+        ? "Not recorded"
+        : $"{Record.Provenance.TrackingRule} ({Record.Provenance.TrackingRuleKind})";
 
     public string Management => Entry.ManagementStatus switch
     {
@@ -65,7 +80,52 @@ public sealed class InventoryRow
         _ => Entry.Health.ToString(),
     };
 
-    public string UpdateStatus => "Not checked";
+    public string UpdateStatus
+    {
+        get
+        {
+            if (Entry.Health == InstallationHealth.LocallyModified)
+            {
+                return "Not available (locally modified)";
+            }
+
+            var value = Check?.Status switch
+            {
+                State.UpdateStatus.Current => "Current",
+                State.UpdateStatus.UpdateAvailable => "Update available",
+                State.UpdateStatus.Pinned => "Pinned",
+                State.UpdateStatus.SourceUnavailable => "Source unavailable",
+                State.UpdateStatus.CheckFailed => "Check failed",
+                _ => "Not checked",
+            };
+            return Check?.IsStale == true ? value + " (stale - check failed)" : value;
+        }
+    }
+
+    public string InstalledRevision => FormatRevision(
+        Check?.InstalledRevision ?? Record?.InstalledRevision,
+        Check?.InstalledRevisionDate);
+
+    public string AvailableRevision => FormatRevision(Check?.AvailableRevision, Check?.AvailableRevisionDate);
+
+    public string LastChecked => Check is null ? "Not checked" : Check.CheckedAt.ToString("yyyy-MM-dd HH:mm:ss zzz");
+
+    public string CheckNotice => Check?.Failure ?? Check?.Warning ?? string.Empty;
+
+    public bool HasCheckNotice => CheckNotice.Length > 0;
+
+    public bool CanUpdate => Entry.Health == InstallationHealth.Healthy
+                             && Check?.Status == State.UpdateStatus.UpdateAvailable
+                             && !Check.IsStale
+                             && Check.Failure is null;
+
+    public string ActionState => CanUpdate
+        ? "A verified direct update is available."
+        : Entry.Health == InstallationHealth.LocallyModified
+            ? "Update unavailable because installed content is locally modified."
+            : Check?.IsStale == true
+                ? "Refresh checks successfully before updating."
+                : "No direct update is available.";
 
     public string ExposuresSummary { get; }
 
@@ -81,6 +141,17 @@ public sealed class InventoryRow
                || entry.LocalPath.Contains(searchText, StringComparison.OrdinalIgnoreCase)
                || entry.DisplayName.Contains(searchText, StringComparison.OrdinalIgnoreCase)
                || (entry.Metadata.Description?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    private static string FormatRevision(string? revision, DateTimeOffset? date)
+    {
+        if (string.IsNullOrWhiteSpace(revision))
+        {
+            return "Not available";
+        }
+
+        var shortRevision = revision.Length > 12 ? revision[..12] : revision;
+        return date is null ? shortRevision : $"{shortRevision} - {date:yyyy-MM-dd HH:mm:ss zzz}";
     }
 }
 
@@ -121,7 +192,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _filters = BuildFilters([]);
         _selectedFilter = Filters[0];
         InspectSourceCommand = new RelayCommand(_ => SetStatus("Source inspection is not available yet. Nothing changed."));
-        RefreshChecksCommand = new RelayCommand(_ => SetStatus("Update checks are not available yet. Nothing changed."));
         Status = new StatusUpdate("Ready. Nothing changed.", DateTimeOffset.Now);
     }
 
@@ -201,15 +271,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public ICommand InspectSourceCommand { get; }
 
-    public ICommand RefreshChecksCommand { get; }
-
     public void Announce(string message) => SetStatus(message);
 
     public void LoadInventory(InventorySnapshot snapshot)
     {
+        var selectedPath = SelectedRow?.Entry.LocalPath;
         _allRows = [.. snapshot.Entries.Select(entry => new InventoryRow(entry))];
         Filters = BuildFilters(_allRows);
         ApplyView();
+        if (selectedPath is not null)
+        {
+            SelectedRow = _allRows.FirstOrDefault(row =>
+                string.Equals(row.Entry.LocalPath, selectedPath, StringComparison.OrdinalIgnoreCase));
+        }
         SetStatus(
             $"Inventory refreshed: {snapshot.Entries.Count} installation(s), "
             + $"{snapshot.AttentionCount} need attention. Read-only scan; nothing changed.");
@@ -258,7 +332,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         return SelectedFilter.Name switch
         {
-            "Updates" => false,
+            "Updates" => row.CanUpdate,
             "Attention" => row.Entry.NeedsAttention,
             "Unmanaged" => row.Entry.ManagementStatus == ManagementStatus.Unmanaged,
             "Healthy" => row.Entry.Health == InstallationHealth.Healthy,
@@ -282,7 +356,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         List<FilterCount> filters =
         [
             new("All Skills", allRows.Count),
-            new("Updates", 0),
+            new("Updates", allRows.Count(static row => row.CanUpdate)),
             new("Attention", allRows.Count(static row => row.Entry.NeedsAttention)),
             new("Unmanaged", allRows.Count),
             new("Healthy", allRows.Count(static row => row.Entry.Health == InstallationHealth.Healthy)),

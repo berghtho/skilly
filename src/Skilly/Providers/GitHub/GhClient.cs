@@ -10,6 +10,12 @@ public sealed record RepositoryFacts(
 
 public sealed record ResolvedCommit(string Sha);
 
+public enum GitHubReferenceKind
+{
+    Branch,
+    Tag,
+}
+
 public sealed record TreeEntry(string Path, string Type);
 
 public sealed class TreeSnapshot(IReadOnlyList<TreeEntry> entries)
@@ -17,13 +23,20 @@ public sealed class TreeSnapshot(IReadOnlyList<TreeEntry> entries)
     public IReadOnlyList<TreeEntry> Entries { get; } = entries;
 }
 
-public sealed class GhApiException : Exception
+public class GhApiException : Exception
 {
     public GhApiException(string message) : base(message)
     {
     }
 
     public GhApiException(string message, Exception inner) : base(message, inner)
+    {
+    }
+}
+
+public sealed class GhSourceUnavailableException : GhApiException
+{
+    public GhSourceUnavailableException(string message) : base(message)
     {
     }
 }
@@ -65,6 +78,53 @@ public sealed class GhClient(ProcessRunner runner, string ghExecutable = "gh")
         return string.IsNullOrEmpty(parsed.Sha)
             ? throw new GhApiException("The commit response did not include a SHA.")
             : new ResolvedCommit(parsed.Sha);
+    }
+
+    public bool ReferenceExists(string owner, string repository, GitHubReferenceKind kind, string reference)
+    {
+        var category = kind == GitHubReferenceKind.Branch ? "heads" : "tags";
+        var json = Api($"repos/{owner}/{repository}/git/matching-refs/{category}/{Uri.EscapeDataString(reference)}");
+        var document = TryParse(json, $"matching {category}");
+        if (document.RootElement.ValueKind != JsonValueKind.Array)
+        {
+            throw new GhApiException($"The matching {category} response was not an array.");
+        }
+
+        var expected = $"refs/{category}/{reference}";
+        return document.RootElement.EnumerateArray().Any(element =>
+            element.TryGetProperty("ref", out var refElement)
+            && string.Equals(refElement.GetString(), expected, StringComparison.Ordinal));
+    }
+
+    public DateTimeOffset? GetSkillRevisionDate(
+        string owner,
+        string repository,
+        string revision,
+        string repositoryPath)
+    {
+        var endpoint = $"repos/{owner}/{repository}/commits?sha={Uri.EscapeDataString(revision)}"
+                       + $"&path={Uri.EscapeDataString(repositoryPath)}&per_page=1";
+        var document = TryParse(Api(endpoint), "path-scoped commit history");
+        if (document.RootElement.ValueKind != JsonValueKind.Array)
+        {
+            throw new GhApiException("The path-scoped commit history response was not an array.");
+        }
+
+        var first = document.RootElement.EnumerateArray().FirstOrDefault();
+        if (first.ValueKind == JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        if (!first.TryGetProperty("commit", out var commit)
+            || !commit.TryGetProperty("committer", out var committer)
+            || !committer.TryGetProperty("date", out var date)
+            || !date.TryGetDateTimeOffset(out var parsed))
+        {
+            throw new GhApiException("The path-scoped commit history did not include a committer date.");
+        }
+
+        return parsed;
     }
 
     public TreeSnapshot GetTree(string owner, string repository, string sha)
@@ -130,6 +190,12 @@ public sealed class GhClient(ProcessRunner runner, string ghExecutable = "gh")
         var result = runner.Run(ghExecutable, ["api", endpoint], TimeSpan.FromSeconds(90));
         if (!result.Succeeded)
         {
+            if (result.CombinedOutput.Contains("HTTP 404", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new GhSourceUnavailableException(
+                    $"GitHub source '{endpoint}' is unavailable: {Summarize(result.CombinedOutput)}");
+            }
+
             throw new GhApiException(
                 $"`gh api {endpoint}` failed with exit code {result.ExitCode}: {Summarize(result.CombinedOutput)}");
         }

@@ -61,8 +61,9 @@
                         MinWidth="110"
                         TabIndex="1" />
                 <Button Grid.Column="3"
+                        x:Name="RefreshChecksButton"
                         Content="_Refresh checks"
-                        Command="{Binding RefreshChecksCommand}"
+                        Click="OnRefreshChecks"
                         MinWidth="110"
                         TabIndex="2" />
             </Grid>
@@ -192,6 +193,12 @@
                             <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.DisplayName}" />
                             <TextBlock Style="{StaticResource DetailLabel}" Text="Provenance" />
                             <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.Provenance}" />
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="Source" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.Source}" />
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="Source Skill path" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.SourceSkillPath}" />
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="Tracking Rule" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.TrackingRule}" />
                             <TextBlock Style="{StaticResource DetailLabel}" Text="Management Status" />
                             <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.Management}" />
                             <TextBlock Style="{StaticResource DetailLabel}" Text="Installation Health" />
@@ -201,6 +208,25 @@
                             </TextBlock>
                             <TextBlock Style="{StaticResource DetailLabel}" Text="Update Status" />
                             <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.UpdateStatus}" />
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="Installed revision and Skill date" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.InstalledRevision}" />
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="Available revision and Skill date" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.AvailableRevision}" />
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="Last checked" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.LastChecked}" />
+                            <TextBlock Style="{StaticResource DetailValue}"
+                                       Text="{Binding SelectedRow.CheckNotice}"
+                                       Foreground="#8A4B08"
+                                       Visibility="{Binding SelectedRow.HasCheckNotice, Converter={StaticResource BoolToVisibility}}" />
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="Available action" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.ActionState}" />
+                            <Button Content="_Update Skill"
+                                    Click="OnUpdateSelected"
+                                    IsEnabled="{Binding SelectedRow.CanUpdate}"
+                                    HorizontalAlignment="Left"
+                                    MinWidth="110"
+                                    Margin="0,2,0,6"
+                                    AutomationProperties.Name="Update selected Skill" />
                             <TextBlock Style="{StaticResource DetailLabel}" Text="Local path" />
                             <TextBlock Style="{StaticResource DetailValue}"
                                        Text="{Binding SelectedRow.Entry.LocalPath, Mode=OneWay}"

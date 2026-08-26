@@ -13,6 +13,13 @@ if (args.Length != 2 || args[0] != "api")
 }
 
 var endpoint = args[1];
+var notFoundPattern = Environment.GetEnvironmentVariable("FAKE_GH_NOT_FOUND_PATTERN");
+if (!string.IsNullOrEmpty(notFoundPattern) && endpoint.Contains(notFoundPattern, StringComparison.Ordinal))
+{
+    Console.Error.WriteLine("gh: Not Found (HTTP 404)");
+    return 1;
+}
+
 var failPattern = Environment.GetEnvironmentVariable("FAKE_GH_FAIL_PATTERN");
 if (!string.IsNullOrEmpty(failPattern) && endpoint.Contains(failPattern, StringComparison.Ordinal))
 {
@@ -85,6 +92,9 @@ if (endpoint.Contains("/contents/", StringComparison.Ordinal))
 
 var fixtureName = endpoint switch
 {
+    var value when value.Contains("/git/matching-refs/heads/", StringComparison.Ordinal) => "heads.json",
+    var value when value.Contains("/git/matching-refs/tags/", StringComparison.Ordinal) => "tags.json",
+    var value when value.Contains("/commits?", StringComparison.Ordinal) => "skill-commit.json",
     var value when value.Contains("/commits/", StringComparison.Ordinal) => "commit.json",
     var value when value.Contains("/git/trees/", StringComparison.Ordinal) => "tree.json",
     _ => "repository.json",

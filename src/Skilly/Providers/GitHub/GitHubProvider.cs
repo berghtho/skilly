@@ -5,7 +5,9 @@ namespace Skilly.Providers.GitHub;
 public sealed class GitHubProvider(
     GhClient client,
     SourceInspector inspector,
-    GitHubInstaller installer)
+    GitHubInstaller installer,
+    GitHubChecker checker,
+    GitHubUpdater updater)
 {
     public ProviderResult<SourceInspection> Inspect(GitHubSourceReference reference)
     {
@@ -35,6 +37,35 @@ public sealed class GitHubProvider(
         catch (Exception exception)
         {
             return ProviderResult<InstallResult>.Failure(exception.Message);
+        }
+    }
+
+    public ProviderResult<CheckResult> Check(State.ManagementRecord record)
+    {
+        try
+        {
+            return ProviderResult<CheckResult>.Success(
+                checker.Check(record),
+                "Read-only selected-content Check completed; nothing changed.");
+        }
+        catch (Exception exception)
+        {
+            return ProviderResult<CheckResult>.Failure(exception.Message);
+        }
+    }
+
+    public ProviderResult<UpdateResult> Update(State.ManagementRecord record)
+    {
+        try
+        {
+            var result = updater.Update(record);
+            return ProviderResult<UpdateResult>.Success(
+                result,
+                $"Updated and verified GitHub Skill at {result.InstalledRevision}.");
+        }
+        catch (Exception exception)
+        {
+            return ProviderResult<UpdateResult>.Failure(exception.Message);
         }
     }
 }

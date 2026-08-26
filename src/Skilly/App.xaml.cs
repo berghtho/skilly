@@ -44,14 +44,17 @@ public partial class App : Application
         var ghClient = new GhClient(processRunner);
         var inspector = new SourceInspector(ghClient, _log);
         var installer = new GitHubInstaller(ghClient, stateStore, _log, home);
-        var githubProvider = new GitHubProvider(ghClient, inspector, installer);
+        var checker = new GitHubChecker(ghClient);
+        var updater = new GitHubUpdater(checker, stateStore, _log);
+        var githubProvider = new GitHubProvider(ghClient, inspector, installer, checker, updater);
+        var checkRunner = new GitHubCheckRunner(githubProvider, stateStore);
         var scanner = new InventoryScanner();
         InventorySnapshot RefreshInventory() => scanner.Scan(home, stateStore.Load());
 
         var viewModel = new ViewModels.MainViewModel();
         viewModel.LoadInventory(RefreshInventory());
 
-        _mainWindow = new MainWindow(_log, viewModel, githubProvider, RefreshInventory);
+        _mainWindow = new MainWindow(_log, viewModel, githubProvider, checkRunner, RefreshInventory);
         MainWindow = _mainWindow;
         _mainWindow.Show();
         _log.Info("Primary instance ready.");

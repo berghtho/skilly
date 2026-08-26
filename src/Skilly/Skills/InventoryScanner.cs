@@ -185,6 +185,7 @@ public sealed class InventoryScanner
             HealthDetail = detail,
             Metadata = metadata,
             Exposures = exposures,
+            ManagementRecord = record,
         };
     }
 
