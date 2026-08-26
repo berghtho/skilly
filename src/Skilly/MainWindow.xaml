@@ -1,0 +1,198 @@
+﻿<Window x:Class="Skilly.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Skilly"
+        Width="1180"
+        Height="740"
+        MinWidth="900"
+        MinHeight="560"
+        AutomationProperties.Name="Skilly Workbench">
+    <Window.Resources>
+        <Style x:Key="PaneHeader" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Setter Property="Foreground" Value="#444444" />
+        </Style>
+        <Style x:Key="DetailLabel" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,6,0,2" />
+            <Setter Property="Foreground" Value="#555555" />
+        </Style>
+        <Style x:Key="DetailValue" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,0,0,4" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Foreground" Value="#1B1B1B" />
+        </Style>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    </Window.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top"
+                Padding="12,10"
+                Background="#F2F2F2"
+                BorderBrush="#D0D0D0"
+                BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0"
+                           x:Name="SourceLabel"
+                           Text="_Skill source:"
+                           VerticalAlignment="Center"
+                           Margin="0,0,8,0" />
+                <TextBox Grid.Column="1"
+                         x:Name="SourceBox"
+                         AutomationProperties.Name="Skill source URL or reference"
+                         AutomationProperties.LabeledBy="{Binding ElementName=SourceLabel}"
+                         VerticalContentAlignment="Center"
+                         Margin="0,0,8,0"
+                         TabIndex="0" />
+                <Button Grid.Column="2"
+                        Content="_Inspect source"
+                        Command="{Binding InspectSourceCommand}"
+                        Margin="0,0,8,0"
+                        MinWidth="110"
+                        TabIndex="1" />
+                <Button Grid.Column="3"
+                        Content="_Refresh checks"
+                        Command="{Binding RefreshChecksCommand}"
+                        MinWidth="110"
+                        TabIndex="2" />
+            </Grid>
+        </Border>
+
+        <StatusBar DockPanel.Dock="Bottom"
+                   AutomationProperties.Name="Operation status"
+                   AutomationProperties.AutomationId="OperationStatusBar">
+            <StatusBarItem>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="StatusMessage"
+                               Text="{Binding Status.Message}"
+                               AutomationProperties.Name="Last operation result"
+                               AutomationProperties.LiveSetting="Polite"
+                               Margin="0,0,12,0" />
+                    <TextBlock Text="{Binding Status.Timestamp, StringFormat='HH:mm:ss'}"
+                               Foreground="#777777" />
+                </StackPanel>
+            </StatusBarItem>
+        </StatusBar>
+
+        <Grid Margin="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="200" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="360" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0"
+                    Margin="0,0,12,0"
+                    BorderBrush="#D0D0D0"
+                    BorderThickness="1"
+                    CornerRadius="4">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top"
+                               Style="{StaticResource PaneHeader}"
+                               Text="Filters"
+                               Margin="8,8,8,4" />
+                    <ListBox x:Name="FilterRail"
+                             ItemsSource="{Binding Filters}"
+                             SelectedItem="{Binding SelectedFilter, Mode=TwoWay}"
+                             AutomationProperties.Name="Inventory filters"
+                             AutomationProperties.AutomationId="Skilly.FilterRail"
+                             BorderThickness="0"
+                             TabIndex="3">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock AutomationProperties.Name="{Binding Name}">
+                                    <Run Text="{Binding Name, Mode=OneWay}" />
+                                    <Run Text=" (" /><Run Text="{Binding Count, Mode=OneWay}" /><Run Text=")" />
+                                </TextBlock>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <Border Grid.Column="1"
+                    Margin="0,0,12,0"
+                    BorderBrush="#D0D0D0"
+                    BorderThickness="1"
+                    CornerRadius="4">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0"
+                               Style="{StaticResource PaneHeader}"
+                               Text="Skills"
+                               Margin="8,8,8,4" />
+                    <ListView Grid.Row="1"
+                              x:Name="SkillList"
+                              ItemsSource="{Binding Skills}"
+                              SelectedItem="{Binding SelectedSkill, Mode=TwoWay}"
+                              AutomationProperties.Name="Skill list"
+                              AutomationProperties.AutomationId="Skilly.SkillList"
+                              BorderThickness="0"
+                              TabIndex="4">
+                        <ListView.View>
+                            <GridView AllowsColumnReorder="True">
+                                <GridViewColumn Header="Skill" Width="150" DisplayMemberBinding="{Binding Name}" />
+                                <GridViewColumn Header="Provenance" Width="170" DisplayMemberBinding="{Binding Provenance}" />
+                                <GridViewColumn Header="Management" Width="120" DisplayMemberBinding="{Binding ManagementStatus}" />
+                                <GridViewColumn Header="Health" Width="120" DisplayMemberBinding="{Binding InstallationHealth}" />
+                                <GridViewColumn Header="Update" Width="120" DisplayMemberBinding="{Binding UpdateStatus}" />
+                                <GridViewColumn Header="Exposures" Width="90" DisplayMemberBinding="{Binding Exposures}" />
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                    <TextBlock Grid.Row="1"
+                               Text="No Skills found yet. Global installations will appear here."
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Foreground="#888888"
+                               IsHitTestVisible="False"
+                               Visibility="{Binding HasNoSkills, Converter={StaticResource BoolToVisibility}}" />
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="2"
+                    BorderBrush="#D0D0D0"
+                    BorderThickness="1"
+                    CornerRadius="4">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              AutomationProperties.Name="Skill details"
+                              AutomationProperties.AutomationId="Skilly.DetailsPane"
+                              Focusable="False">
+                    <StackPanel Margin="10,8,10,12">
+                        <TextBlock Style="{StaticResource PaneHeader}" Text="{Binding DetailsHeader}" />
+                        <TextBlock Text="Select a Skill to inspect its Provenance, statuses, and Harness Exposures."
+                                   Foreground="#888888"
+                                   TextWrapping="Wrap"
+                                   Visibility="{Binding HasNoSelectedSkill, Converter={StaticResource BoolToVisibility}}" />
+
+                        <StackPanel Visibility="{Binding HasSelectedSkill, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="Description" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedSkill.Name}" />
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="Provenance" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedSkill.Provenance}" />
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="Management Status" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedSkill.ManagementStatus}" />
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="Installation Health" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedSkill.InstallationHealth}" />
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="Update Status" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedSkill.UpdateStatus}" />
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="Harness Exposures" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedSkill.Exposures}" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </DockPanel>
+</Window>

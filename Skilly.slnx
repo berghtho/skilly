@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Skilly/Skilly.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Skilly.App.Tests/Skilly.App.Tests.csproj" />
+  </Folder>
+</Solution>
