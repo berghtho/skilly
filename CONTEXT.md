@@ -8,6 +8,10 @@ This context covers globally installed agent skills and the provenance needed to
 A distributable source containing one or more Skills.
 _Avoid_: Catalog, registry
 
+**Source Skill**:
+A Skill offered by a Skill Library, identified within that source by its relative folder path while retaining its declared name as display metadata.
+_Avoid_: Package, fuzzy name
+
 **Skill**:
 One installable agent capability represented by a skill folder and its files.
 _Avoid_: Plugin, extension
@@ -33,5 +37,5 @@ A supported mechanism that supplies Skills and defines how Skilly checks, instal
 _Avoid_: Package manager, registry
 
 **Provenance**:
-The recorded Source Provider, source reference, and revision from which a Skill Installation came.
+The recorded Source Provider, normalized source identity, Source Skill path, requested tracking rule, and resolved revision or content hash from which a Skill Installation came.
 _Avoid_: Origin metadata
