@@ -47,14 +47,16 @@
                            Margin="0,0,8,0" />
                 <TextBox Grid.Column="1"
                          x:Name="SourceBox"
+                         Text="{Binding SourceText, UpdateSourceTrigger=PropertyChanged}"
                          AutomationProperties.Name="Skill source URL or reference"
                          AutomationProperties.LabeledBy="{Binding ElementName=SourceLabel}"
                          VerticalContentAlignment="Center"
                          Margin="0,0,8,0"
                          TabIndex="0" />
                 <Button Grid.Column="2"
+                        x:Name="InspectSourceButton"
                         Content="_Inspect source"
-                        Command="{Binding InspectSourceCommand}"
+                        Click="OnInspectSource"
                         Margin="0,0,8,0"
                         MinWidth="110"
                         TabIndex="1" />

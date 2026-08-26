@@ -2,6 +2,9 @@
 using System.Windows;
 using System.Threading;
 using Skilly.Infrastructure;
+using Skilly.Providers.GitHub;
+using Skilly.Skills;
+using Skilly.State;
 
 namespace Skilly;
 
@@ -35,11 +38,20 @@ public partial class App : Application
 
         StartFocusWatcher();
 
-        var viewModel = new ViewModels.MainViewModel();
-        var scanner = new Skills.InventoryScanner();
-        viewModel.LoadInventory(scanner.Scan(ResolveHome()));
+        var home = ResolveHome();
+        var stateStore = new StateStore(_log);
+        var processRunner = new ProcessRunner(_log);
+        var ghClient = new GhClient(processRunner);
+        var inspector = new SourceInspector(ghClient, _log);
+        var installer = new GitHubInstaller(ghClient, stateStore, _log, home);
+        var githubProvider = new GitHubProvider(ghClient, inspector, installer);
+        var scanner = new InventoryScanner();
+        InventorySnapshot RefreshInventory() => scanner.Scan(home, stateStore.Load());
 
-        _mainWindow = new MainWindow(_log, viewModel);
+        var viewModel = new ViewModels.MainViewModel();
+        viewModel.LoadInventory(RefreshInventory());
+
+        _mainWindow = new MainWindow(_log, viewModel, githubProvider, RefreshInventory);
         MainWindow = _mainWindow;
         _mainWindow.Show();
         _log.Info("Primary instance ready.");

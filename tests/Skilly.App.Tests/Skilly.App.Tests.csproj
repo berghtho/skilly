@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Skilly\Skilly.csproj" />
+    <ProjectReference Include="..\FakeGh\FakeGh.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

@@ -74,7 +74,7 @@ public sealed class PackagedAppFixture : IAsyncLifetime
         return Task.CompletedTask;
     }
 
-    private static string FindRepoRoot()
+    internal static string FindRepoRoot()
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);
         while (current is not null

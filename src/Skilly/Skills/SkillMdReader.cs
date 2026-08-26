@@ -56,6 +56,19 @@ public static partial class SkillMdReader
             return SkillMetadata.Invalid($"SKILL.md could not be read: {exception.Message}");
         }
 
+        var parsed = Parse(content);
+        if (parsed.Status == MetadataReadStatus.Invalid)
+        {
+            return parsed;
+        }
+
+        return IsValidSkillFolderName(folderName)
+            ? parsed
+            : SkillMetadata.Invalid($"Folder name '{folderName}' is not a valid canonical Skill identity.");
+    }
+
+    public static SkillMetadata Parse(string content)
+    {
         var extraction = ExtractFrontmatter(content);
         if (extraction == FrontmatterResult.NoOpeningDelimiter)
         {
@@ -76,14 +89,9 @@ public static partial class SkillMdReader
             return SkillMetadata.Invalid("Frontmatter is missing a 'name' field.");
         }
 
-        if (declaredName!.Length > MaxNameLength || !NamePattern().IsMatch(declaredName))
+        if (declaredName!.Length > MaxNameLength)
         {
-            return SkillMetadata.Invalid($"Declared name '{declaredName}' is not a valid skill name.");
-        }
-
-        if (!string.Equals(declaredName, folderName, StringComparison.Ordinal))
-        {
-            return SkillMetadata.Invalid($"Declared name '{declaredName}' does not match the folder name '{folderName}'.");
+            return SkillMetadata.Invalid("The declared 'name' field exceeds 64 characters.");
         }
 
         if (string.IsNullOrWhiteSpace(description))

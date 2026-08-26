@@ -97,15 +97,15 @@ public sealed class InventoryScannerTests : IDisposable
     [Fact]
     public void Keeps_malformed_metadata_visible_as_invalid_without_repairing_it()
     {
-        _fixture.WriteSkill(".agents/skills", "gamma", "gamma-typo", "Description present.");
+        _fixture.WriteRawFile(".agents/skills", "gamma", "---\nname: Gamma Display\n---\n\n# Gamma\n");
 
         var snapshot = new InventoryScanner().Scan(_fixture.Home);
 
         var gamma = Assert.Single(snapshot.Entries, entry => entry.FolderName == "gamma");
         Assert.Equal(InstallationHealth.InvalidMetadata, gamma.Health);
-        Assert.Contains("does not match", gamma.HealthDetail);
+        Assert.Contains("description", gamma.HealthDetail, StringComparison.OrdinalIgnoreCase);
         var raw = File.ReadAllText(Path.Combine(gamma.LocalPath, "SKILL.md"));
-        Assert.Contains("gamma-typo", raw);
+        Assert.Contains("Gamma Display", raw);
     }
 
     [Fact]
@@ -191,7 +191,7 @@ public sealed class InventoryScannerTests : IDisposable
     {
         var alphaDir = _fixture.WriteSkill(".agents/skills", "alpha", "alpha", "Healthy.");
         _fixture.CreateJunction(".claude/skills/alpha", alphaDir);
-        _fixture.WriteSkill(".agents/skills", "gamma", "mismatched", "Invalid metadata.");
+        _fixture.WriteRawFile(".agents/skills", "gamma", "---\nname: Gamma Display\n---\n");
 
         var snapshot = new InventoryScanner().Scan(_fixture.Home);
 

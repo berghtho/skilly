@@ -1,0 +1,79 @@
+<Window x:Class="Skilly.SourceInspectionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Inspect GitHub Skill Library"
+        Width="780"
+        Height="600"
+        MinWidth="640"
+        MinHeight="440"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        AutomationProperties.Name="GitHub source inspector">
+    <DockPanel Margin="14">
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+            <TextBlock Text="GitHub Source Inspection" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Source:" FontWeight="SemiBold" Margin="0,0,8,3" />
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Source}" TextWrapping="Wrap" />
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Tracking Rule:" FontWeight="SemiBold" Margin="0,0,8,3" />
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding RequestedRef}" />
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Resolved commit:" FontWeight="SemiBold" Margin="0,0,8,0" />
+                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Commit}" />
+            </Grid>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+            <TextBlock Text="{Binding Status}"
+                       TextWrapping="Wrap"
+                       AutomationProperties.Name="Source inspection status"
+                       AutomationProperties.LiveSetting="Polite"
+                       Margin="0,0,0,10" />
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                    <Button Content="Select _all" Click="OnSelectAll" IsEnabled="{Binding CanSelect}" Margin="0,0,8,0" />
+                    <Button Content="Select _none" Click="OnSelectNone" IsEnabled="{Binding CanSelect}" />
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button Content="_Close" IsCancel="True" IsEnabled="{Binding CanSelect}" MinWidth="90" Margin="0,0,8,0" />
+                    <Button Content="_Install selected"
+                            Click="OnInstallSelected"
+                            IsEnabled="{Binding CanInstall}"
+                            MinWidth="130"
+                            AutomationProperties.Name="Install selected Source Skills" />
+                </StackPanel>
+            </DockPanel>
+        </StackPanel>
+
+        <ListView ItemsSource="{Binding Skills}"
+                  IsEnabled="{Binding CanSelect}"
+                  AutomationProperties.Name="Discovered Source Skills"
+                  AutomationProperties.AutomationId="Skilly.SourceSkills">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Width="50">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                          IsEnabled="{Binding Skill.MetadataValid}"
+                                          AutomationProperties.Name="{Binding Skill.SkillPath}" />
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="Source Skill path" Width="245" DisplayMemberBinding="{Binding Skill.SkillPath}" />
+                    <GridViewColumn Header="Alias" Width="190" DisplayMemberBinding="{Binding Alias}" />
+                    <GridViewColumn Header="Files" Width="50" DisplayMemberBinding="{Binding Skill.FilePaths.Count}" />
+                    <GridViewColumn Header="Installability" Width="210" DisplayMemberBinding="{Binding Installability}" />
+                </GridView>
+            </ListView.View>
+        </ListView>
+    </DockPanel>
+</Window>

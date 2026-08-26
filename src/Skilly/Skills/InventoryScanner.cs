@@ -13,8 +13,12 @@ public sealed record InventorySnapshot(IReadOnlyList<InventoryEntry> Entries, Da
 
 public sealed class InventoryScanner
 {
-    public InventorySnapshot Scan(string home)
+    public InventorySnapshot Scan(string home, State.SkillyState? state = null)
     {
+        var recordsByPath = (state?.Records ?? [])
+            .GroupBy(static record => record.CanonicalPath.TrimEnd(Path.DirectorySeparatorChar), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(static group => group.Key, static group => group.Last(), StringComparer.OrdinalIgnoreCase);
+
         var roots = new[]
         {
             HarnessRoot.Create(RootKind.CanonicalAgents, home),
@@ -51,7 +55,10 @@ public sealed class InventoryScanner
 
         foreach (var candidate in realFolders)
         {
-            entries.Add(BuildFolderEntry(candidate, duplicateNames.Contains(candidate)));
+            var record = recordsByPath.TryGetValue(NormalizePath(candidate.FileSystemInfo.FullName), out var matched)
+                ? matched
+                : null;
+            entries.Add(BuildFolderEntry(candidate, duplicateNames.Contains(candidate), record));
         }
 
         foreach (var link in links.Where(link => !link.ConsumedAsExposure))
@@ -126,12 +133,30 @@ public sealed class InventoryScanner
         return new HarnessExposure(ExposureState.SeparateCopy, $"{link.FileSystemInfo.FullName} exists but does not resolve to the canonical installation");
     }
 
-    private InventoryEntry BuildFolderEntry(Candidate candidate, bool isDuplicate)
+    private InventoryEntry BuildFolderEntry(
+        Candidate candidate,
+        bool isDuplicate,
+        State.ManagementRecord? record)
     {
         var metadata = SkillMdReader.Read(candidate.FileSystemInfo.FullName, candidate.FolderName);
         var health = metadata.Status == MetadataReadStatus.Valid ? InstallationHealth.Healthy : InstallationHealth.InvalidMetadata;
         string? detail = metadata.Error;
         var exposures = BuildExposuresForFolder(candidate);
+
+        if (record is not null && health == InstallationHealth.Healthy)
+        {
+            var currentHash = PayloadHasher.HashFolder(candidate.FileSystemInfo.FullName);
+            if (!string.Equals(currentHash, record.InstalledPayloadHash, StringComparison.OrdinalIgnoreCase))
+            {
+                health = InstallationHealth.LocallyModified;
+                detail = "Installed content differs from the payload recorded by Skilly.";
+            }
+            else if (candidate.ClaudeExposure?.State != ExposureState.VerifiedJunction)
+            {
+                health = InstallationHealth.ExposureProblem;
+                detail = candidate.ClaudeExposure?.Detail ?? "The intended Claude junction is missing.";
+            }
+        }
 
         if (isDuplicate)
         {
@@ -155,7 +180,7 @@ public sealed class InventoryScanner
             LocalPath = candidate.FileSystemInfo.FullName,
             RootKind = candidate.Root.Kind,
             Kind = EntryKind.RealFolder,
-            ManagementStatus = ManagementStatus.Unmanaged,
+            ManagementStatus = record is null ? ManagementStatus.Unmanaged : ManagementStatus.Managed,
             Health = health,
             HealthDetail = detail,
             Metadata = metadata,
