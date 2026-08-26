@@ -66,6 +66,7 @@ public partial class App : Application
 
         var viewModel = new ViewModels.MainViewModel();
         viewModel.LoadInventory(RefreshInventory());
+        viewModel.SetGitHubReadiness(githubProvider.GetReadiness());
         if (recovery.Disposition == RecoveryDisposition.RecoveryRequired)
         {
             viewModel.EnterRecoveryRequired(recovery.Message);

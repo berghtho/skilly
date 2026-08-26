@@ -82,13 +82,18 @@ public sealed class AdoptionStateRecoveryTests
         AssertRejected(record => record.Provenance.NormalizedSource = "github.com/other/library");
         AssertRejected(record => record.Provenance.SourceSkillPath = "beta");
         AssertRejected(record => record.Provenance.ResolvedCommit = GitHubProviderFixture.LaterCommitSha);
+        AssertRejected(record => record.Provenance.SelectedContentIdentity = "wrong-tree");
         AssertRejected(record => record.ProviderEvidence = "unverified");
 
         void AssertRejected(Action<ManagementRecord> tamper)
         {
             var record = Clone(original.ProposedRecord);
             tamper(record);
-            var evidence = new AdoptionEvidence(record, original.ExpectedPayloadHash, original.ExpectedFileCount);
+            var evidence = new AdoptionEvidence(
+                record,
+                original.ExpectedPayloadHash,
+                original.ExpectedFileCount,
+                original.ExpectedContentIdentity);
             var entry = Assert.Single(new InventoryScanner().Scan(fixture.Home, fixture.StateStore.Load(), [evidence]).Entries);
             Assert.Equal(ManagementStatus.Unmanaged, entry.ManagementStatus);
             Assert.Null(entry.AdoptionEvidence);
@@ -243,6 +248,26 @@ public sealed class AdoptionStateRecoveryTests
         Assert.Equal(SkillyPaths.StateSchemaVersion, JsonDocument.Parse(File.ReadAllText(temp.Path)).RootElement.GetProperty("schemaVersion").GetInt32());
         Assert.False(File.Exists(temp.Path + ".tmp"));
         Assert.False(File.Exists(temp.Path + ".bak.bak"));
+    }
+
+    [Fact]
+    public void Schema_two_records_migrate_selected_content_identity_without_losing_authority()
+    {
+        using var fixture = new GitHubProviderFixture();
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
+        var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(fixture.StatePath))!.AsObject();
+        node["schemaVersion"] = 2;
+        var recordNode = node["records"]!.AsArray()[0]!.AsObject();
+        recordNode["provenance"]!.AsObject().Remove("selectedContentIdentity");
+        File.WriteAllText(fixture.StatePath, node.ToJsonString());
+
+        var migrated = fixture.StateStore.Load();
+
+        var record = Assert.Single(migrated.Records);
+        Assert.Equal("payload-sha256:" + record.InstalledPayloadHash, record.Provenance.SelectedContentIdentity);
+        Assert.Equal(SkillyPaths.StateSchemaVersion, migrated.SchemaVersion);
+        Assert.True(File.Exists(fixture.StatePath + ".bak"));
     }
 
     private static void CopyDirectory(string source, string destination)

@@ -34,7 +34,8 @@ public sealed class GitHubUpdater(
             || check.IsStale
             || check.Failure is not null
             || string.IsNullOrWhiteSpace(check.AvailableRevision)
-            || string.IsNullOrWhiteSpace(check.AvailablePayloadHash))
+            || string.IsNullOrWhiteSpace(check.AvailablePayloadHash)
+            || string.IsNullOrWhiteSpace(check.AvailableContentIdentity))
         {
             throw new ProviderFailure("A fresh branch Check reporting Update Available is required before direct update.");
         }
@@ -42,7 +43,8 @@ public sealed class GitHubUpdater(
         var currentHash = VerifyInstalledPreconditions(record);
 
         var payload = checker.FetchPayload(record, check.AvailableRevision);
-        if (!string.Equals(payload.Hash, check.AvailablePayloadHash, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(payload.Hash, check.AvailablePayloadHash, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(payload.ContentIdentity, check.AvailableContentIdentity, StringComparison.Ordinal))
         {
             throw new ProviderFailure("The selected source content changed after Check; refresh checks before updating.");
         }
@@ -59,6 +61,7 @@ public sealed class GitHubUpdater(
         var previousEvidence = record.ProviderEvidence;
         var previousOutcome = record.LastOperationOutcome;
         var previousResolvedCommit = record.Provenance.ResolvedCommit;
+        var previousContentIdentity = record.Provenance.SelectedContentIdentity;
         var previousCheck = record.LatestCheck;
         var journaled = false;
         var canonicalMoved = false;
@@ -79,6 +82,7 @@ public sealed class GitHubUpdater(
                 Phase = PendingOperationPhase.Journaled,
                 TargetRevision = check.AvailableRevision,
                 TargetPayloadHash = payload.Hash,
+                TargetContentIdentity = payload.ContentIdentity,
                 TargetFileCount = payload.Files.Count,
                 TargetProviderEvidence = $"gh api contents/{(GitHubChecker.RepositoryPath(record.Provenance).Length == 0 ? "." : GitHubChecker.RepositoryPath(record.Provenance))}@{check.AvailableRevision}",
                 StartedAt = DateTimeOffset.Now,
@@ -126,6 +130,7 @@ public sealed class GitHubUpdater(
             var repositoryPath = GitHubChecker.RepositoryPath(record.Provenance);
             record.ProviderEvidence = $"gh api contents/{(repositoryPath.Length == 0 ? "." : repositoryPath)}@{check.AvailableRevision}";
             record.Provenance.ResolvedCommit = check.AvailableRevision;
+            record.Provenance.SelectedContentIdentity = payload.ContentIdentity;
             record.LastOperationOutcome = OperationOutcome.Updated;
             record.LatestCheck = new CheckSnapshot
             {
@@ -135,6 +140,7 @@ public sealed class GitHubUpdater(
                 AvailableRevision = check.AvailableRevision,
                 AvailableRevisionDate = check.AvailableRevisionDate,
                 AvailablePayloadHash = payload.Hash,
+                AvailableContentIdentity = payload.ContentIdentity,
                 CheckedAt = DateTimeOffset.Now,
             };
             state.PendingOperation = null;
@@ -146,6 +152,7 @@ public sealed class GitHubUpdater(
             if (!string.Equals(persisted.InstalledRevision, check.AvailableRevision, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(persisted.InstalledPayloadHash, payload.Hash, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(persisted.Provenance.ResolvedCommit, check.AvailableRevision, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(persisted.Provenance.SelectedContentIdentity, payload.ContentIdentity, StringComparison.Ordinal)
                 || !string.Equals(persisted.ProviderEvidence, record.ProviderEvidence, StringComparison.Ordinal)
                 || persisted.LatestCheck?.Status != UpdateStatus.Current
                 || persisted.LastOperationOutcome != OperationOutcome.Updated
@@ -179,6 +186,7 @@ public sealed class GitHubUpdater(
             record.ProviderEvidence = previousEvidence;
             record.LastOperationOutcome = previousOutcome;
             record.Provenance.ResolvedCommit = previousResolvedCommit;
+            record.Provenance.SelectedContentIdentity = previousContentIdentity;
             record.LatestCheck = previousCheck;
             if (journaled && restored)
             {

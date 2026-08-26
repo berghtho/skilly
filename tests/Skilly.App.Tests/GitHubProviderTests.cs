@@ -60,6 +60,15 @@ public sealed class GitHubProviderFixture : IDisposable
             "net10.0",
             "FakeGh.exe");
         Assert.True(File.Exists(fakeGh), $"FakeGh was not built at '{fakeGh}'.");
+        var fakeGit = Path.Combine(
+            PackagedAppFixture.FindRepoRoot(),
+            "tests",
+            "FakeGit",
+            "bin",
+            "Debug",
+            "net10.0",
+            "FakeGit.exe");
+        Assert.True(File.Exists(fakeGit), $"FakeGit was not built at '{fakeGit}'.");
 
         _environment = new Dictionary<string, string?>
         {
@@ -67,9 +76,12 @@ public sealed class GitHubProviderFixture : IDisposable
             ["FAKE_GH_STATE_PATH"] = StatePath,
             ["FAKE_GH_FAIL_PATTERN"] = failPattern,
             ["FAKE_GH_FALSE_SUCCESS_PATTERN"] = null,
+            ["FAKE_GH_INVOCATIONS"] = Path.Combine(FixtureRoot, "gh-invocations.jsonl"),
+            ["FAKE_GIT_INVOCATIONS"] = Path.Combine(FixtureRoot, "git-invocations.jsonl"),
+            ["FAKE_GIT_FAIL_PATTERN"] = failPattern?.Contains("scripts/", StringComparison.Ordinal) == true ? "checkout" : null,
         };
         Log = new RollingLog(Path.Combine(Root, "logs"));
-        var client = new GhClient(new ProcessRunner(Log, _environment), fakeGh);
+        var client = new GhClient(new ProcessRunner(Log, _environment), fakeGh, fakeGit);
         StateStore = new StateStore(Log, StatePath, beforeStateSave);
         var inspector = new SourceInspector(client, Log);
         var installer = new GitHubInstaller(client, StateStore, Log, Home);
@@ -118,24 +130,12 @@ public sealed class GitHubProviderFixture : IDisposable
 
     public void WriteTree(bool truncated, bool includeAlpha = true)
     {
-        var entries = new List<object>
-        {
-            new { path = "skills/beta/SKILL.md", type = "blob" },
-            new { path = "unrelated/SKILL.md", type = "blob" },
-            new { path = "SKILL.md", type = "blob" },
-        };
-        if (includeAlpha)
-        {
-            entries.Insert(0, new { path = "skills/alpha/scripts/run.ps1", type = "blob" });
-            entries.Insert(0, new { path = "skills/alpha/SKILL.md", type = "blob" });
-        }
-
         var payload = new
         {
             truncated,
-            tree = entries,
+            excludedPath = includeAlpha ? null : "skills/alpha",
         };
-        File.WriteAllText(Path.Combine(FixtureRoot, "tree.json"), JsonSerializer.Serialize(payload));
+        File.WriteAllText(Path.Combine(FixtureRoot, "tree-control.json"), JsonSerializer.Serialize(payload));
     }
 
     public void SetCommit(string sha)
@@ -150,11 +150,44 @@ public sealed class GitHubProviderFixture : IDisposable
     public void ClearBranches()
         => File.WriteAllText(Path.Combine(FixtureRoot, "heads.json"), "[]");
 
-    public void FailRequestsContaining(string? pattern) => _environment["FAKE_GH_FAIL_PATTERN"] = pattern;
+    public void FailRequestsContaining(string? pattern)
+    {
+        _environment["FAKE_GH_FAIL_PATTERN"] = pattern;
+        _environment["FAKE_GIT_FAIL_PATTERN"] = pattern?.Contains("scripts/", StringComparison.Ordinal) == true ? "checkout" : null;
+    }
 
     public void ReturnNotFoundFor(string? pattern) => _environment["FAKE_GH_NOT_FOUND_PATTERN"] = pattern;
 
     public void ReturnFalseSuccessFor(string? pattern) => _environment["FAKE_GH_FALSE_SUCCESS_PATTERN"] = pattern;
+
+    public void MakeContentUnavailable(string? pattern) => _environment["FAKE_GH_CONTENT_UNAVAILABLE_PATTERN"] = pattern;
+
+    public void FailAuthentication(bool fail = true) => _environment["FAKE_GH_AUTH_FAILURE"] = fail ? "1" : null;
+
+    public void SetCredentialCanary(string value) => _environment["FAKE_GH_CREDENTIAL_CANARY"] = value;
+
+    public void OverrideGitHead(string? value) => _environment["FAKE_GIT_HEAD_OVERRIDE"] = value;
+
+    public void OverrideTreeIdentity(string? value) => _environment["FAKE_GH_TREE_IDENTITY_OVERRIDE"] = value;
+
+    public void AddSourceSkill(string repositoryPath, string declaredName, int additionalFiles = 0)
+    {
+        var directory = Path.Combine(FixtureRoot, "files", repositoryPath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(
+            Path.Combine(directory, "SKILL.md"),
+            $"---\nname: {declaredName}\ndescription: Deterministic pstack fixture Skill.\n---\n");
+        for (var index = 0; index < additionalFiles; index++)
+        {
+            var path = Path.Combine(directory, "references", $"fixture-{index:D2}.md");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, $"fixture {index}\n");
+        }
+    }
+
+    public string GhInvocationsPath => Path.Combine(FixtureRoot, "gh-invocations.jsonl");
+
+    public string GitInvocationsPath => Path.Combine(FixtureRoot, "git-invocations.jsonl");
 
     public string CanonicalPath(string name) => Path.Combine(Home, ".agents", "skills", name);
 
@@ -184,10 +217,197 @@ public sealed class GitHubSourceReferenceTests
         Assert.False(GitHubSourceReference.TryParse("https://example.com/acme/library", out _, out _));
         Assert.False(GitHubSourceReference.TryParse("https://github.com/acme/library/blob/main/SKILL.md", out _, out _));
     }
+
+    [Fact]
+    public void Normalizes_repository_identity_and_rejects_unsafe_URL_forms()
+    {
+        Assert.True(GitHubSourceReference.TryParse(
+            "https://GITHUB.com/Acme/Library.git/tree/feature%2Dname/skills/catalog/",
+            out var reference,
+            out var error), error);
+        Assert.Equal("github.com/acme/library/tree/feature-name/skills/catalog", reference.Normalized);
+        Assert.Equal("github.com/acme/library", reference.NormalizedSource);
+
+        Assert.False(GitHubSourceReference.TryParse("http://github.com/acme/library", out _, out _));
+        Assert.False(GitHubSourceReference.TryParse("https://user@github.com/acme/library", out _, out _));
+        Assert.False(GitHubSourceReference.TryParse("https://github.com/acme/library?token=secret", out _, out _));
+        Assert.False(GitHubSourceReference.TryParse("https://github.com/acme/library/tree/main/%2e%2e/secret", out _, out _));
+        Assert.False(GitHubSourceReference.TryParse("https://github.com/acme/library/tree/main/../secret", out _, out _));
+    }
 }
 
 public sealed class GitHubProviderTests
 {
+    private static readonly string[] CursorPstackSkills =
+    [
+        "architect", "arena", "automate-me", "blast-radius", "bro", "create-verification-skill",
+        "figure-it-out", "how", "interrogate", "maintain-verification-skill", "no-comments", "poteto-mode",
+        "principle-boundary-discipline", "principle-build-the-lever", "principle-encode-lessons-in-structure",
+        "principle-exhaust-the-design-space", "principle-experience-first", "principle-fix-root-causes",
+        "principle-foundational-thinking", "principle-guard-the-context-window", "principle-laziness-protocol",
+        "principle-make-operations-idempotent", "principle-migrate-callers-then-delete-legacy-apis",
+        "principle-minimize-reader-load", "principle-model-the-domain", "principle-never-block-on-the-human",
+        "principle-outcome-oriented-execution", "principle-prove-it-works", "principle-redesign-from-first-principles",
+        "principle-separate-before-serializing-shared-state", "principle-sequence-verifiable-units",
+        "principle-subtract-before-you-add", "principle-type-system-discipline", "recall", "reflect", "setup-pstack",
+        "show-me-your-work", "swarm", "tdd", "teach", "technical-writing", "typescript-best-practices", "unslop", "why",
+    ];
+
+    [Fact]
+    public void Ambiguous_tree_URL_tests_longest_ref_prefixes_and_pins_the_selected_commit()
+    {
+        using var fixture = new GitHubProviderFixture();
+        fixture.SetBranch("feature/windows");
+        Assert.True(GitHubSourceReference.TryParse(
+            "https://github.com/acme/library/tree/feature/windows/skills",
+            out var reference,
+            out var error), error);
+
+        var inspection = fixture.Provider.Inspect(reference).ValueOrThrow();
+
+        Assert.Equal("feature/windows", inspection.RequestedTrackingRule);
+        Assert.Equal("skills", inspection.Reference.RequestedPath);
+        Assert.Equal(GitHubProviderFixture.CommitSha, inspection.Commit.Sha);
+        var invocations = File.ReadAllText(fixture.GhInvocationsPath);
+        Assert.Contains("feature%2Fwindows%2Fskills", invocations);
+        Assert.Contains("feature%2Fwindows", invocations);
+    }
+
+    [Fact]
+    public void Cursor_pstack_decision_fixture_discovers_all_expected_Source_Skills_and_exact_Poteto_aliases()
+    {
+        using var fixture = new GitHubProviderFixture();
+        foreach (var folder in CursorPstackSkills)
+        {
+            fixture.AddSourceSkill(
+                $"pstack/skills/{folder}",
+                folder == "poteto-mode" ? "Poteto Mode" : folder,
+                folder == "poteto-mode" ? 44 : 0);
+        }
+        Assert.True(GitHubSourceReference.TryParse(
+            "https://github.com/cursor/plugins/tree/main/pstack/skills",
+            out var reference,
+            out var error), error);
+
+        var inspection = fixture.Provider.Inspect(reference).ValueOrThrow();
+
+        Assert.Equal(CursorPstackSkills, inspection.Skills.Select(static skill => skill.SkillPath));
+        var poteto = Assert.Single(inspection.Skills, static skill => skill.SkillPath == "poteto-mode");
+        Assert.Equal("Poteto Mode", poteto.DeclaredName);
+        Assert.Equal(45, poteto.FilePaths.Count);
+        Assert.True(poteto.MatchesAlias("poteto-mode"));
+        Assert.True(poteto.MatchesAlias("Poteto Mode"));
+        Assert.False(poteto.MatchesAlias("poteto mode"));
+
+        var byPath = new SourceInspectionViewModel(inspection) { ExactSelection = "poteto-mode" };
+        var byName = new SourceInspectionViewModel(inspection) { ExactSelection = "Poteto Mode" };
+        Assert.True(byPath.SelectExact());
+        Assert.True(byName.SelectExact());
+        Assert.Equal(
+            Assert.Single(byPath.Skills, static skill => skill.IsSelected).Skill.FilePaths,
+            Assert.Single(byName.Skills, static skill => skill.IsSelected).Skill.FilePaths);
+    }
+
+    [Fact]
+    public void Authenticated_API_acquisition_fetches_only_the_selected_validated_folder()
+    {
+        using var fixture = new GitHubProviderFixture();
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
+        File.WriteAllText(fixture.GhInvocationsPath, string.Empty);
+
+        fixture.Provider.Install(inspection, [inspection.Skills.Single(static skill => skill.SkillPath == "alpha")]).ValueOrThrow();
+
+        var invocations = File.ReadAllText(fixture.GhInvocationsPath);
+        Assert.Contains("skills/alpha/SKILL.md", invocations);
+        Assert.Contains("skills/alpha/scripts/run.ps1", invocations);
+        Assert.DoesNotContain("skills/beta", invocations);
+        Assert.DoesNotContain("unrelated", invocations);
+    }
+
+    [Fact]
+    public void API_acquisition_failure_uses_authenticated_partial_sparse_checkout_detached_at_resolved_commit()
+    {
+        using var fixture = new GitHubProviderFixture();
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
+        fixture.MakeContentUnavailable("scripts/run.ps1");
+
+        fixture.Provider.Install(inspection, [inspection.Skills.Single(static skill => skill.SkillPath == "alpha")]).ValueOrThrow();
+
+        Assert.True(File.Exists(Path.Combine(fixture.CanonicalPath("alpha"), "scripts", "run.ps1")));
+        var ghInvocations = File.ReadAllText(fixture.GhInvocationsPath);
+        var gitInvocations = File.ReadAllText(fixture.GitInvocationsPath);
+        Assert.Contains("\"repo\",\"clone\",\"acme/library\"", ghInvocations);
+        Assert.Contains("--filter=blob:none", ghInvocations);
+        Assert.Contains("--no-checkout", ghInvocations);
+        Assert.Contains("\"sparse-checkout\",\"set\",\"--\",\"skills/alpha\"", gitInvocations);
+        Assert.Contains($"\"checkout\",\"--detach\",\"{GitHubProviderFixture.CommitSha}\"", gitInvocations);
+        Assert.Contains("\"rev-parse\",\"HEAD\"", gitInvocations);
+        Assert.Contains("\"rev-parse\",\"--abbrev-ref\",\"HEAD\"", gitInvocations);
+    }
+
+    [Fact]
+    public void Sparse_checkout_false_success_at_the_wrong_commit_is_rejected_and_rolled_back()
+    {
+        using var fixture = new GitHubProviderFixture();
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
+        fixture.MakeContentUnavailable("scripts/run.ps1");
+        fixture.OverrideGitHead(GitHubProviderFixture.LaterCommitSha);
+
+        var result = fixture.Provider.Install(
+            inspection,
+            [inspection.Skills.Single(static skill => skill.SkillPath == "alpha")]);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("already resolved immutable commit", result.Diagnostics);
+        Assert.False(Directory.Exists(fixture.CanonicalPath("alpha")));
+        Assert.Null(fixture.StateStore.Load().PendingOperation);
+        Assert.Empty(fixture.StateStore.Load().Records);
+    }
+
+    [Fact]
+    public void Public_and_private_sources_use_active_gh_auth_without_persisting_or_logging_credentials()
+    {
+        using var fixture = new GitHubProviderFixture();
+        const string credentialCanary = "credential-canary-must-not-escape";
+        fixture.SetCredentialCanary(credentialCanary);
+        Assert.True(GitHubSourceReference.TryParse(
+            "https://github.com/private-owner/private-library/tree/main/skills",
+            out var privateReference,
+            out var error), error);
+
+        Assert.True(fixture.Provider.GetReadiness().IsReady);
+        var inspection = fixture.Provider.Inspect(privateReference).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
+
+        var invocations = File.ReadAllText(fixture.GhInvocationsPath);
+        Assert.Contains("\"auth\",\"status\",\"--hostname\",\"github.com\"", invocations);
+        Assert.DoesNotContain("auth\",\"token", invocations);
+        Assert.DoesNotContain(credentialCanary, File.ReadAllText(fixture.StatePath));
+        Assert.DoesNotContain(credentialCanary, string.Join("\n", Directory.GetFiles(Path.Combine(fixture.Root, "logs")).Select(ReadShared)));
+    }
+
+    [Fact]
+    public void GitHub_auth_failure_is_provider_scoped_and_does_not_hide_inventory_or_enter_recovery()
+    {
+        using var fixture = new GitHubProviderFixture();
+        Directory.CreateDirectory(fixture.CanonicalPath("local-skill"));
+        File.WriteAllText(
+            Path.Combine(fixture.CanonicalPath("local-skill"), "SKILL.md"),
+            "---\nname: local-skill\ndescription: Local inventory remains visible.\n---\n");
+        fixture.FailAuthentication();
+        var readiness = fixture.Provider.GetReadiness();
+        var viewModel = new MainViewModel();
+        viewModel.LoadInventory(new InventoryScanner().Scan(fixture.Home, fixture.StateStore.Load()));
+        viewModel.SetGitHubReadiness(readiness);
+
+        Assert.False(readiness.IsReady);
+        Assert.True(viewModel.HasProviderReadinessProblem);
+        Assert.Contains("GitHub provider unavailable", viewModel.GitHubReadiness);
+        Assert.Single(viewModel.Rows);
+        Assert.True(viewModel.MutationsAllowed);
+        Assert.False(viewModel.RecoveryRequired);
+        Assert.False(fixture.Provider.Inspect(fixture.Reference).Succeeded);
+    }
     [Fact]
     public void Inspection_enumerates_path_scoped_Source_Skills_without_mutation()
     {
@@ -213,6 +433,9 @@ public sealed class GitHubProviderTests
             beta => Assert.Equal("beta", beta.SkillPath));
         Assert.False(File.Exists(fixture.StatePath));
         Assert.False(Directory.Exists(Path.Combine(fixture.Home, ".agents")));
+        var invocations = File.ReadAllText(fixture.GhInvocationsPath);
+        Assert.DoesNotContain($"git/trees/{GitHubProviderFixture.CommitSha}?recursive=1", invocations);
+        Assert.DoesNotContain("unrelated/SKILL.md", invocations);
     }
 
     [Fact]
@@ -304,6 +527,23 @@ public sealed class GitHubProviderTests
         Assert.Equal(UpdateStatus.UpdateAvailable, check.Status);
         Assert.NotEqual(installedHash, check.AvailablePayloadHash);
         Assert.Equal(installedHash, PayloadHasher.HashFolder(record.CanonicalPath));
+    }
+
+    [Fact]
+    public void Selected_folder_tree_identity_change_reports_Update_Available_even_when_payload_bytes_match()
+    {
+        using var fixture = new GitHubProviderFixture();
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
+        var record = Assert.Single(fixture.StateStore.Load().Records);
+        fixture.SetCommit(GitHubProviderFixture.LaterCommitSha);
+        fixture.OverrideTreeIdentity("tree-mode-change-with-identical-bytes");
+
+        var check = fixture.Provider.Check(record).ValueOrThrow();
+
+        Assert.Equal(UpdateStatus.UpdateAvailable, check.Status);
+        Assert.Equal(record.InstalledPayloadHash, check.AvailablePayloadHash);
+        Assert.NotEqual(record.Provenance.SelectedContentIdentity, check.AvailableContentIdentity);
     }
 
     [Fact]
@@ -441,6 +681,7 @@ public sealed class GitHubProviderTests
         Assert.Null(fixture.StateStore.Load().PendingOperation);
         Assert.Equal(GitHubProviderFixture.LaterCommitSha, persisted.InstalledRevision);
         Assert.Equal(GitHubProviderFixture.LaterCommitSha, persisted.Provenance.ResolvedCommit);
+        Assert.Equal(checkedRecord.LatestCheck!.AvailableContentIdentity, persisted.Provenance.SelectedContentIdentity);
         Assert.Equal(PayloadHasher.HashFolder(persisted.CanonicalPath), persisted.InstalledPayloadHash);
         Assert.Equal(OperationOutcome.Updated, persisted.LastOperationOutcome);
         Assert.Equal(UpdateStatus.Current, persisted.LatestCheck!.Status);
@@ -578,6 +819,7 @@ public sealed class GitHubProviderTests
             Assert.Equal("github", record.Provenance.SourceProvider);
             Assert.Equal("main", record.Provenance.TrackingRule);
             Assert.Equal(GitHubProviderFixture.CommitSha, record.Provenance.ResolvedCommit);
+            Assert.False(string.IsNullOrWhiteSpace(record.Provenance.SelectedContentIdentity));
             Assert.Equal("gh version 99.0.0-fake", record.Provenance.ProviderVersion);
             Assert.Equal(GitHubProviderFixture.CommitSha, record.InstalledRevision);
             Assert.Equal(PayloadHasher.HashFolder(record.CanonicalPath), record.InstalledPayloadHash);
@@ -603,6 +845,7 @@ public sealed class GitHubProviderTests
         Assert.Contains("\"schemaVersion\"", json);
         Assert.Contains("\"records\"", json);
         Assert.Contains("\"provenance\"", json);
+        Assert.Contains("\"selectedContentIdentity\"", json);
         Assert.DoesNotContain("pendingOperation\": null", json);
     }
 
@@ -747,5 +990,12 @@ public sealed class GitHubProviderTests
         Assert.Contains("ambiguous", ambiguous.Status, StringComparison.OrdinalIgnoreCase);
         ambiguous.ExactSelection = "alpha";
         Assert.True(ambiguous.SelectExact());
+    }
+
+    private static string ReadShared(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
 }

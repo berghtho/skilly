@@ -10,6 +10,7 @@ public sealed record ManagedReinstallPlan(
     string ExactPath,
     string Revision,
     string PayloadHash,
+    string ContentIdentity,
     int FileCount,
     string ProviderEvidence,
     GitHubPayload Payload);
@@ -69,7 +70,8 @@ public sealed class GitHubLifecycle(
         }
 
         var payload = checker.FetchPayload(record, check.AvailableRevision);
-        if (!string.Equals(payload.Hash, check.AvailablePayloadHash, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(payload.Hash, check.AvailablePayloadHash, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(payload.ContentIdentity, check.AvailableContentIdentity, StringComparison.Ordinal))
         {
             throw new ProviderFailure("The source payload changed while preparing Managed Reinstall.");
         }
@@ -81,6 +83,7 @@ public sealed class GitHubLifecycle(
             record.CanonicalPath,
             check.AvailableRevision,
             payload.Hash,
+            payload.ContentIdentity,
             payload.Files.Count,
             $"gh api contents/{(repositoryPath.Length == 0 ? "." : repositoryPath)}@{check.AvailableRevision}",
             payload);
@@ -94,6 +97,8 @@ public sealed class GitHubLifecycle(
 
         var sourcePayload = checker.FetchPayload(record, record.InstalledRevision);
         if (!string.Equals(sourcePayload.Hash, evidence.ExpectedPayloadHash, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(sourcePayload.ContentIdentity, evidence.ExpectedContentIdentity, StringComparison.Ordinal)
+            || !string.Equals(sourcePayload.ContentIdentity, record.Provenance.SelectedContentIdentity, StringComparison.Ordinal)
             || sourcePayload.Files.Count != evidence.ExpectedFileCount)
         {
             throw new ProviderFailure("The immutable provider payload no longer matches the verified Adoption evidence.");
@@ -176,7 +181,8 @@ public sealed class GitHubLifecycle(
         }
 
         var sourceAgain = checker.FetchPayload(record, plan.Revision);
-        if (!string.Equals(sourceAgain.Hash, plan.PayloadHash, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(sourceAgain.Hash, plan.PayloadHash, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(sourceAgain.ContentIdentity, plan.ContentIdentity, StringComparison.Ordinal))
         {
             throw new ProviderFailure("The verified Managed Reinstall payload changed after confirmation.");
         }
@@ -197,6 +203,7 @@ public sealed class GitHubLifecycle(
             [PathState.Directory, junctionExisted ? PathState.Junction : PathState.Missing]);
         pending.TargetRevision = plan.Revision;
         pending.TargetPayloadHash = plan.PayloadHash;
+        pending.TargetContentIdentity = plan.ContentIdentity;
         pending.TargetFileCount = plan.FileCount;
         pending.TargetProviderEvidence = plan.ProviderEvidence;
         return ReplaceManaged(state, record, pending, plan.Payload, OperationOutcome.Reinstalled, cancellationToken);
@@ -380,6 +387,7 @@ public sealed class GitHubLifecycle(
         var oldFileCount = record.InstalledFileCount;
         var oldEvidence = record.ProviderEvidence;
         var oldResolvedCommit = record.Provenance.ResolvedCommit;
+        var oldContentIdentity = record.Provenance.SelectedContentIdentity;
         var oldOutcome = record.LastOperationOutcome;
         var oldCheck = record.LatestCheck;
         var junctionPath = record.IntendedClaudeJunctionPath!;
@@ -422,6 +430,7 @@ public sealed class GitHubLifecycle(
             record.InstalledFileCount = pending.TargetFileCount.Value;
             record.ProviderEvidence = pending.TargetProviderEvidence!;
             record.Provenance.ResolvedCommit = pending.TargetRevision!;
+            record.Provenance.SelectedContentIdentity = pending.TargetContentIdentity!;
             record.LastOperationOutcome = outcome;
             record.LatestCheck = new CheckSnapshot
             {
@@ -429,6 +438,7 @@ public sealed class GitHubLifecycle(
                 InstalledRevision = pending.TargetRevision!,
                 AvailableRevision = pending.TargetRevision,
                 AvailablePayloadHash = pending.TargetPayloadHash,
+                AvailableContentIdentity = pending.TargetContentIdentity,
                 CheckedAt = DateTimeOffset.Now,
             };
             state.PendingOperation = null;
@@ -449,6 +459,7 @@ public sealed class GitHubLifecycle(
             record.InstalledFileCount = oldFileCount;
             record.ProviderEvidence = oldEvidence;
             record.Provenance.ResolvedCommit = oldResolvedCommit;
+            record.Provenance.SelectedContentIdentity = oldContentIdentity;
             record.LastOperationOutcome = oldOutcome;
             record.LatestCheck = oldCheck;
             var restored = RestoreSnapshotIfSafe(pending, record.CanonicalPath, junctionPath, pending.StartingHashes[0]!, pending.TargetPayloadHash);
@@ -483,6 +494,7 @@ public sealed class GitHubLifecycle(
             record.InstalledFileCount = pending.TargetFileCount!.Value;
             record.ProviderEvidence = pending.TargetProviderEvidence!;
             record.Provenance.ResolvedCommit = pending.TargetRevision!;
+            record.Provenance.SelectedContentIdentity = pending.TargetContentIdentity!;
             record.LastOperationOutcome = pending.OperationType == MutationType.ManagedReinstall
                 ? OperationOutcome.Reinstalled
                 : OperationOutcome.Updated;
@@ -492,6 +504,7 @@ public sealed class GitHubLifecycle(
                 InstalledRevision = pending.TargetRevision!,
                 AvailableRevision = pending.TargetRevision,
                 AvailablePayloadHash = pending.TargetPayloadHash,
+                AvailableContentIdentity = pending.TargetContentIdentity,
                 CheckedAt = DateTimeOffset.Now,
             };
             ClearRecovered(state, pending, "Verified pending replacement completion and committed authority.");
@@ -645,7 +658,9 @@ public sealed class GitHubLifecycle(
             || !string.Equals(provenance.NormalizedSource, normalizedSource, StringComparison.Ordinal)
             || string.IsNullOrWhiteSpace(record.Provenance.SourceSkillPath)
             || string.IsNullOrWhiteSpace(record.Provenance.ResolvedCommit)
+            || string.IsNullOrWhiteSpace(record.Provenance.SelectedContentIdentity)
             || !string.Equals(record.Provenance.ResolvedCommit, record.InstalledRevision, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(record.Provenance.SelectedContentIdentity, evidence.ExpectedContentIdentity, StringComparison.Ordinal)
             || !string.Equals(record.InstalledPayloadHash, evidence.ExpectedPayloadHash, StringComparison.OrdinalIgnoreCase)
             || record.InstalledFileCount != evidence.ExpectedFileCount
             || !string.Equals(record.ProviderEvidence, providerEvidence, StringComparison.Ordinal))

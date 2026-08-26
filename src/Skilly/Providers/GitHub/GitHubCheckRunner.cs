@@ -32,6 +32,7 @@ public sealed class GitHubCheckRunner(GitHubProvider provider, StateStore stateS
                     AvailableRevision = check.AvailableRevision,
                     AvailableRevisionDate = check.AvailableRevisionDate,
                     AvailablePayloadHash = check.AvailablePayloadHash,
+                    AvailableContentIdentity = check.AvailableContentIdentity,
                     CheckedAt = check.CheckedAt,
                     Warning = check.Warning,
                 };

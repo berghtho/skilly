@@ -69,6 +69,7 @@ public sealed class GitHubAdoptionVerifier(GhClient client, string home)
                         TrackingRule = inspection.RequestedTrackingRule,
                         TrackingRuleKind = inspection.TrackingRuleKind,
                         ResolvedCommit = inspection.Commit.Sha,
+                        SelectedContentIdentity = skill.ContentIdentity,
                         ProviderVersion = inspection.ProviderVersion,
                     },
                     IntendedClaudeJunctionPath = claudePath,
@@ -77,7 +78,7 @@ public sealed class GitHubAdoptionVerifier(GhClient client, string home)
                     InstalledFileCount = files.Count,
                     ProviderEvidence = $"gh api contents/{repositoryPath}@{inspection.Commit.Sha}",
                 };
-                evidence.Add(new AdoptionEvidence(record, sourceHash, files.Count));
+                evidence.Add(new AdoptionEvidence(record, sourceHash, files.Count, skill.ContentIdentity));
             }
             catch (Exception exception)
             {
@@ -90,16 +91,12 @@ public sealed class GitHubAdoptionVerifier(GhClient client, string home)
 
     private List<(string RelativePath, byte[] Content)> FetchPayload(SourceInspection inspection, SourceSkill skill)
     {
-        return skill.FilePaths.Select(path =>
-        {
-            var relative = skill.RepositoryPath.Length == 0
-                ? path
-                : path[(skill.RepositoryPath.Length + 1)..];
-            return (relative, client.GetFileContent(
-                inspection.Reference.Owner,
-                inspection.Reference.Repository,
-                path,
-                inspection.Commit.Sha));
-        }).ToList();
+        return [.. client.FetchFolder(
+            inspection.Reference.Owner,
+            inspection.Reference.Repository,
+            inspection.Commit.Sha,
+            skill.RepositoryPath,
+            skill.FilePaths,
+            expectedBlobIdentities: skill.BlobIdentities)];
     }
 }

@@ -176,15 +176,14 @@ public sealed class GitHubInstaller(
         string claudeJunctionPath,
         CancellationToken cancellationToken)
     {
-        var files = new List<(string RelativePath, byte[] Content)>();
-        foreach (var path in skill.FilePaths)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var relative = skill.RepositoryPath.Length == 0
-                ? path
-                : path[(skill.RepositoryPath.Length + 1)..];
-            files.Add((relative, client.GetFileContent(inspection.Reference.Owner, inspection.Reference.Repository, path, inspection.Commit.Sha)));
-        }
+        var files = client.FetchFolder(
+            inspection.Reference.Owner,
+            inspection.Reference.Repository,
+            inspection.Commit.Sha,
+            skill.RepositoryPath,
+            skill.FilePaths,
+            cancellationToken,
+            skill.BlobIdentities);
 
         foreach (var file in files)
         {
@@ -240,6 +239,7 @@ public sealed class GitHubInstaller(
                 TrackingRule = inspection.RequestedTrackingRule,
                 TrackingRuleKind = inspection.TrackingRuleKind,
                 ResolvedCommit = inspection.Commit.Sha,
+                SelectedContentIdentity = skill.ContentIdentity,
                 ProviderVersion = inspection.ProviderVersion,
             },
             IntendedClaudeJunctionPath = Path.GetFullPath(claudeJunctionPath),

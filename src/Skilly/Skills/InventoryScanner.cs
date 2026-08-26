@@ -316,6 +316,7 @@ public sealed class InventoryScanner
                && string.Equals(provenance.NormalizedSource, normalizedSource, StringComparison.Ordinal)
                && !string.IsNullOrWhiteSpace(provenance.SourceSkillPath)
                && string.Equals(provenance.ResolvedCommit, record.InstalledRevision, StringComparison.OrdinalIgnoreCase)
+               && string.Equals(provenance.SelectedContentIdentity, evidence.ExpectedContentIdentity, StringComparison.Ordinal)
                && string.Equals(record.ProviderEvidence, expectedProviderEvidence, StringComparison.Ordinal)
                && string.Equals(record.InstalledPayloadHash, evidence.ExpectedPayloadHash, StringComparison.OrdinalIgnoreCase)
                && record.InstalledFileCount == evidence.ExpectedFileCount

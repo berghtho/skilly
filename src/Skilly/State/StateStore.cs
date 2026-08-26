@@ -66,6 +66,8 @@ public sealed class ProvenanceInfo
 
     public required string ResolvedCommit { get; set; }
 
+    public required string SelectedContentIdentity { get; set; }
+
     public required string ProviderVersion { get; set; }
 }
 
@@ -92,6 +94,8 @@ public sealed class PendingOperation
     public string? TargetRevision { get; set; }
 
     public string? TargetPayloadHash { get; set; }
+
+    public string? TargetContentIdentity { get; set; }
 
     public int? TargetFileCount { get; set; }
 
@@ -152,6 +156,8 @@ public sealed class CheckSnapshot
     public DateTimeOffset? AvailableRevisionDate { get; set; }
 
     public string? AvailablePayloadHash { get; set; }
+
+    public string? AvailableContentIdentity { get; set; }
 
     public required DateTimeOffset CheckedAt { get; set; }
 
@@ -310,7 +316,7 @@ public sealed class StateStore(RollingLog log, string? filePath = null, Action<S
             throw new InvalidOperationException($"Authority state schema {schemaVersion} cannot be migrated safely.");
         }
 
-        if (schemaVersion == 1)
+        if (schemaVersion < SkillyPaths.StateSchemaVersion)
         {
             var node = System.Text.Json.Nodes.JsonNode.Parse(json)?.AsObject()
                        ?? throw new InvalidOperationException("Authority state is empty.");
@@ -322,10 +328,34 @@ public sealed class StateStore(RollingLog log, string? filePath = null, Action<S
                     {
                         continue;
                     }
-                    var host = provenance["host"]?.GetValue<string>() ?? string.Empty;
-                    var owner = provenance["owner"]?.GetValue<string>() ?? string.Empty;
-                    var repository = provenance["repository"]?.GetValue<string>() ?? string.Empty;
-                    provenance["normalizedSource"] = NormalizeSource(host, owner, repository);
+                    if (schemaVersion == 1)
+                    {
+                        var host = provenance["host"]?.GetValue<string>() ?? string.Empty;
+                        var owner = provenance["owner"]?.GetValue<string>() ?? string.Empty;
+                        var repository = provenance["repository"]?.GetValue<string>() ?? string.Empty;
+                        provenance["normalizedSource"] = NormalizeSource(host, owner, repository);
+                    }
+
+                    if (schemaVersion < 3 && provenance["selectedContentIdentity"] is null)
+                    {
+                        var installedPayloadHash = record["installedPayloadHash"]?.GetValue<string>();
+                        if (string.IsNullOrWhiteSpace(installedPayloadHash))
+                        {
+                            throw new InvalidOperationException(
+                                "Legacy authority state lacks the installed payload identity required for safe migration.");
+                        }
+                        provenance["selectedContentIdentity"] = "payload-sha256:" + installedPayloadHash;
+                    }
+                }
+            }
+            if (schemaVersion < 3
+                && node["pendingOperation"] is System.Text.Json.Nodes.JsonObject pending
+                && pending["targetContentIdentity"] is null)
+            {
+                var targetPayloadHash = pending["targetPayloadHash"]?.GetValue<string>();
+                if (!string.IsNullOrWhiteSpace(targetPayloadHash))
+                {
+                    pending["targetContentIdentity"] = "payload-sha256:" + targetPayloadHash;
                 }
             }
             node["schemaVersion"] = SkillyPaths.StateSchemaVersion;

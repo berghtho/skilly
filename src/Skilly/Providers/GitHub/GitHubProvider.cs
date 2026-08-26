@@ -2,6 +2,8 @@ using Skilly.Providers;
 
 namespace Skilly.Providers.GitHub;
 
+public sealed record ProviderReadiness(bool IsReady, string Provider, string Diagnostic, string? Version = null);
+
 public sealed class GitHubProvider(
     GhClient client,
     SourceInspector inspector,
@@ -15,11 +17,32 @@ public sealed class GitHubProvider(
 
     public string RecoveryDiagnostic => lifecycle.RecoveryDiagnostic;
 
+    public ProviderReadiness GetReadiness()
+    {
+        try
+        {
+            var version = client.GetVersion();
+            client.EnsureAuthenticated();
+            var gitVersion = client.GetGitVersion();
+            return new ProviderReadiness(
+                true,
+                "GitHub",
+                $"GitHub is ready through the active authenticated gh identity ({version}; {gitVersion}).",
+                version);
+        }
+        catch (Exception exception)
+        {
+            return new ProviderReadiness(false, "GitHub", $"GitHub provider unavailable: {exception.Message}");
+        }
+    }
+
     public ProviderResult<SourceInspection> Inspect(GitHubSourceReference reference)
     {
         try
         {
             var version = client.GetVersion();
+            client.EnsureAuthenticated(reference.Host);
+            client.GetGitVersion();
             var inspection = inspector.Inspect(reference, version);
             return ProviderResult<SourceInspection>.Success(
                 inspection,
@@ -38,6 +61,7 @@ public sealed class GitHubProvider(
     {
         try
         {
+            client.EnsureAuthenticated(inspection.Reference.Host);
             var result = installer.Install(inspection, selected, cancellationToken);
             return ProviderResult<InstallResult>.Success(
                 result,
@@ -53,6 +77,7 @@ public sealed class GitHubProvider(
     {
         try
         {
+            client.EnsureAuthenticated(inspection.Reference.Host);
             var discovery = adoptionVerifier.Discover(inspection, inventory);
             return ProviderResult<AdoptionDiscovery>.Success(
                 discovery,
@@ -68,6 +93,7 @@ public sealed class GitHubProvider(
     {
         try
         {
+            client.EnsureAuthenticated(evidence.ProposedRecord.Provenance.Host);
             return ProviderResult<LifecycleResult>.Success(
                 lifecycle.Adopt(evidence, cancellationToken),
                 "Adoption recorded verified Provenance without rewriting Skill content.");
@@ -82,6 +108,7 @@ public sealed class GitHubProvider(
     {
         try
         {
+            client.EnsureAuthenticated(record.Provenance.Host);
             return ProviderResult<CheckResult>.Success(
                 checker.Check(record),
                 "Read-only selected-content Check completed; nothing changed.");
@@ -96,6 +123,7 @@ public sealed class GitHubProvider(
     {
         try
         {
+            client.EnsureAuthenticated(record.Provenance.Host);
             var result = updater.Update(record, cancellationToken);
             return ProviderResult<UpdateResult>.Success(
                 result,
@@ -111,6 +139,7 @@ public sealed class GitHubProvider(
     {
         try
         {
+            client.EnsureAuthenticated(record.Provenance.Host);
             return ProviderResult<ManagedReinstallPlan>.Success(
                 lifecycle.PlanManagedReinstall(record),
                 "Verified Managed Reinstall path and replacement revision. Nothing changed.");

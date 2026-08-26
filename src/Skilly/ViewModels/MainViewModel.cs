@@ -201,6 +201,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private IReadOnlyList<FilterCount> _filters;
     private bool _recoveryRequired;
     private string _recoveryDiagnostic = string.Empty;
+    private string _githubReadiness = "GitHub readiness has not been checked.";
+    private bool _hasProviderReadinessProblem;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -282,6 +284,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public string RecoveryDiagnostic => _recoveryDiagnostic;
 
+    public string GitHubReadiness => _githubReadiness;
+
+    public bool HasProviderReadinessProblem => _hasProviderReadinessProblem;
+
     public bool HasSkills => Rows.Count > 0;
 
     public bool HasNoSkills => Rows.Count == 0;
@@ -295,6 +301,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand InspectSourceCommand { get; }
 
     public void Announce(string message) => SetStatus(message);
+
+    public void SetGitHubReadiness(Providers.GitHub.ProviderReadiness readiness)
+    {
+        _githubReadiness = readiness.Diagnostic;
+        _hasProviderReadinessProblem = !readiness.IsReady;
+        OnPropertyChanged(nameof(GitHubReadiness));
+        OnPropertyChanged(nameof(HasProviderReadinessProblem));
+    }
 
     public void EnterRecoveryRequired(string diagnostic)
     {

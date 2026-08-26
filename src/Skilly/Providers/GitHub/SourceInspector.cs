@@ -1,3 +1,4 @@
+using System.IO;
 using Skilly.Infrastructure;
 using Skilly.Skills;
 
@@ -11,7 +12,9 @@ public sealed record SourceSkill(
     string? Description,
     bool MetadataValid,
     string? MetadataError,
-    IReadOnlyList<string> FilePaths)
+    IReadOnlyList<string> FilePaths,
+    string ContentIdentity = "",
+    IReadOnlyDictionary<string, string>? BlobIdentities = null)
 {
     public bool MatchesAlias(string candidate)
         => string.Equals(candidate, SkillPath, StringComparison.Ordinal)
@@ -31,19 +34,18 @@ public sealed class SourceInspector(GhClient client, RollingLog log)
 {
     public SourceInspection Inspect(GitHubSourceReference reference, string providerVersion)
     {
-        log.Info($"Inspecting GitHub source '{reference.Normalized}'.");
         var repository = client.GetRepository(reference.Owner, reference.Repository);
-        var requestedRef = reference.RequestedRef ?? repository.DefaultBranch;
-        var trackingRuleKind = ClassifyTrackingRule(reference, repository, requestedRef);
-        var commit = client.ResolveCommit(reference.Owner, reference.Repository, requestedRef);
-        var tree = client.GetTree(reference.Owner, reference.Repository, commit.Sha);
+        var (resolvedReference, requestedRef, trackingRuleKind, commit) = ResolveReference(reference, repository);
+        log.Info($"Inspecting GitHub source '{resolvedReference.Normalized}' pinned to commit {commit.Sha}.");
+        var tree = client.GetTreeBelowPath(
+            resolvedReference.Owner,
+            resolvedReference.Repository,
+            commit.Sha,
+            resolvedReference.RequestedPath);
 
-        var prefix = reference.RequestedPath is null
-            ? string.Empty
-            : reference.RequestedPath.TrimEnd('/') + "/";
+        var requestedRoot = resolvedReference.RequestedPath?.TrimEnd('/') ?? string.Empty;
         var blobs = tree.Entries
             .Where(entry => entry.Type == "blob")
-            .Where(entry => prefix.Length == 0 || entry.Path.StartsWith(prefix, StringComparison.Ordinal))
             .Select(entry => entry.Path.Replace('\\', '/'))
             .ToList();
 
@@ -56,7 +58,7 @@ public sealed class SourceInspector(GhClient client, RollingLog log)
         if (skillFolders.Count == 0)
         {
             throw new GhApiException(
-                $"No SKILL.md files were found under '{(prefix.Length == 0 ? "the repository root" : reference.RequestedPath)}' at commit {commit.Sha[..12]}.");
+                $"No SKILL.md files were found under '{(requestedRoot.Length == 0 ? "the repository root" : requestedRoot)}' at commit {commit.Sha[..12]}.");
         }
 
         var skills = new List<SourceSkill>();
@@ -66,7 +68,8 @@ public sealed class SourceInspector(GhClient client, RollingLog log)
             byte[] skillMdBytes;
             try
             {
-                skillMdBytes = client.GetFileContent(reference.Owner, reference.Repository, skillMdPath, commit.Sha);
+                var repositorySkillMdPath = JoinRepositoryPath(requestedRoot, skillMdPath);
+                skillMdBytes = client.GetFileContent(resolvedReference.Owner, resolvedReference.Repository, repositorySkillMdPath, commit.Sha);
             }
             catch (GhApiException exception)
             {
@@ -75,67 +78,139 @@ public sealed class SourceInspector(GhClient client, RollingLog log)
             }
 
             var metadata = SkillMdReader.Parse(System.Text.Encoding.UTF8.GetString(skillMdBytes));
-            var files = folder.Length == 0
+            var relativeFiles = folder.Length == 0
                 ? blobs
                 : blobs.Where(path => path.StartsWith(folder + "/", StringComparison.Ordinal)).ToList();
+            var files = relativeFiles.Select(path => JoinRepositoryPath(requestedRoot, path)).ToList();
+            var blobIdentities = tree.Entries
+                .Where(entry => entry.Type == "blob" && relativeFiles.Contains(entry.Path, StringComparer.Ordinal))
+                .ToDictionary(
+                    entry => JoinRepositoryPath(requestedRoot, entry.Path),
+                    static entry => entry.Sha,
+                    StringComparer.Ordinal);
             var folderName = folder.Length == 0
-                ? reference.Repository
+                ? requestedRoot.Length == 0
+                    ? resolvedReference.Repository
+                    : requestedRoot[(requestedRoot.LastIndexOf('/') + 1)..]
                 : folder[(folder.LastIndexOf('/') + 1)..];
-            var requestedRoot = reference.RequestedPath?.TrimEnd('/') ?? string.Empty;
-            var skillPath = folder == requestedRoot
-                ? "."
-                : requestedRoot.Length == 0
-                    ? folder
-                    : folder[(requestedRoot.Length + 1)..];
-            if (skillPath.Length == 0)
-            {
-                skillPath = ".";
-            }
+            var skillPath = folder.Length == 0 ? "." : folder;
             var validIdentity = SkillMdReader.IsValidSkillFolderName(folderName);
+            var invalidEntry = tree.Entries.FirstOrDefault(entry => IsBelow(entry.Path, folder)
+                && (entry.Type == "commit"
+                    || (entry.Type == "blob" && entry.Mode is not ("100644" or "100755"))
+                    || !IsSafeRelativePath(entry.Path)));
+            var caseCollision = relativeFiles.Distinct(StringComparer.OrdinalIgnoreCase).Count() != relativeFiles.Count;
+            var metadataValid = metadata.Status == MetadataReadStatus.Valid && validIdentity && invalidEntry is null;
+            var metadataError = !validIdentity
+                ? $"Folder name '{folderName}' is not a valid canonical Skill identity."
+                : caseCollision
+                    ? "Selected folder contains paths that collide on Windows."
+                    : invalidEntry is not null
+                        ? $"Selected folder contains unsupported Git entry '{invalidEntry.Path}' ({invalidEntry.Type}, mode {invalidEntry.Mode})."
+                        : metadata.Error;
+            metadataValid &= !caseCollision;
+            var contentIdentity = folder.Length == 0
+                ? tree.Sha
+                : tree.Entries.Single(entry => entry.Type == "tree" && string.Equals(entry.Path, folder, StringComparison.Ordinal)).Sha;
             skills.Add(new SourceSkill(
                 skillPath,
-                folder,
+                JoinRepositoryPath(requestedRoot, folder),
                 folderName,
                 metadata.DeclaredName,
                 metadata.Description,
-                metadata.Status == MetadataReadStatus.Valid && validIdentity,
-                validIdentity ? metadata.Error : $"Folder name '{folderName}' is not a valid canonical Skill identity.",
-                files));
+                metadataValid,
+                metadataError,
+                files,
+                contentIdentity,
+                blobIdentities));
         }
 
-        log.Info($"Inspection found {skills.Count} Source Skill(s) below '{(reference.RequestedPath ?? "(root)")}' at commit {commit.Sha}.");
-        return new SourceInspection(reference, repository, requestedRef, trackingRuleKind, commit, providerVersion, skills);
+        log.Info($"Inspection found {skills.Count} Source Skill(s) below '{(resolvedReference.RequestedPath ?? "(root)")}' at commit {commit.Sha}.");
+        return new SourceInspection(resolvedReference, repository, requestedRef, trackingRuleKind, commit, providerVersion, skills);
     }
 
-    private State.TrackingRuleKind ClassifyTrackingRule(
+    private (GitHubSourceReference Reference, string RequestedRef, State.TrackingRuleKind Kind, ResolvedCommit Commit) ResolveReference(
         GitHubSourceReference reference,
-        RepositoryFacts repository,
-        string requestedRef)
+        RepositoryFacts repository)
     {
-        if (reference.RequestedRef is null
-            || string.Equals(requestedRef, repository.DefaultBranch, StringComparison.Ordinal))
+        if (reference.TreeSegments is null)
         {
-            return State.TrackingRuleKind.Branch;
+            var commit = client.ResolveCommit(reference.Owner, reference.Repository, repository.DefaultBranch);
+            return (reference.ResolveTreeBoundary(repository.DefaultBranch, null), repository.DefaultBranch, State.TrackingRuleKind.Branch, commit);
         }
 
-        if (System.Text.RegularExpressions.Regex.IsMatch(
-                requestedRef,
-                "^[0-9a-fA-F]{40}$",
-                System.Text.RegularExpressions.RegexOptions.CultureInvariant))
+        for (var count = reference.TreeSegments.Count; count >= 1; count--)
         {
-            return State.TrackingRuleKind.Commit;
+            var candidate = string.Join('/', reference.TreeSegments.Take(count));
+            State.TrackingRuleKind? kind = null;
+            if (string.Equals(candidate, repository.DefaultBranch, StringComparison.Ordinal)
+                || client.ReferenceExists(reference.Owner, reference.Repository, GitHubReferenceKind.Branch, candidate))
+            {
+                kind = State.TrackingRuleKind.Branch;
+            }
+            else if (client.ReferenceExists(reference.Owner, reference.Repository, GitHubReferenceKind.Tag, candidate))
+            {
+                kind = State.TrackingRuleKind.Tag;
+            }
+            else if (System.Text.RegularExpressions.Regex.IsMatch(
+                         candidate,
+                         "^[0-9a-fA-F]{40}$",
+                         System.Text.RegularExpressions.RegexOptions.CultureInvariant))
+            {
+                kind = State.TrackingRuleKind.Commit;
+            }
+
+            if (kind is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                var commit = client.ResolveCommit(reference.Owner, reference.Repository, candidate);
+                var path = count == reference.TreeSegments.Count
+                    ? null
+                    : string.Join('/', reference.TreeSegments.Skip(count));
+                return (reference.ResolveTreeBoundary(candidate, path), candidate, kind.Value, commit);
+            }
+            catch (GhSourceUnavailableException)
+            {
+            }
         }
 
-        if (client.ReferenceExists(reference.Owner, reference.Repository, GitHubReferenceKind.Branch, requestedRef))
-        {
-            return State.TrackingRuleKind.Branch;
-        }
+        throw new GhSourceUnavailableException(
+            $"No candidate ref prefix in the GitHub tree URL resolves to an exact branch, tag, or commit.");
+    }
 
-        if (client.ReferenceExists(reference.Owner, reference.Repository, GitHubReferenceKind.Tag, requestedRef))
-        {
-            return State.TrackingRuleKind.Tag;
-        }
+    private static string JoinRepositoryPath(string root, string relative)
+        => root.Length == 0 ? relative : relative.Length == 0 ? root : root + "/" + relative;
 
-        throw new GhSourceUnavailableException($"The requested GitHub ref '{requestedRef}' is neither a branch nor a tag.");
+    private static bool IsBelow(string path, string folder)
+        => folder.Length == 0 || path.StartsWith(folder + "/", StringComparison.Ordinal);
+
+    private static bool IsSafeRelativePath(string path)
+    {
+        if (path.StartsWith('/') || path.Contains('\\'))
+        {
+            return false;
+        }
+        foreach (var segment in path.Split('/'))
+        {
+            if (segment.Length == 0 || segment is "." or ".." || segment.Any(char.IsControl)
+                || segment.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            {
+                return false;
+            }
+            var stem = segment.Split('.')[0];
+            if (stem.Equals("CON", StringComparison.OrdinalIgnoreCase)
+                || stem.Equals("PRN", StringComparison.OrdinalIgnoreCase)
+                || stem.Equals("AUX", StringComparison.OrdinalIgnoreCase)
+                || stem.Equals("NUL", StringComparison.OrdinalIgnoreCase)
+                || System.Text.RegularExpressions.Regex.IsMatch(stem, "^(COM|LPT)[1-9]$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 }

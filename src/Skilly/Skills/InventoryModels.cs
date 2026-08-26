@@ -1,6 +1,10 @@
 namespace Skilly.Skills;
 
-public sealed record AdoptionEvidence(State.ManagementRecord ProposedRecord, string ExpectedPayloadHash, int ExpectedFileCount);
+public sealed record AdoptionEvidence(
+    State.ManagementRecord ProposedRecord,
+    string ExpectedPayloadHash,
+    int ExpectedFileCount,
+    string ExpectedContentIdentity);
 
 public enum ManagementStatus
 {

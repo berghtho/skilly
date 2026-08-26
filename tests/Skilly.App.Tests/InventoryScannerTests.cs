@@ -148,6 +148,7 @@ public sealed class InventoryScannerTests : IDisposable
                         SourceSkillPath = "alpha",
                         TrackingRule = "main",
                         ResolvedCommit = "1234",
+                        SelectedContentIdentity = "fixture-tree-alpha",
                         ProviderVersion = "test",
                     },
                     IntendedClaudeJunctionPath = _fixture.Root(".claude/skills/alpha"),

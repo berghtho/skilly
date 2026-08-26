@@ -39,7 +39,8 @@ public sealed class RollingLog
                 {
                     _writer?.Dispose();
                     _writerPath = path;
-                    _writer = new StreamWriter(path, append: true, Encoding.UTF8)
+                    var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+                    _writer = new StreamWriter(stream, Encoding.UTF8)
                     {
                         AutoFlush = true,
                     };
