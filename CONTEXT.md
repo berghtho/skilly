@@ -13,8 +13,12 @@ One installable agent capability represented by a skill folder and its files.
 _Avoid_: Plugin, extension
 
 **Skill Installation**:
-A globally managed copy of a Skill, exposed to supported Harnesses through their standard discovery paths.
+A single canonical, globally managed copy of a Skill, exposed to supported Harnesses through their standard discovery paths.
 _Avoid_: Project skill, per-project installation
+
+**Harness Exposure**:
+A managed reference that makes one canonical Skill Installation visible to a Harness with a different discovery root.
+_Avoid_: Replica, copy
 
 **Harness**:
 An agent product that discovers and loads Skill Installations, initially OpenCode, Codex, Claude Code, or GitHub Copilot.
