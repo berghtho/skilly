@@ -15,7 +15,7 @@ public sealed class GitHubProviderFixture : IDisposable
 
     private readonly Dictionary<string, string?> _environment;
 
-    public GitHubProviderFixture(string? failPattern = null)
+    public GitHubProviderFixture(string? failPattern = null, Action<SkillyState>? beforeStateSave = null)
     {
         Root = Path.Combine(Path.GetTempPath(), "skilly-github-" + Guid.NewGuid().ToString("N"));
         Home = Path.Combine(Root, "home");
@@ -66,14 +66,16 @@ public sealed class GitHubProviderFixture : IDisposable
             ["FAKE_GH_FIXTURE_ROOT"] = FixtureRoot,
             ["FAKE_GH_STATE_PATH"] = StatePath,
             ["FAKE_GH_FAIL_PATTERN"] = failPattern,
+            ["FAKE_GH_FALSE_SUCCESS_PATTERN"] = null,
         };
         Log = new RollingLog(Path.Combine(Root, "logs"));
         var client = new GhClient(new ProcessRunner(Log, _environment), fakeGh);
-        StateStore = new StateStore(Log, StatePath);
+        StateStore = new StateStore(Log, StatePath, beforeStateSave);
         var inspector = new SourceInspector(client, Log);
         var installer = new GitHubInstaller(client, StateStore, Log, Home);
         var checker = new GitHubChecker(client);
-        Provider = new GitHubProvider(client, inspector, installer, checker, new GitHubUpdater(checker, StateStore, Log));
+        Lifecycle = new GitHubLifecycle(checker, StateStore, Log);
+        Provider = new GitHubProvider(client, inspector, installer, checker, new GitHubUpdater(checker, StateStore, Log), Lifecycle);
     }
 
     public string Root { get; }
@@ -89,6 +91,8 @@ public sealed class GitHubProviderFixture : IDisposable
     public StateStore StateStore { get; }
 
     public GitHubProvider Provider { get; }
+
+    public GitHubLifecycle Lifecycle { get; }
 
     public GitHubSourceReference Reference
     {
@@ -142,6 +146,8 @@ public sealed class GitHubProviderFixture : IDisposable
     public void FailRequestsContaining(string? pattern) => _environment["FAKE_GH_FAIL_PATTERN"] = pattern;
 
     public void ReturnNotFoundFor(string? pattern) => _environment["FAKE_GH_NOT_FOUND_PATTERN"] = pattern;
+
+    public void ReturnFalseSuccessFor(string? pattern) => _environment["FAKE_GH_FALSE_SUCCESS_PATTERN"] = pattern;
 
     public string CanonicalPath(string name) => Path.Combine(Home, ".agents", "skills", name);
 
@@ -525,7 +531,7 @@ public sealed class GitHubProviderTests
         Assert.Equal(fixture.Reference.Original, viewModel.SelectedRow.Source);
         Assert.Equal("alpha", viewModel.SelectedRow.SourceSkillPath);
         Assert.Equal("main (Branch)", viewModel.SelectedRow.TrackingRule);
-        Assert.Equal("Update available", viewModel.SelectedRow.UpdateStatus);
+        Assert.Equal("Update Available", viewModel.SelectedRow.UpdateStatus);
         Assert.Contains(GitHubProviderFixture.CommitSha[..12], viewModel.SelectedRow.InstalledRevision);
         Assert.Contains("2026-01-02", viewModel.SelectedRow.AvailableRevision);
         Assert.NotEqual("Not checked", viewModel.SelectedRow.LastChecked);
@@ -538,7 +544,7 @@ public sealed class GitHubProviderTests
         viewModel.LoadInventory(new InventoryScanner().Scan(fixture.Home, fixture.StateStore.Load()));
 
         Assert.NotNull(viewModel.SelectedRow);
-        Assert.Equal("Locally modified", viewModel.SelectedRow.Health);
+        Assert.Equal("Locally Modified", viewModel.SelectedRow.Health);
         Assert.False(viewModel.SelectedRow.CanUpdate);
         Assert.Contains("locally modified", viewModel.SelectedRow.ActionState, StringComparison.OrdinalIgnoreCase);
     }

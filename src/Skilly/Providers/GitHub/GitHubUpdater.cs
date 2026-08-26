@@ -12,7 +12,7 @@ public sealed class GitHubUpdater(
     StateStore stateStore,
     RollingLog log)
 {
-    public UpdateResult Update(ManagementRecord requestedRecord)
+    public UpdateResult Update(ManagementRecord requestedRecord, CancellationToken cancellationToken = default)
     {
         var state = stateStore.Load();
         if (state.PendingOperation is not null)
@@ -68,20 +68,44 @@ public sealed class GitHubUpdater(
         {
             state.PendingOperation = new PendingOperation
             {
+                OperationId = operationId,
                 OperationType = MutationType.Update,
                 AffectedInstallationIds = [record.InstallationId],
                 StartingPaths = [record.CanonicalPath, record.IntendedClaudeJunctionPath!],
                 StartingHashes = [currentHash, null],
+                StartingPathStates = [PathState.Directory, PathState.Junction],
+                RecoveryDirectory = backupPath,
+                TemporaryPaths = [stagingPath],
+                Phase = PendingOperationPhase.Journaled,
+                TargetRevision = check.AvailableRevision,
+                TargetPayloadHash = payload.Hash,
+                TargetFileCount = payload.Files.Count,
+                TargetProviderEvidence = $"gh api contents/{(GitHubChecker.RepositoryPath(record.Provenance).Length == 0 ? "." : GitHubChecker.RepositoryPath(record.Provenance))}@{check.AvailableRevision}",
                 StartedAt = DateTimeOffset.Now,
             };
             stateStore.Save(state);
             journaled = true;
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             Materialize(stagingPath, payload.Files);
             VerifyPayload(stagingPath, Path.GetFileName(record.CanonicalPath), payload.Hash, payload.Files.Count);
             VerifyInstalledPreconditions(record);
 
-            Directory.Move(record.CanonicalPath, backupPath);
+            CopyDirectory(record.CanonicalPath, backupPath);
+            if (!string.Equals(PayloadHasher.HashFolder(backupPath), currentHash, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ProviderFailure("The update recovery snapshot does not match the starting Skill Installation.");
+            }
+
+            state.PendingOperation.Phase = PendingOperationPhase.SnapshotReady;
+            stateStore.Save(state);
+            cancellationToken.ThrowIfCancellationRequested();
+            VerifyInstalledPreconditions(record);
+            state.PendingOperation.Phase = PendingOperationPhase.MutationStarted;
+            stateStore.Save(state);
+
+            Directory.Delete(record.CanonicalPath, recursive: true);
             canonicalMoved = true;
             Directory.Move(stagingPath, record.CanonicalPath);
             replacementMoved = true;
@@ -91,6 +115,10 @@ public sealed class GitHubUpdater(
             {
                 throw new ProviderFailure("The existing Claude junction did not resolve to the updated canonical installation.");
             }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            state.PendingOperation.Phase = PendingOperationPhase.Verified;
+            stateStore.Save(state);
 
             record.InstalledRevision = check.AvailableRevision;
             record.InstalledPayloadHash = payload.Hash;
@@ -131,6 +159,16 @@ public sealed class GitHubUpdater(
             Directory.Delete(backupPath, recursive: true);
             log.Info($"Updated and verified '{record.Provenance.SourceSkillPath}' at revision {record.DisplayRevision}.");
             return new UpdateResult(record.InstallationId, record.InstalledRevision);
+        }
+        catch (OperationCanceledException)
+        {
+            if (state.PendingOperation is not null)
+            {
+                state.PendingOperation.CancellationRequested = true;
+                state.LastOperationNote = "Update cancellation requested; pending operation retained for restart recovery.";
+                stateStore.Save(state);
+            }
+            throw;
         }
         catch (Exception exception)
         {
@@ -244,11 +282,40 @@ public sealed class GitHubUpdater(
                 Directory.Delete(stagingPath, recursive: true);
             }
 
+            if (!canonicalMoved && Directory.Exists(backupPath))
+            {
+                Directory.Delete(backupPath, recursive: true);
+            }
+
             return !canonicalMoved || Directory.Exists(canonicalPath);
         }
         catch (Exception)
         {
             return false;
+        }
+    }
+
+    private static void CopyDirectory(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (var directory in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
+        {
+            if (File.GetAttributes(directory).HasFlag(FileAttributes.ReparsePoint))
+            {
+                throw new ProviderFailure($"Update snapshot refused nested reparse point '{directory}'.");
+            }
+            Directory.CreateDirectory(Path.Combine(destination, Path.GetRelativePath(source, directory)));
+        }
+
+        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+        {
+            if (File.GetAttributes(file).HasFlag(FileAttributes.ReparsePoint))
+            {
+                throw new ProviderFailure($"Update snapshot refused nested reparse point '{file}'.");
+            }
+            var target = Path.Combine(destination, Path.GetRelativePath(source, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target, overwrite: false);
         }
     }
 }

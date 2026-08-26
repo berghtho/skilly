@@ -46,13 +46,29 @@ public partial class App : Application
         var installer = new GitHubInstaller(ghClient, stateStore, _log, home);
         var checker = new GitHubChecker(ghClient);
         var updater = new GitHubUpdater(checker, stateStore, _log);
-        var githubProvider = new GitHubProvider(ghClient, inspector, installer, checker, updater);
+        var lifecycle = new GitHubLifecycle(checker, stateStore, _log);
+        var recovery = lifecycle.RecoverPendingOperation();
+        var githubProvider = new GitHubProvider(ghClient, inspector, installer, checker, updater, lifecycle);
         var checkRunner = new GitHubCheckRunner(githubProvider, stateStore);
         var scanner = new InventoryScanner();
-        InventorySnapshot RefreshInventory() => scanner.Scan(home, stateStore.Load());
+        InventorySnapshot RefreshInventory()
+        {
+            try
+            {
+                return scanner.Scan(home, stateStore.Load());
+            }
+            catch (RecoveryRequiredException)
+            {
+                return scanner.Scan(home, new SkillyState());
+            }
+        }
 
         var viewModel = new ViewModels.MainViewModel();
         viewModel.LoadInventory(RefreshInventory());
+        if (recovery.Disposition == RecoveryDisposition.RecoveryRequired)
+        {
+            viewModel.EnterRecoveryRequired(recovery.Message);
+        }
 
         _mainWindow = new MainWindow(_log, viewModel, githubProvider, checkRunner, RefreshInventory);
         MainWindow = _mainWindow;

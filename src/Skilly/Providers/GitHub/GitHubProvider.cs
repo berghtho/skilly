@@ -7,8 +7,13 @@ public sealed class GitHubProvider(
     SourceInspector inspector,
     GitHubInstaller installer,
     GitHubChecker checker,
-    GitHubUpdater updater)
+    GitHubUpdater updater,
+    GitHubLifecycle lifecycle)
 {
+    public bool RecoveryRequired => lifecycle.RecoveryRequired;
+
+    public string RecoveryDiagnostic => lifecycle.RecoveryDiagnostic;
+
     public ProviderResult<SourceInspection> Inspect(GitHubSourceReference reference)
     {
         try
@@ -25,11 +30,14 @@ public sealed class GitHubProvider(
         }
     }
 
-    public ProviderResult<InstallResult> Install(SourceInspection inspection, IReadOnlyList<SourceSkill> selected)
+    public ProviderResult<InstallResult> Install(
+        SourceInspection inspection,
+        IReadOnlyList<SourceSkill> selected,
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            var result = installer.Install(inspection, selected);
+            var result = installer.Install(inspection, selected, cancellationToken);
             return ProviderResult<InstallResult>.Success(
                 result,
                 $"Installed and verified {result.SucceededCount} Skill(s). No partial success was accepted.");
@@ -54,11 +62,11 @@ public sealed class GitHubProvider(
         }
     }
 
-    public ProviderResult<UpdateResult> Update(State.ManagementRecord record)
+    public ProviderResult<UpdateResult> Update(State.ManagementRecord record, CancellationToken cancellationToken = default)
     {
         try
         {
-            var result = updater.Update(record);
+            var result = updater.Update(record, cancellationToken);
             return ProviderResult<UpdateResult>.Success(
                 result,
                 $"Updated and verified GitHub Skill at {result.InstalledRevision}.");
@@ -68,4 +76,62 @@ public sealed class GitHubProvider(
             return ProviderResult<UpdateResult>.Failure(exception.Message);
         }
     }
+
+    public ProviderResult<ManagedReinstallPlan> PlanManagedReinstall(State.ManagementRecord record)
+    {
+        try
+        {
+            return ProviderResult<ManagedReinstallPlan>.Success(
+                lifecycle.PlanManagedReinstall(record),
+                "Verified Managed Reinstall path and replacement revision. Nothing changed.");
+        }
+        catch (Exception exception)
+        {
+            return ProviderResult<ManagedReinstallPlan>.Failure(exception.Message);
+        }
+    }
+
+    public ProviderResult<LifecycleResult> ManagedReinstall(ManagedReinstallPlan plan, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return ProviderResult<LifecycleResult>.Success(
+                lifecycle.ManagedReinstall(plan, cancellationToken),
+                "Managed Reinstall replaced clean source content and verified all postconditions.");
+        }
+        catch (Exception exception)
+        {
+            return ProviderResult<LifecycleResult>.Failure(exception.Message);
+        }
+    }
+
+    public ProviderResult<LifecycleResult> Uninstall(State.ManagementRecord record, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return ProviderResult<LifecycleResult>.Success(
+                lifecycle.Uninstall(record, cancellationToken),
+                "Healthy Managed uninstall removed content, Harness Exposures, then authority.");
+        }
+        catch (Exception exception)
+        {
+            return ProviderResult<LifecycleResult>.Failure(exception.Message);
+        }
+    }
+
+    public ProviderResult<LifecycleResult> RemoveLocalFolder(string exactPath, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return ProviderResult<LifecycleResult>.Success(
+                lifecycle.RemoveLocalFolder(exactPath, cancellationToken),
+                "Remove Local Folder removed the exact Unmanaged Installation path.");
+        }
+        catch (Exception exception)
+        {
+            return ProviderResult<LifecycleResult>.Failure(exception.Message);
+        }
+    }
+
+    public void RequestMutationCancellation() => lifecycle.RequestCancellation();
 }

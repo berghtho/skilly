@@ -69,6 +69,19 @@
             </Grid>
         </Border>
 
+        <Border DockPanel.Dock="Top"
+                Padding="12,8"
+                Background="#FFF2CC"
+                BorderBrush="#B7791F"
+                BorderThickness="0,0,0,1"
+                Visibility="{Binding RecoveryRequired, Converter={StaticResource BoolToVisibility}}"
+                AutomationProperties.Name="Recovery Required read-only notice">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Recovery Required: " FontWeight="Bold" />
+                <TextBlock Text="{Binding RecoveryDiagnostic}" TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+
         <StatusBar DockPanel.Dock="Bottom"
                    AutomationProperties.Name="Operation status"
                    AutomationProperties.AutomationId="OperationStatusBar">
@@ -220,13 +233,36 @@
                                        Visibility="{Binding SelectedRow.HasCheckNotice, Converter={StaticResource BoolToVisibility}}" />
                             <TextBlock Style="{StaticResource DetailLabel}" Text="Available action" />
                             <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.ActionState}" />
-                            <Button Content="_Update Skill"
-                                    Click="OnUpdateSelected"
-                                    IsEnabled="{Binding SelectedRow.CanUpdate}"
-                                    HorizontalAlignment="Left"
-                                    MinWidth="110"
-                                    Margin="0,2,0,6"
-                                    AutomationProperties.Name="Update selected Skill" />
+                            <StackPanel IsEnabled="{Binding MutationsAllowed}">
+                                <Button Content="_Update Skill"
+                                        Click="OnUpdateSelected"
+                                        IsEnabled="{Binding SelectedRow.CanUpdate}"
+                                        HorizontalAlignment="Left"
+                                        MinWidth="110"
+                                        Margin="0,2,0,6"
+                                        AutomationProperties.Name="Update selected Skill" />
+                                <Button Content="Managed _Reinstall"
+                                        Click="OnManagedReinstallSelected"
+                                        IsEnabled="{Binding SelectedRow.CanManagedReinstall}"
+                                        HorizontalAlignment="Left"
+                                        MinWidth="130"
+                                        Margin="0,2,0,6"
+                                        AutomationProperties.Name="Managed Reinstall selected Skill" />
+                                <Button Content="_Uninstall"
+                                        Click="OnUninstallSelected"
+                                        IsEnabled="{Binding SelectedRow.CanUninstall}"
+                                        HorizontalAlignment="Left"
+                                        MinWidth="110"
+                                        Margin="0,2,0,6"
+                                        AutomationProperties.Name="Uninstall Healthy Managed Skill" />
+                                <Button Content="Remove Local _Folder"
+                                        Click="OnRemoveLocalFolderSelected"
+                                        IsEnabled="{Binding SelectedRow.CanRemoveLocalFolder}"
+                                        HorizontalAlignment="Left"
+                                        MinWidth="150"
+                                        Margin="0,2,0,6"
+                                        AutomationProperties.Name="Remove Local Folder for Unmanaged Installation" />
+                            </StackPanel>
                             <TextBlock Style="{StaticResource DetailLabel}" Text="Local path" />
                             <TextBlock Style="{StaticResource DetailValue}"
                                        Text="{Binding SelectedRow.Entry.LocalPath, Mode=OneWay}"

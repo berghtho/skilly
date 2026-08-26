@@ -45,9 +45,11 @@ public sealed class SourceInspectionViewModel : INotifyPropertyChanged
     private string _status;
     private string _exactSelection = string.Empty;
     private bool _isBusy;
+    private readonly bool _mutationsAllowed;
 
-    public SourceInspectionViewModel(SourceInspection inspection)
+    public SourceInspectionViewModel(SourceInspection inspection, bool mutationsAllowed = true)
     {
+        _mutationsAllowed = mutationsAllowed;
         Inspection = inspection;
         Skills = [.. inspection.Skills.Select(static skill => new SelectableSourceSkill(skill))];
         foreach (var item in Skills)
@@ -76,7 +78,7 @@ public sealed class SourceInspectionViewModel : INotifyPropertyChanged
 
     public int SelectedCount => Skills.Count(static item => item.IsSelected);
 
-    public bool CanInstall => !_isBusy && SelectedCount > 0;
+    public bool CanInstall => _mutationsAllowed && !_isBusy && SelectedCount > 0;
 
     public bool CanSelect => !_isBusy;
 

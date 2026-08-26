@@ -27,6 +27,13 @@ if (!string.IsNullOrEmpty(failPattern) && endpoint.Contains(failPattern, StringC
     return 17;
 }
 
+var falseSuccessPattern = Environment.GetEnvironmentVariable("FAKE_GH_FALSE_SUCCESS_PATTERN");
+if (!string.IsNullOrEmpty(falseSuccessPattern) && endpoint.Contains(falseSuccessPattern, StringComparison.Ordinal))
+{
+    Console.WriteLine("{}");
+    return 0;
+}
+
 var fixtureRoot = Environment.GetEnvironmentVariable("FAKE_GH_FIXTURE_ROOT");
 if (string.IsNullOrWhiteSpace(fixtureRoot))
 {

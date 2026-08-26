@@ -124,7 +124,10 @@ public sealed class InventoryScanner
             return new HarnessExposure(ExposureState.BrokenLink, $"The Claude entry exists but its target could not be resolved ({link.FileSystemInfo.FullName})");
         }
 
-        if (canonicalByPath.ContainsKey(NormalizePath(resolved)))
+        if (string.Equals(
+                NormalizePath(resolved),
+                NormalizePath(canonical.FileSystemInfo.FullName),
+                StringComparison.OrdinalIgnoreCase))
         {
             link.ConsumedAsExposure = true;
             return new HarnessExposure(ExposureState.VerifiedJunction, $"Junction at {link.FileSystemInfo.FullName} resolves to the canonical installation");
@@ -153,7 +156,9 @@ public sealed class InventoryScanner
             }
             else if (candidate.ClaudeExposure?.State != ExposureState.VerifiedJunction)
             {
-                health = InstallationHealth.ExposureProblem;
+                health = candidate.ClaudeExposure?.State == ExposureState.MissingJunction
+                    ? InstallationHealth.ExposureProblem
+                    : InstallationHealth.Collision;
                 detail = candidate.ClaudeExposure?.Detail ?? "The intended Claude junction is missing.";
             }
         }
@@ -211,7 +216,7 @@ public sealed class InventoryScanner
             Kind = EntryKind.LinkEntry,
             LinkTargetPath = resolved,
             ManagementStatus = ManagementStatus.Unmanaged,
-            Health = InstallationHealth.ExposureProblem,
+            Health = InstallationHealth.Collision,
             HealthDetail = detail,
             Metadata = SkillMdReader.Read(link.FileSystemInfo.FullName, link.FolderName),
             Exposures = exposures,

@@ -69,6 +69,8 @@ public sealed class ProvenanceInfo
 
 public sealed class PendingOperation
 {
+    public required string OperationId { get; set; }
+
     public required MutationType OperationType { get; set; }
 
     public List<string> AffectedInstallationIds { get; set; } = [];
@@ -76,6 +78,24 @@ public sealed class PendingOperation
     public List<string> StartingPaths { get; set; } = [];
 
     public List<string?> StartingHashes { get; set; } = [];
+
+    public List<PathState> StartingPathStates { get; set; } = [];
+
+    public string? RecoveryDirectory { get; set; }
+
+    public List<string> TemporaryPaths { get; set; } = [];
+
+    public PendingOperationPhase Phase { get; set; }
+
+    public string? TargetRevision { get; set; }
+
+    public string? TargetPayloadHash { get; set; }
+
+    public int? TargetFileCount { get; set; }
+
+    public string? TargetProviderEvidence { get; set; }
+
+    public bool CancellationRequested { get; set; }
 
     public required DateTimeOffset StartedAt { get; set; }
 }
@@ -85,6 +105,9 @@ public enum MutationType
 {
     Install,
     Update,
+    ManagedReinstall,
+    Uninstall,
+    RemoveLocalFolder,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -92,6 +115,24 @@ public enum OperationOutcome
 {
     Installed,
     Updated,
+    Reinstalled,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum PathState
+{
+    Missing,
+    Directory,
+    Junction,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum PendingOperationPhase
+{
+    Journaled,
+    SnapshotReady,
+    MutationStarted,
+    Verified,
 }
 
 public sealed class CheckSnapshot
@@ -135,7 +176,9 @@ public enum TrackingRuleKind
     Commit,
 }
 
-public sealed class StateStore(RollingLog log, string? filePath = null)
+public sealed class RecoveryRequiredException(string message, Exception? inner = null) : Exception(message, inner);
+
+public sealed class StateStore(RollingLog log, string? filePath = null, Action<SkillyState>? beforeSave = null)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
@@ -149,6 +192,10 @@ public sealed class StateStore(RollingLog log, string? filePath = null)
 
     public string FilePath { get; } = filePath ?? SkillyPaths.StateFilePath;
 
+    public bool RecoveryRequired { get; private set; }
+
+    public string? RecoveryDiagnostic { get; private set; }
+
     public SkillyState Load()
     {
         lock (_gate)
@@ -161,22 +208,31 @@ public sealed class StateStore(RollingLog log, string? filePath = null)
 
             try
             {
-                var state = JsonSerializer.Deserialize<SkillyState>(File.ReadAllText(FilePath), SerializerOptions);
-                if (state is null || state.SchemaVersion != SkillyPaths.StateSchemaVersion)
-                {
-                    throw new InvalidOperationException(
-                        $"State schema version {(state?.SchemaVersion.ToString() ?? "null")} is not supported.");
-                }
-
+                var state = Deserialize(FilePath);
                 log.Info($"Loaded authority state with {state.Records.Count} management record(s).");
                 return state;
             }
             catch (Exception exception)
             {
                 log.Error($"Authority state at '{FilePath}' could not be loaded.", exception);
-                throw new InvalidDataException(
-                    "The Skilly authority state could not be loaded. Recovery handling will arrive with lifecycle recovery.",
-                    exception);
+                var backupPath = FilePath + ".bak";
+                try
+                {
+                    if (File.Exists(backupPath))
+                    {
+                        var backup = Deserialize(backupPath);
+                        log.Info($"Loaded backup authority state with {backup.Records.Count} management record(s).");
+                        return backup;
+                    }
+                }
+                catch (Exception backupException)
+                {
+                    log.Error($"Backup authority state at '{backupPath}' could not be loaded.", backupException);
+                }
+
+                RecoveryRequired = true;
+                RecoveryDiagnostic = "Authority state and its backup could not be loaded safely.";
+                throw new RecoveryRequiredException(RecoveryDiagnostic, exception);
             }
         }
     }
@@ -185,6 +241,12 @@ public sealed class StateStore(RollingLog log, string? filePath = null)
     {
         lock (_gate)
         {
+            if (RecoveryRequired)
+            {
+                throw new RecoveryRequiredException(RecoveryDiagnostic ?? "Skilly is read-only because recovery is required.");
+            }
+
+            beforeSave?.Invoke(state);
             Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
             var tempPath = FilePath + ".tmp";
             File.WriteAllText(tempPath, JsonSerializer.Serialize(state, SerializerOptions));
@@ -200,5 +262,27 @@ public sealed class StateStore(RollingLog log, string? filePath = null)
 
             log.Info($"Saved authority state ({state.Records.Count} record(s), pending={(state.PendingOperation is not null)})");
         }
+    }
+
+    public void EnterRecoveryRequired(string diagnostic)
+    {
+        lock (_gate)
+        {
+            RecoveryRequired = true;
+            RecoveryDiagnostic = diagnostic;
+            log.Error(diagnostic);
+        }
+    }
+
+    private static SkillyState Deserialize(string path)
+    {
+        var state = JsonSerializer.Deserialize<SkillyState>(File.ReadAllText(path), SerializerOptions);
+        if (state is null || state.SchemaVersion != SkillyPaths.StateSchemaVersion)
+        {
+            throw new InvalidOperationException(
+                $"State schema version {(state?.SchemaVersion.ToString() ?? "null")} is not supported.");
+        }
+
+        return state;
     }
 }

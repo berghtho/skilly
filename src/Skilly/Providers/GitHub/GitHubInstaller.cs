@@ -25,7 +25,10 @@ public sealed class GitHubInstaller(
     RollingLog log,
     string home)
 {
-    public InstallResult Install(SourceInspection inspection, IReadOnlyList<SourceSkill> selected)
+    public InstallResult Install(
+        SourceInspection inspection,
+        IReadOnlyList<SourceSkill> selected,
+        CancellationToken cancellationToken = default)
     {
         if (selected.Count == 0)
         {
@@ -84,10 +87,13 @@ public sealed class GitHubInstaller(
         var startingPaths = destinations.Values.Concat(claudeDestinations.Values).ToList();
         var pending = new PendingOperation
         {
+            OperationId = Guid.NewGuid().ToString("N"),
             OperationType = MutationType.Install,
             AffectedInstallationIds = [.. installationIds.Values],
             StartingPaths = startingPaths,
             StartingHashes = [.. startingPaths.Select(static _ => (string?)null)],
+            StartingPathStates = [.. startingPaths.Select(static _ => PathState.Missing)],
+            Phase = PendingOperationPhase.Journaled,
             StartedAt = DateTimeOffset.Now,
         };
 
@@ -102,6 +108,7 @@ public sealed class GitHubInstaller(
             Directory.CreateDirectory(canonicalRoot);
             foreach (var skill in selected)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var destination = destinations[skill.SkillPath];
                 var claudeJunctionPath = claudeDestinations[skill.SkillPath];
 
@@ -111,11 +118,13 @@ public sealed class GitHubInstaller(
                     skill,
                     installationIds[skill.SkillPath],
                     destination,
-                    claudeJunctionPath);
+                    claudeJunctionPath,
+                    cancellationToken);
                 records.Add(record);
                 log.Info($"Verified '{skill.SkillPath}' at revision {record.DisplayRevision}.");
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             state.Records.AddRange(records);
             state.PendingOperation = null;
             state.LastOperationNote = $"installed {records.Count} GitHub Skill(s)";
@@ -124,6 +133,14 @@ public sealed class GitHubInstaller(
             return new InstallResult(records.Select(record => new InstalledSkill(
                 record.Provenance.SourceSkillPath,
                 record.CanonicalPath)).ToList());
+        }
+        catch (OperationCanceledException)
+        {
+            pending.CancellationRequested = true;
+            state.PendingOperation = pending;
+            state.LastOperationNote = "Install cancellation requested; pending operation retained for restart recovery.";
+            stateStore.Save(state);
+            throw;
         }
         catch (Exception exception)
         {
@@ -156,11 +173,13 @@ public sealed class GitHubInstaller(
         SourceSkill skill,
         string installationId,
         string destination,
-        string claudeJunctionPath)
+        string claudeJunctionPath,
+        CancellationToken cancellationToken)
     {
         var files = new List<(string RelativePath, byte[] Content)>();
         foreach (var path in skill.FilePaths)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var relative = skill.RepositoryPath.Length == 0
                 ? path
                 : path[(skill.RepositoryPath.Length + 1)..];
@@ -183,6 +202,7 @@ public sealed class GitHubInstaller(
             File.WriteAllBytes(target, file.Content);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         Junction.Create(claudeJunctionPath, destination);
 
         var expectedHash = PayloadHasher.HashFiles(files);

@@ -64,7 +64,7 @@ public sealed class InventoryRow
     public string Management => Entry.ManagementStatus switch
     {
         ManagementStatus.Managed => "Managed",
-        ManagementStatus.VerifiedAdoptionAvailable => "Adoption available",
+        ManagementStatus.VerifiedAdoptionAvailable => "Verified Adoption Available",
         ManagementStatus.Unmanaged => "Unmanaged",
         _ => Entry.ManagementStatus.ToString(),
     };
@@ -72,11 +72,11 @@ public sealed class InventoryRow
     public string Health => Entry.Health switch
     {
         InstallationHealth.Healthy => "Healthy",
-        InstallationHealth.LocallyModified => "Locally modified",
+        InstallationHealth.LocallyModified => "Locally Modified",
         InstallationHealth.Missing => "Missing",
-        InstallationHealth.ExposureProblem => "Exposure problem",
-        InstallationHealth.InvalidMetadata => "Invalid metadata",
-        InstallationHealth.Collision => "Duplicate",
+        InstallationHealth.ExposureProblem => "Exposure Problem",
+        InstallationHealth.InvalidMetadata => "Invalid Metadata",
+        InstallationHealth.Collision => "Collision",
         _ => Entry.Health.ToString(),
     };
 
@@ -92,10 +92,10 @@ public sealed class InventoryRow
             var value = Check?.Status switch
             {
                 State.UpdateStatus.Current => "Current",
-                State.UpdateStatus.UpdateAvailable => "Update available",
+                State.UpdateStatus.UpdateAvailable => "Update Available",
                 State.UpdateStatus.Pinned => "Pinned",
-                State.UpdateStatus.SourceUnavailable => "Source unavailable",
-                State.UpdateStatus.CheckFailed => "Check failed",
+                State.UpdateStatus.SourceUnavailable => "Source Unavailable",
+                State.UpdateStatus.CheckFailed => "Check Failed",
                 _ => "Not checked",
             };
             return Check?.IsStale == true ? value + " (stale - check failed)" : value;
@@ -117,12 +117,21 @@ public sealed class InventoryRow
     public bool CanUpdate => Entry.Health == InstallationHealth.Healthy
                              && Check?.Status == State.UpdateStatus.UpdateAvailable
                              && !Check.IsStale
-                             && Check.Failure is null;
+                              && Check.Failure is null;
+
+    public bool CanManagedReinstall => Entry.ManagementStatus == ManagementStatus.Managed
+                                         && Entry.Health is InstallationHealth.LocallyModified or InstallationHealth.ExposureProblem;
+
+    public bool CanUninstall => Entry.ManagementStatus == ManagementStatus.Managed
+                                && Entry.Health == InstallationHealth.Healthy;
+
+    public bool CanRemoveLocalFolder => Entry.ManagementStatus == ManagementStatus.Unmanaged
+                                        && Entry.Kind == EntryKind.RealFolder;
 
     public string ActionState => CanUpdate
-        ? "A verified direct update is available."
-        : Entry.Health == InstallationHealth.LocallyModified
-            ? "Update unavailable because installed content is locally modified."
+            ? "A verified direct update is available."
+            : Entry.Health == InstallationHealth.LocallyModified
+            ? "Normal update is blocked because this Skill Installation is Locally Modified. Managed Reinstall is available."
             : Check?.IsStale == true
                 ? "Refresh checks successfully before updating."
                 : "No direct update is available.";
@@ -184,6 +193,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private InventorySortColumn _sortColumn = InventorySortColumn.Name;
     private bool _sortDescending;
     private IReadOnlyList<FilterCount> _filters;
+    private bool _recoveryRequired;
+    private string _recoveryDiagnostic = string.Empty;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -259,6 +270,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public StatusUpdate Status { get; private set; }
 
+    public bool RecoveryRequired => _recoveryRequired;
+
+    public bool MutationsAllowed => !_recoveryRequired;
+
+    public string RecoveryDiagnostic => _recoveryDiagnostic;
+
     public bool HasSkills => Rows.Count > 0;
 
     public bool HasNoSkills => Rows.Count == 0;
@@ -272,6 +289,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand InspectSourceCommand { get; }
 
     public void Announce(string message) => SetStatus(message);
+
+    public void EnterRecoveryRequired(string diagnostic)
+    {
+        _recoveryRequired = true;
+        _recoveryDiagnostic = diagnostic;
+        OnPropertyChanged(nameof(RecoveryRequired));
+        OnPropertyChanged(nameof(MutationsAllowed));
+        OnPropertyChanged(nameof(RecoveryDiagnostic));
+        SetStatus(diagnostic);
+    }
 
     public void LoadInventory(InventorySnapshot snapshot)
     {
@@ -358,7 +385,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             new("All Skills", allRows.Count),
             new("Updates", allRows.Count(static row => row.CanUpdate)),
             new("Attention", allRows.Count(static row => row.Entry.NeedsAttention)),
-            new("Unmanaged", allRows.Count),
+            new("Unmanaged", allRows.Count(static row => row.Entry.ManagementStatus == ManagementStatus.Unmanaged)),
             new("Healthy", allRows.Count(static row => row.Entry.Health == InstallationHealth.Healthy)),
         ];
         return filters;

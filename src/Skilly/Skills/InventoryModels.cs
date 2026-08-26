@@ -82,7 +82,8 @@ public sealed class InventoryEntry
     public State.ManagementRecord? ManagementRecord { get; init; }
 
     public bool NeedsAttention =>
-        Health is InstallationHealth.InvalidMetadata
+        Health is InstallationHealth.LocallyModified
+            or InstallationHealth.InvalidMetadata
             or InstallationHealth.ExposureProblem
             or InstallationHealth.Collision;
 

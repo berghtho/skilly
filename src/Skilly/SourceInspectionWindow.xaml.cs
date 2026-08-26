@@ -9,16 +9,20 @@ public partial class SourceInspectionWindow : Window
 {
     private readonly GitHubProvider _provider;
     private readonly SourceInspectionViewModel _viewModel;
+    private readonly CancellationTokenSource _cancellation = new();
+    private TaskCompletionSource? _operationCompletion;
 
-    public SourceInspectionWindow(SourceInspection inspection, GitHubProvider provider)
+    public SourceInspectionWindow(SourceInspection inspection, GitHubProvider provider, bool mutationsAllowed = true)
     {
         InitializeComponent();
         _provider = provider;
-        _viewModel = new SourceInspectionViewModel(inspection);
+        _viewModel = new SourceInspectionViewModel(inspection, mutationsAllowed);
         DataContext = _viewModel;
     }
 
     public int InstalledCount { get; private set; }
+
+    public Task OperationCompletion => _operationCompletion?.Task ?? Task.CompletedTask;
 
     private void OnSelectAll(object sender, RoutedEventArgs e) => _viewModel.SelectAll(true);
 
@@ -38,10 +42,11 @@ public partial class SourceInspectionWindow : Window
         }
 
         _viewModel.IsBusy = true;
+        _operationCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _viewModel.Status = $"Installing {selected.Count} selected Source Skill(s)...";
         try
         {
-            var result = await Task.Run(() => _provider.Install(_viewModel.Inspection, selected));
+            var result = await Task.Run(() => _provider.Install(_viewModel.Inspection, selected, _cancellation.Token));
             if (!result.Succeeded)
             {
                 _viewModel.Status = $"Installation failed. {result.Diagnostics}";
@@ -59,6 +64,7 @@ public partial class SourceInspectionWindow : Window
         finally
         {
             _viewModel.IsBusy = false;
+            _operationCompletion.TrySetResult();
         }
     }
 
@@ -66,8 +72,8 @@ public partial class SourceInspectionWindow : Window
     {
         if (_viewModel.IsBusy)
         {
-            e.Cancel = true;
-            _viewModel.Status = "Installation is still running. Wait for it to complete before closing.";
+            _cancellation.Cancel();
+            _viewModel.Status = "Cancellation requested. Pending recovery data will be retained for restart reconciliation.";
         }
 
         base.OnClosing(e);

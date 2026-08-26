@@ -117,9 +117,53 @@ public sealed class InventoryScannerTests : IDisposable
 
         var delta = Assert.Single(snapshot.Entries, entry => entry.FolderName == "delta");
         Assert.Equal(EntryKind.LinkEntry, delta.Kind);
-        Assert.Equal(InstallationHealth.ExposureProblem, delta.Health);
+        Assert.Equal(InstallationHealth.Collision, delta.Health);
         Assert.Null(delta.LinkTargetPath);
         Assert.Equal(ExposureState.BrokenLink, delta.Exposures[Harness.ClaudeCode].State);
+    }
+
+    [Fact]
+    public void Wrong_target_Claude_junction_is_a_Collision_not_a_verified_Harness_Exposure()
+    {
+        var alphaDir = _fixture.WriteSkill(".agents/skills", "alpha", "alpha", "Alpha skill.");
+        var betaDir = _fixture.WriteSkill(".agents/skills", "beta", "beta", "Beta skill.");
+        _fixture.CreateJunction(".claude/skills/alpha", betaDir);
+
+        var state = new State.SkillyState
+        {
+            Records =
+            [
+                new State.ManagementRecord
+                {
+                    InstallationId = "alpha-id",
+                    CanonicalPath = alphaDir,
+                    Provenance = new State.ProvenanceInfo
+                    {
+                        SourceProvider = "github",
+                        OriginalReference = "https://github.com/acme/library",
+                        Host = "github.com",
+                        Owner = "acme",
+                        Repository = "library",
+                        SourceSkillPath = "alpha",
+                        TrackingRule = "main",
+                        ResolvedCommit = "1234",
+                        ProviderVersion = "test",
+                    },
+                    IntendedClaudeJunctionPath = _fixture.Root(".claude/skills/alpha"),
+                    InstalledRevision = "1234",
+                    InstalledPayloadHash = PayloadHasher.HashFolder(alphaDir),
+                    InstalledFileCount = 1,
+                    ProviderEvidence = "test",
+                },
+            ],
+        };
+
+        var snapshot = new InventoryScanner().Scan(_fixture.Home, state);
+
+        var alpha = Assert.Single(snapshot.Entries, entry =>
+            entry.FolderName == "alpha" && entry.RootKind == RootKind.CanonicalAgents);
+        Assert.Equal(InstallationHealth.Collision, alpha.Health);
+        Assert.Equal(ExposureState.SeparateCopy, alpha.Exposures[Harness.ClaudeCode].State);
     }
 
     [Fact]
