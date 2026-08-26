@@ -1,0 +1,906 @@
+<!--
+  THROWAWAY PROTOTYPE - NOT PRODUCTION CODE.
+  Three maintenance-workflow UI variants, switchable with ?variant=A|B|C.
+  State is intentionally in memory only; all provider and file operations are mocked.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skilly maintenance workflow prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f4f3ed;
+      --panel: #fbfaf5;
+      --ink: #171914;
+      --muted: #686a62;
+      --line: #c9c9bf;
+      --line-dark: #8b8d83;
+      --accent: #b7f000;
+      --accent-dark: #678a00;
+      --warn: #f26a21;
+      --danger: #a53224;
+      --selection: #e8f8b4;
+      --shadow: 0 8px 24px rgba(24, 27, 18, .16);
+      font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body { margin: 0; color: var(--ink); background: var(--paper); }
+    button, input, textarea { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .48; }
+    :focus-visible { outline: 3px solid var(--accent-dark); outline-offset: 2px; }
+    input[type="checkbox"] { accent-color: var(--accent-dark); }
+
+    .app { min-height: 100vh; padding-bottom: 88px; }
+    .titlebar {
+      height: 39px; display: flex; align-items: center; gap: 9px; padding: 0 14px;
+      color: #fff; background: var(--ink); border-bottom: 1px solid #000;
+    }
+    .app-mark { width: 16px; height: 16px; background: var(--accent); border: 1px solid #d7ff50; }
+    .titlebar strong { letter-spacing: .01em; }
+    .titlebar .prototype-tag { margin-left: auto; color: #d9dbd2; font-size: 12px; }
+
+    .commandbar {
+      min-height: 48px; display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+      background: var(--panel); border-bottom: 1px solid var(--line-dark);
+    }
+    .commandbar .source-entry { flex: 1; display: flex; gap: 6px; min-width: 260px; }
+    .commandbar input, .search-box, .source-task input, .inspector input {
+      min-height: 31px; width: 100%; padding: 5px 8px; border: 1px solid var(--line-dark);
+      border-radius: 2px; background: #fff;
+    }
+    .btn {
+      min-height: 31px; padding: 5px 11px; border: 1px solid var(--line-dark);
+      border-radius: 2px; background: #fff; white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { background: #eeeee7; border-color: #55584f; }
+    .btn.primary { background: var(--accent); border-color: #6b8f00; font-weight: 650; }
+    .btn.primary:hover:not(:disabled) { background: #a9dc00; }
+    .btn.danger { color: var(--danger); border-color: #bf786e; }
+    .btn.dark { color: #fff; background: var(--ink); border-color: #000; }
+    .btn.small { min-height: 26px; padding: 3px 8px; font-size: 12px; }
+    .btn.linkish { padding-inline: 3px; border-color: transparent; background: transparent; text-decoration: underline; }
+
+    .operation-strip {
+      min-height: 30px; display: flex; align-items: center; gap: 8px; padding: 5px 12px;
+      background: #eef8cf; border-bottom: 1px solid #adc35e; font-size: 12px;
+    }
+    .operation-strip .op-label { font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+    .operation-strip time { margin-left: auto; color: var(--muted); }
+    .provider-note { color: #75411e; }
+
+    .status { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; white-space: nowrap; }
+    .status::before { content: ""; width: 7px; height: 7px; border: 1px solid currentColor; background: currentColor; }
+    .status.good { color: #477000; }
+    .status.info { color: #315f87; }
+    .status.warn { color: #a64716; }
+    .status.bad { color: var(--danger); }
+    .status.neutral { color: #65675f; }
+    .tag { display: inline-block; padding: 1px 5px; border: 1px solid var(--line); border-radius: 2px; font-size: 11px; background: #fff; }
+    .tag.accent { border-color: #86aa16; background: #efffbd; }
+    .tag.warn { border-color: #dc8b5e; background: #fff0e7; }
+    .mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: .92em; }
+    .muted { color: var(--muted); }
+    .eyebrow { margin: 0 0 5px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .section-heading { margin: 0; font-size: 15px; }
+    .empty { padding: 28px 16px; color: var(--muted); text-align: center; }
+
+    /* Variant A: Workbench */
+    .workbench { display: grid; grid-template-columns: 136px minmax(500px, 1fr) 340px; min-height: calc(100vh - 117px); }
+    .filter-rail { padding: 10px 8px; border-right: 1px solid var(--line-dark); background: #ecece5; }
+    .filter-rail h2 { margin: 2px 7px 9px; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; }
+    .filter-button {
+      width: 100%; display: flex; justify-content: space-between; gap: 8px; padding: 7px 8px;
+      border: 1px solid transparent; background: transparent; text-align: left;
+    }
+    .filter-button:hover { border-color: var(--line); background: #f8f8f2; }
+    .filter-button.active { border-color: #89a934; background: var(--selection); font-weight: 650; }
+    .rail-rule { margin: 12px 5px; border: 0; border-top: 1px solid var(--line); }
+    .rail-meta { padding: 0 7px; font-size: 11px; line-height: 1.5; color: var(--muted); }
+    .inventory-pane { min-width: 0; background: var(--panel); }
+    .inventory-tools { display: flex; align-items: center; gap: 8px; min-height: 45px; padding: 7px 9px; border-bottom: 1px solid var(--line); }
+    .inventory-tools .search-box { flex: 1; }
+    .inventory-tools .count { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .inventory-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .inventory-table th {
+      height: 30px; padding: 4px 7px; border-bottom: 1px solid var(--line-dark); border-right: 1px solid var(--line);
+      background: #e7e7df; color: #383a34; font-size: 11px; text-align: left; text-transform: uppercase; letter-spacing: .04em;
+    }
+    .inventory-table th button { width: 100%; padding: 0; border: 0; background: transparent; text-align: left; font: inherit; text-transform: inherit; }
+    .inventory-table td { height: 47px; padding: 5px 7px; border-bottom: 1px solid #deded5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .inventory-table tbody tr { cursor: pointer; }
+    .inventory-table tbody tr:hover { background: #f1f2e8; }
+    .inventory-table tbody tr.selected { background: var(--selection); box-shadow: inset 3px 0 var(--accent-dark); }
+    .skill-cell strong, .skill-cell span { display: block; overflow: hidden; text-overflow: ellipsis; }
+    .skill-cell span { color: var(--muted); font-size: 11px; }
+    .harness-marks { display: flex; gap: 3px; }
+    .harness-mark { width: 19px; height: 18px; display: grid; place-items: center; border: 1px solid var(--line); color: #8d8f87; font-size: 10px; }
+    .harness-mark.on { color: var(--ink); border-color: #7a8a48; background: #edfac7; font-weight: 700; }
+    .details-pane { border-left: 1px solid var(--line-dark); background: #f8f7f1; }
+    .details-head { padding: 13px 14px 10px; border-bottom: 1px solid var(--line); }
+    .details-head h2 { margin: 2px 0 3px; font-size: 20px; font-weight: 600; }
+    .details-body { padding: 12px 14px; }
+    .description { margin: 0 0 15px; line-height: 1.45; }
+    .fact-list { margin: 0 0 15px; }
+    .fact-list div { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 8px; padding: 6px 0; border-top: 1px solid #deded5; }
+    .fact-list dt { color: var(--muted); }
+    .fact-list dd { margin: 0; overflow-wrap: anywhere; }
+    .harness-list { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 7px 0 15px; }
+    .harness-line { padding: 5px 6px; border: 1px solid var(--line); background: #fff; font-size: 12px; }
+    .harness-line.on { border-left: 3px solid var(--accent-dark); }
+    .action-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .confirm-step { margin-top: 13px; padding: 10px; border: 1px solid var(--warn); background: #fff5ed; }
+    .confirm-step strong { display: block; margin-bottom: 5px; }
+
+    /* Variant B: Action Queue */
+    .queue-shell { max-width: 1060px; margin: 0 auto; padding: 18px 20px 92px; }
+    .queue-header { display: flex; justify-content: space-between; align-items: end; gap: 20px; margin-bottom: 13px; }
+    .queue-header h1 { margin: 0; font-size: 25px; font-weight: 600; }
+    .queue-header p { margin: 4px 0 0; color: var(--muted); }
+    .queue-header .refresh-block { text-align: right; }
+    .source-task { display: grid; grid-template-columns: 155px 1fr auto; align-items: center; gap: 10px; padding: 13px; border: 1px solid #6d820c; border-left: 7px solid var(--accent); background: #fafdef; }
+    .source-task strong { display: block; }
+    .source-task small { color: var(--muted); }
+    .queue-controls { display: flex; align-items: center; gap: 10px; margin: 16px 0 7px; }
+    .queue-controls .search-box { max-width: 360px; }
+    .queue-section { margin-top: 17px; border-top: 2px solid var(--ink); }
+    .queue-section-title { display: flex; align-items: baseline; gap: 9px; padding: 7px 2px; }
+    .queue-section-title h2 { margin: 0; font-size: 16px; }
+    .queue-section-title span { color: var(--muted); font-size: 12px; }
+    .queue-item { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 11px 9px; border-top: 1px solid var(--line); background: var(--panel); }
+    .queue-item:last-child { border-bottom: 1px solid var(--line); }
+    .queue-item:hover, .queue-item.selected { background: #f1f8dc; }
+    .queue-item.selected { box-shadow: inset 4px 0 var(--accent-dark); }
+    .queue-summary { min-width: 0; cursor: pointer; }
+    .queue-summary h3 { display: inline; margin: 0 7px 0 0; font-size: 15px; }
+    .queue-summary p { margin: 4px 0 0; color: #50524b; line-height: 1.35; }
+    .queue-summary .meta { margin-top: 5px; color: var(--muted); font-size: 11px; }
+    .queue-actions { display: flex; align-items: center; gap: 6px; }
+    .queue-detail { grid-column: 1 / -1; display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; margin: 0 -9px -11px; padding: 12px 14px; border-top: 1px dashed var(--line-dark); background: #fff; }
+    .queue-detail .facts-inline { display: grid; grid-template-columns: 100px 1fr; gap: 4px 8px; font-size: 12px; }
+    .healthy-stack { border: 1px solid var(--line); background: var(--panel); }
+    .healthy-row { display: grid; grid-template-columns: minmax(150px, 1fr) 170px 120px auto; align-items: center; gap: 8px; min-height: 37px; padding: 4px 8px; border-top: 1px solid #e0e0d8; cursor: pointer; }
+    .healthy-row:first-child { border-top: 0; }
+    .healthy-row:hover, .healthy-row.selected { background: var(--selection); }
+
+    /* Variant C: Source Ledger */
+    .ledger-shell { max-width: 1180px; margin: 0 auto; padding: 14px 18px 96px; }
+    .ledger-header { display: grid; grid-template-columns: 1fr minmax(340px, 560px); gap: 24px; align-items: end; margin-bottom: 13px; }
+    .ledger-header h1 { margin: 0; font-size: 24px; font-weight: 600; }
+    .ledger-header p { margin: 4px 0 0; color: var(--muted); }
+    .ledger-add { display: flex; gap: 6px; }
+    .ledger-tools { display: flex; align-items: center; gap: 7px; padding: 7px 0; border-top: 1px solid var(--line-dark); border-bottom: 1px solid var(--line-dark); }
+    .ledger-tools .search-box { max-width: 330px; }
+    .ledger-tools .provider-note { margin-left: auto; font-size: 12px; }
+    .ledger-column-head { display: grid; grid-template-columns: minmax(250px, 1.3fr) minmax(180px, .8fr) 135px 110px; gap: 12px; padding: 6px 10px; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+    .source-group { border-top: 1px solid var(--ink); }
+    .source-group:last-child { border-bottom: 1px solid var(--ink); }
+    .source-head { width: 100%; display: grid; grid-template-columns: minmax(250px, 1.3fr) minmax(180px, .8fr) 135px 110px; gap: 12px; align-items: center; padding: 10px; border: 0; background: #e9e9e1; text-align: left; }
+    .source-head:hover { background: #dfdfd6; }
+    .source-title { min-width: 0; }
+    .source-title strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .source-title small { color: var(--muted); }
+    .source-head .check-cell { display: flex; align-items: center; gap: 8px; }
+    .twisty { width: 18px; font-family: Consolas, monospace; }
+    .source-skills { background: var(--panel); }
+    .source-skill { display: grid; grid-template-columns: 28px minmax(220px, 1.3fr) minmax(180px, .8fr) 135px 110px; gap: 12px; align-items: center; min-height: 49px; padding: 5px 10px; border-top: 1px solid #d8d8cf; cursor: pointer; }
+    .source-skill:hover, .source-skill.selected { background: var(--selection); }
+    .source-skill.selected { box-shadow: inset 4px 0 var(--accent-dark); }
+    .source-skill .branch-line { align-self: stretch; border-left: 1px solid #9b9d94; border-bottom: 1px solid #9b9d94; margin-bottom: 23px; }
+    .ledger-detail { display: grid; grid-template-columns: 1fr 1.1fr auto; gap: 18px; align-items: start; padding: 13px; border: 1px solid var(--line-dark); border-top: 0; background: #fff; }
+    .ledger-detail h2 { margin: 0 0 4px; font-size: 18px; }
+    .ledger-detail p { margin: 0; line-height: 1.4; }
+    .ledger-detail .ledger-facts { font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+    .ledger-detail .action-row { justify-content: end; margin: 0; max-width: 235px; }
+
+    /* Source inspection */
+    .scrim { position: fixed; inset: 0; z-index: 20; background: rgba(18, 20, 15, .44); }
+    .inspector {
+      position: fixed; z-index: 21; top: 7vh; right: 4vw; bottom: 86px; width: min(690px, 92vw);
+      display: flex; flex-direction: column; border: 1px solid #000; background: var(--panel); box-shadow: var(--shadow);
+    }
+    .inspector-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; color: #fff; background: var(--ink); }
+    .inspector-head h2 { margin: 0; font-size: 17px; }
+    .inspector-head button { margin-left: auto; color: #fff; border-color: #73766c; background: #282b24; }
+    .inspector-form { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 12px; border-bottom: 1px solid var(--line); }
+    .inspection-summary { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: #eef8cf; }
+    .inspection-summary strong { font-size: 16px; }
+    .inspection-summary .spacer { flex: 1; }
+    .candidate-list { flex: 1; overflow: auto; }
+    .candidate-row { display: grid; grid-template-columns: 26px minmax(150px, .8fr) minmax(180px, 1fr) 95px; gap: 8px; align-items: center; padding: 7px 12px; border-bottom: 1px solid #deded5; }
+    .candidate-row:hover { background: #f1f2e8; }
+    .candidate-row label { display: contents; }
+    .candidate-row small { color: var(--muted); overflow-wrap: anywhere; }
+    .inspector-empty { flex: 1; display: grid; place-items: center; padding: 35px; text-align: center; }
+    .inspector-empty strong { display: block; margin-bottom: 6px; font-size: 18px; }
+    .inspector-foot { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--line-dark); background: #e9e9e1; }
+    .inspector-foot .provider-note { flex: 1; font-size: 12px; }
+
+    .switcher {
+      position: fixed; z-index: 40; left: 50%; bottom: 14px; transform: translateX(-50%);
+      display: grid; grid-template-columns: 38px minmax(270px, 430px) 38px; align-items: stretch;
+      border: 1px solid #000; border-radius: 4px; color: #fff; background: var(--ink); box-shadow: var(--shadow);
+    }
+    .switcher button { border: 0; color: #fff; background: #292c25; font-size: 19px; }
+    .switcher button:hover { background: #3a3e34; }
+    .switch-copy { padding: 7px 13px 8px; border-inline: 1px solid #55584f; text-align: center; }
+    .switch-copy strong { display: block; color: var(--accent); font-size: 13px; }
+    .switch-copy span { display: block; margin-top: 1px; color: #d3d5cd; font-size: 11px; }
+
+    @media (max-width: 920px) {
+      .commandbar { flex-wrap: wrap; }
+      .commandbar .source-entry { order: 3; flex-basis: 100%; }
+      .workbench { display: block; }
+      .filter-rail { display: flex; gap: 4px; overflow-x: auto; padding: 7px; border-right: 0; border-bottom: 1px solid var(--line-dark); }
+      .filter-rail h2, .filter-rail .rail-rule, .filter-rail .rail-meta { display: none; }
+      .filter-button { width: auto; min-width: max-content; }
+      .inventory-pane { overflow-x: auto; }
+      .inventory-table { min-width: 720px; }
+      .details-pane { border-top: 1px solid var(--line-dark); border-left: 0; }
+      .details-body { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .details-body .description, .details-body .confirm-step { grid-column: 1 / -1; }
+      .source-task { grid-template-columns: 1fr auto; }
+      .source-task > div:first-child { grid-column: 1 / -1; }
+      .ledger-header { grid-template-columns: 1fr; gap: 11px; }
+    }
+
+    @media (max-width: 640px) {
+      :root { font-size: 13px; }
+      .app { padding-bottom: 102px; }
+      .titlebar .prototype-tag { display: none; }
+      .commandbar > .provider-note { width: 100%; }
+      .details-body { display: block; }
+      .queue-shell, .ledger-shell { padding-inline: 10px; }
+      .queue-header { align-items: start; }
+      .queue-header p, .queue-header .muted { display: none; }
+      .source-task { grid-template-columns: 1fr; }
+      .source-task > div:first-child { grid-column: auto; }
+      .queue-controls { align-items: stretch; flex-direction: column; }
+      .queue-controls .search-box { max-width: none; }
+      .queue-item { grid-template-columns: 1fr; }
+      .queue-actions { justify-content: start; }
+      .queue-detail { grid-template-columns: 1fr; }
+      .healthy-row { grid-template-columns: minmax(120px, 1fr) auto; }
+      .healthy-row > :nth-child(2), .healthy-row > :nth-child(3) { display: none; }
+      .ledger-add { display: grid; grid-template-columns: 1fr auto; }
+      .ledger-tools { flex-wrap: wrap; }
+      .ledger-tools .search-box { max-width: none; flex: 1 1 100%; }
+      .ledger-tools .provider-note { margin-left: 0; }
+      .ledger-column-head { display: none; }
+      .source-head { grid-template-columns: 1fr auto; }
+      .source-head > :nth-child(2), .source-head > :nth-child(3) { display: none; }
+      .source-skill { grid-template-columns: 18px minmax(150px, 1fr) auto; gap: 7px; }
+      .source-skill > :nth-child(3), .source-skill > :nth-child(4) { display: none; }
+      .ledger-detail { grid-template-columns: 1fr; }
+      .ledger-detail .action-row { justify-content: start; max-width: none; }
+      .inspector { top: 2vh; right: 2vw; bottom: 98px; width: 96vw; }
+      .candidate-row { grid-template-columns: 24px 1fr 80px; }
+      .candidate-row small { display: none; }
+      .inspection-summary { flex-wrap: wrap; }
+      .switcher { bottom: 8px; width: calc(100vw - 16px); grid-template-columns: 38px 1fr 38px; }
+      .switch-copy { padding-inline: 6px; }
+    }
+  </style>
+</head>
+<body>
+  <main id="app" class="app"></main>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const SOURCE_URL = "https://github.com/cursor/plugins/tree/main/pstack/skills";
+      const harnessNames = ["OpenCode", "Codex", "Claude Code", "GitHub Copilot"];
+      const harnessShort = ["O", "X", "C", "G"];
+      const variants = {
+        A: { name: "Workbench", description: "Dense master/detail inventory for scanning many Skills." },
+        B: { name: "Action Queue", description: "Attention-first inbox with healthy Skills compressed." },
+        C: { name: "Source Ledger", description: "Provenance-first records grouped by Skill Library." }
+      };
+
+      const initialSkills = [
+        {
+          id: "architect", name: "architect", description: "Designs boundaries and implementation plans for complex codebase changes.",
+          management: "Managed", health: "Healthy", update: "Current", provider: "GitHub",
+          source: "github.com/cursor/plugins", sourceLabel: "cursor/plugins", sourcePath: "pstack/skills/architect",
+          tracking: "main", installed: "c92ea41", available: "c92ea41", installedDate: "2026-08-19", availableDate: "2026-08-19",
+          path: "~/.agents/skills/architect", harnesses: [true, true, true, true]
+        },
+        {
+          id: "tdd", name: "tdd", description: "Guides test-driven feature work through a red, green, refactor loop.",
+          management: "Managed", health: "Healthy", update: "Update Available", provider: "skills",
+          source: "skills.sh/anthropics/skills", sourceLabel: "skills provider", sourcePath: "tdd",
+          tracking: "latest", installed: "8f31ad2", available: "b710fe9", installedDate: "2026-07-12", availableDate: "2026-08-24",
+          path: "~/.agents/skills/tdd", harnesses: [true, true, true, true]
+        },
+        {
+          id: "foundry-agent", name: "foundry-agent", description: "Builds and operates Microsoft Foundry agents using approved project conventions.",
+          management: "Managed", health: "Healthy", update: "Pinned", provider: "Microsoft APM",
+          source: "apm.microsoft.com/foundry/agent", sourceLabel: "Microsoft APM", sourcePath: "foundry-agent",
+          tracking: "=1.4.2", installed: "1.4.2", available: "1.4.2", installedDate: "2026-08-02", availableDate: "2026-08-02",
+          path: "~/.agents/skills/foundry-agent", harnesses: [true, true, true, true]
+        },
+        {
+          id: "code-review", name: "code-review", description: "Reviews branch changes against repository standards and the originating specification.",
+          management: "Verified Adoption Available", health: "Healthy", update: "Current", provider: "GitHub",
+          source: "github.com/berghtho/agent-skills", sourceLabel: "berghtho/agent-skills", sourcePath: "skills/code-review",
+          tracking: "main", installed: "4d1c8b0", available: "4d1c8b0", installedDate: "Unknown", availableDate: "2026-08-20",
+          path: "~/.agents/skills/code-review", harnesses: [true, true, true, true], verified: true
+        },
+        {
+          id: "legacy-prompt", name: "legacy-prompt", description: "Older local prompting notes discovered only in Claude Code.",
+          management: "Unmanaged", health: "Healthy", update: "Not tracked", provider: "Unknown / local",
+          source: "Local folder", sourceLabel: "Claude local", sourcePath: "legacy-prompt",
+          tracking: "None", installed: "Unknown", available: "Unknown", installedDate: "Unknown", availableDate: "Unknown",
+          path: "C:\\Users\\dev\\.claude\\skills\\legacy-prompt", harnesses: [false, false, true, false]
+        },
+        {
+          id: "angular-developer", name: "angular-developer", description: "Generates Angular code and provides architecture and testing guidance.",
+          management: "Managed", health: "Locally Modified", update: "Check blocked", provider: "GitHub",
+          source: "github.com/example/team-skills", sourceLabel: "example/team-skills", sourcePath: "skills/angular-developer",
+          tracking: "main", installed: "2aa180c + local", available: "a73e110", installedDate: "2026-08-10", availableDate: "2026-08-23",
+          path: "~/.agents/skills/angular-developer", harnesses: [true, true, true, true]
+        },
+        {
+          id: "review-kit-collision", name: "review-kit", description: "Two discovered folders declare the same Skill identity.",
+          management: "Unmanaged", health: "Collision", update: "Not tracked", provider: "Unknown / local",
+          source: "Two local folders", sourceLabel: "Collision", sourcePath: "review-kit + review-tools",
+          tracking: "None", installed: "Unknown", available: "Unknown", installedDate: "Unknown", availableDate: "Unknown",
+          path: "~/.agents/skills/review-kit", harnesses: [true, true, true, true]
+        },
+        {
+          id: "invalid-local", name: "untitled-local", description: "A local Skill folder with a missing name and malformed metadata header.",
+          management: "Unmanaged", health: "Invalid Metadata", update: "Not tracked", provider: "Unknown / local",
+          source: "Local folder", sourceLabel: "Canonical local", sourcePath: "untitled-local",
+          tracking: "None", installed: "Unknown", available: "Unknown", installedDate: "Unknown", availableDate: "Unknown",
+          path: "~/.agents/skills/untitled-local", harnesses: [true, true, true, true]
+        }
+      ];
+
+      const candidateSeed = [
+        ["poteto-mode", "Poteto Mode", "A playful low-ceremony implementation mode."],
+        ["design-ui-variants", "design-ui-variants", "Produces structurally distinct interface directions."],
+        ["diagnosing-bugs", "diagnosing-bugs", "Runs a disciplined diagnosis loop for difficult defects."],
+        ["slop-detector", "slop-detector", "Audits implementation claims and architectural shortcuts."],
+        ["grill-me", "grill-me", "Stress-tests a plan through focused questioning."],
+        ["handoff", "handoff", "Compacts current work for another agent."],
+        ["research", "research", "Captures primary-source technical research."],
+        ["wizard", "wizard", "Builds guided scripts for human-only setup steps."]
+      ];
+      const candidates = candidateSeed.map((item, index) => ({
+        id: item[0], name: item[1], description: item[2], path: item[0], selected: index < 3, visible: true
+      }));
+      for (let i = 9; i <= 44; i += 1) {
+        candidates.push({ id: `pstack-skill-${String(i).padStart(2, "0")}`, name: `pstack-skill-${String(i).padStart(2, "0")}`, description: "Additional Skill discovered in the inspected repository.", path: `pstack-skill-${String(i).padStart(2, "0")}`, selected: false, visible: false });
+      }
+
+      const state = {
+        variant: getVariant(),
+        skills: initialSkills.map(skill => ({ ...skill, harnesses: [...skill.harnesses] })),
+        selectedId: "tdd",
+        search: "",
+        filter: "all",
+        sort: "name",
+        sortDirection: 1,
+        sourceUrl: SOURCE_URL,
+        inspectorOpen: false,
+        inspected: false,
+        candidates,
+        allCandidatesSelected: false,
+        pending: null,
+        expandedSources: new Set(["github.com/cursor/plugins", "skills.sh/anthropics/skills", "apm.microsoft.com/foundry/agent", "unknown"]),
+        operation: { label: "Ready", message: "Inventory loaded from four Harness discovery roots. No files were changed.", time: clock() },
+        refreshedAt: "Not checked this session"
+      };
+
+      function getVariant() {
+        const value = new URLSearchParams(location.search).get("variant");
+        return variants[value] ? value : "A";
+      }
+
+      function clock() {
+        return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date());
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "").replace(/[&<>"]/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[character]);
+      }
+
+      function skillById(id) { return state.skills.find(skill => skill.id === id); }
+      function selectedSkill() { return skillById(state.selectedId) || state.skills[0] || null; }
+      function isAttention(skill) { return skill.health !== "Healthy" || skill.management !== "Managed"; }
+      function isUpdate(skill) { return skill.update === "Update Available"; }
+
+      function statusTone(value) {
+        if (["Healthy", "Current", "Managed", "Pinned"].includes(value)) return "good";
+        if (["Verified Adoption Available", "Update Available"].includes(value)) return "info";
+        if (["Locally Modified", "Check blocked", "Unmanaged", "Not tracked"].includes(value)) return "warn";
+        if (["Collision", "Invalid Metadata", "Missing", "Exposure Problem"].includes(value)) return "bad";
+        return "neutral";
+      }
+
+      function status(value) { return `<span class="status ${statusTone(value)}">${escapeHtml(value)}</span>`; }
+
+      function filteredSkills() {
+        const needle = state.search.trim().toLowerCase();
+        return state.skills.filter(skill => {
+          const searchable = [skill.name, skill.description, skill.provider, skill.source, skill.sourcePath, skill.management, skill.health, skill.update].join(" ").toLowerCase();
+          const searchMatch = !needle || searchable.includes(needle);
+          const filterMatch = state.filter === "all"
+            || (state.filter === "updates" && isUpdate(skill))
+            || (state.filter === "attention" && isAttention(skill))
+            || (state.filter === "unmanaged" && skill.management === "Unmanaged")
+            || (state.filter === "healthy" && skill.management === "Managed" && skill.health === "Healthy" && !isUpdate(skill));
+          return searchMatch && filterMatch;
+        });
+      }
+
+      function sortedSkills(skills) {
+        return [...skills].sort((left, right) => {
+          const a = String(left[state.sort] || "");
+          const b = String(right[state.sort] || "");
+          return a.localeCompare(b) * state.sortDirection;
+        });
+      }
+
+      function counts() {
+        return {
+          all: state.skills.length,
+          updates: state.skills.filter(isUpdate).length,
+          attention: state.skills.filter(isAttention).length,
+          unmanaged: state.skills.filter(skill => skill.management === "Unmanaged").length,
+          healthy: state.skills.filter(skill => skill.management === "Managed" && skill.health === "Healthy" && !isUpdate(skill)).length
+        };
+      }
+
+      function shellHeader() {
+        return `
+          <header class="titlebar">
+            <span class="app-mark" aria-hidden="true"></span>
+            <strong>Skilly</strong>
+            <span class="muted">Skill maintenance</span>
+            <span class="prototype-tag">THROWAWAY BROWSER PROTOTYPE</span>
+          </header>`;
+      }
+
+      function operationStrip() {
+        return `
+          <div class="operation-strip" role="status" aria-live="polite">
+            <span class="op-label">${escapeHtml(state.operation.label)}</span>
+            <span>${escapeHtml(state.operation.message)}</span>
+            <time>${escapeHtml(state.operation.time)}</time>
+          </div>`;
+      }
+
+      function commandBar() {
+        return `
+          <div class="commandbar">
+            <button class="btn" data-action="refresh">Refresh checks</button>
+            <span class="provider-note">Microsoft APM CLI not detected; GitHub and local checks remain available.</span>
+            <div class="source-entry">
+              <input data-field="source" aria-label="Skill source URL" value="${escapeHtml(state.sourceUrl)}">
+              <button class="btn primary" data-action="open-inspector">Inspect source</button>
+            </div>
+          </div>`;
+      }
+
+      function harnessMarks(skill) {
+        return `<span class="harness-marks" aria-label="Harness exposure">${skill.harnesses.map((on, index) => `<span class="harness-mark ${on ? "on" : ""}" title="${harnessNames[index]}: ${on ? "exposed" : "not exposed"}">${harnessShort[index]}</span>`).join("")}</span>`;
+      }
+
+      function harnessList(skill) {
+        return `<div class="harness-list">${harnessNames.map((name, index) => {
+          const detail = name === "Claude Code" && skill.harnesses[index] ? "junction" : (skill.harnesses[index] ? "canonical" : "not exposed");
+          return `<div class="harness-line ${skill.harnesses[index] ? "on" : ""}"><strong>${name}</strong><br><span class="muted">${detail}</span></div>`;
+        }).join("")}</div>`;
+      }
+
+      function actionButtons(skill, compact = false) {
+        if (!skill) return "";
+        const size = compact ? " small" : "";
+        const actions = [];
+        if (skill.update === "Update Available" && skill.health === "Healthy") actions.push(`<button class="btn primary${size}" data-action="update" data-id="${skill.id}">Update</button>`);
+        if (skill.management === "Verified Adoption Available" && skill.verified) actions.push(`<button class="btn primary${size}" data-action="adopt" data-id="${skill.id}">Adopt</button>`);
+        if (skill.management === "Managed" && skill.health === "Locally Modified") actions.push(`<button class="btn primary${size}" data-action="request-reinstall" data-id="${skill.id}">Managed Reinstall</button>`);
+        if (skill.management === "Managed" && skill.health === "Healthy" && skill.update !== "Update Available") actions.push(`<button class="btn${size}" data-action="uninstall" data-id="${skill.id}">Uninstall</button>`);
+        if (skill.management === "Unmanaged") actions.push(`<button class="btn danger${size}" data-action="request-remove" data-id="${skill.id}">Remove Local Folder</button>`);
+        return actions.join("");
+      }
+
+      function confirmation(skill) {
+        if (!state.pending || state.pending.id !== skill.id) return "";
+        if (state.pending.type === "reinstall") {
+          return `<div class="confirm-step" role="alert"><strong>Replace locally modified files?</strong><div>Skilly will replace <span class="mono">${escapeHtml(skill.path)}</span> with verified revision <span class="mono">${escapeHtml(skill.available)}</span>.</div><div class="action-row"><button class="btn primary" data-action="confirm-reinstall" data-id="${skill.id}">Replace local files</button><button class="btn" data-action="cancel-confirm">Cancel</button></div></div>`;
+        }
+        return `<div class="confirm-step" role="alert"><strong>Delete this unmanaged folder?</strong><div>Exact path: <span class="mono">${escapeHtml(skill.path)}</span></div><div class="action-row"><button class="btn danger" data-action="confirm-remove" data-id="${skill.id}">Remove this folder</button><button class="btn" data-action="cancel-confirm">Cancel</button></div></div>`;
+      }
+
+      function details(skill) {
+        if (!skill) return `<div class="empty">No Skill selected.</div>`;
+        return `
+          <div class="details-head">
+            <p class="eyebrow">${escapeHtml(skill.management)}</p>
+            <h2>${escapeHtml(skill.name)}</h2>
+            ${status(skill.health)} &nbsp; ${status(skill.update)}
+          </div>
+          <div class="details-body">
+            <p class="description">${escapeHtml(skill.description)}</p>
+            <div>
+              <p class="eyebrow">Provenance</p>
+              <dl class="fact-list">
+                <div><dt>Provider</dt><dd>${escapeHtml(skill.provider)}</dd></div>
+                <div><dt>Skill Library</dt><dd>${escapeHtml(skill.source)}</dd></div>
+                <div><dt>Source Skill</dt><dd class="mono">${escapeHtml(skill.sourcePath)}</dd></div>
+                <div><dt>Tracking Rule</dt><dd class="mono">${escapeHtml(skill.tracking)}</dd></div>
+                <div><dt>Installed</dt><dd><span class="mono">${escapeHtml(skill.installed)}</span> · ${escapeHtml(skill.installedDate)}</dd></div>
+                <div><dt>Available</dt><dd><span class="mono">${escapeHtml(skill.available)}</span> · ${escapeHtml(skill.availableDate)}</dd></div>
+                <div><dt>Local path</dt><dd class="mono">${escapeHtml(skill.path)}</dd></div>
+              </dl>
+            </div>
+            <div>
+              <p class="eyebrow">Harness Exposures</p>
+              ${harnessList(skill)}
+              <div class="action-row">${actionButtons(skill)}</div>
+            </div>
+            ${confirmation(skill)}
+          </div>`;
+      }
+
+      function variantA() {
+        const list = sortedSkills(filteredSkills());
+        const count = counts();
+        const selected = selectedSkill();
+        const filters = [
+          ["all", "All Skills"], ["updates", "Updates"], ["attention", "Attention"], ["unmanaged", "Unmanaged"], ["healthy", "Healthy"]
+        ];
+        return `
+          ${shellHeader()}${commandBar()}${operationStrip()}
+          <div class="workbench">
+            <nav class="filter-rail" aria-label="Inventory filters">
+              <h2>Inventory</h2>
+              ${filters.map(([key, label]) => `<button class="filter-button ${state.filter === key ? "active" : ""}" data-action="filter" data-filter="${key}"><span>${label}</span><span>${count[key]}</span></button>`).join("")}
+              <hr class="rail-rule">
+              <div class="rail-meta"><strong>4 Harnesses</strong><br>One canonical root<br><span class="mono">~/.agents/skills</span><br><br>Claude Code<br>via junction</div>
+            </nav>
+            <section class="inventory-pane" aria-label="Skill inventory">
+              <div class="inventory-tools">
+                <input class="search-box" data-field="search" type="search" placeholder="Search Skills, source, or status" value="${escapeHtml(state.search)}">
+                <span class="count">${list.length} of ${state.skills.length}</span>
+              </div>
+              <table class="inventory-table">
+                <thead><tr>
+                  <th style="width:25%"><button data-action="sort" data-sort="name">Skill ${sortArrow("name")}</button></th>
+                  <th style="width:18%"><button data-action="sort" data-sort="provider">Provenance ${sortArrow("provider")}</button></th>
+                  <th style="width:19%"><button data-action="sort" data-sort="management">Management ${sortArrow("management")}</button></th>
+                  <th style="width:15%"><button data-action="sort" data-sort="health">Health ${sortArrow("health")}</button></th>
+                  <th style="width:14%"><button data-action="sort" data-sort="update">Update ${sortArrow("update")}</button></th>
+                  <th style="width:9%">Harness</th>
+                </tr></thead>
+                <tbody>${list.map(skill => `
+                  <tr class="${skill.id === state.selectedId ? "selected" : ""}" data-action="select" data-id="${skill.id}" tabindex="0">
+                    <td class="skill-cell"><strong>${escapeHtml(skill.name)}</strong><span>${escapeHtml(skill.description)}</span></td>
+                    <td><strong>${escapeHtml(skill.provider)}</strong><br><span class="muted">${escapeHtml(skill.sourceLabel)}</span></td>
+                    <td>${status(skill.management)}</td><td>${status(skill.health)}</td><td>${status(skill.update)}</td><td>${harnessMarks(skill)}</td>
+                  </tr>`).join("") || `<tr><td colspan="6" class="empty">No Skills match this view.</td></tr>`}</tbody>
+              </table>
+            </section>
+            <aside class="details-pane" aria-label="Selected Skill details">${details(selected)}</aside>
+          </div>`;
+      }
+
+      function sortArrow(key) { return state.sort === key ? (state.sortDirection === 1 ? "↑" : "↓") : ""; }
+
+      function queueItem(skill) {
+        const selected = skill.id === state.selectedId;
+        return `<article class="queue-item ${selected ? "selected" : ""}">
+          <div class="queue-summary" data-action="select" data-id="${skill.id}" tabindex="0">
+            <h3>${escapeHtml(skill.name)}</h3>${status(skill.management)} &nbsp; ${status(skill.health)}
+            <p>${escapeHtml(skill.description)}</p>
+            <div class="meta">${escapeHtml(skill.provider)} · <span class="mono">${escapeHtml(skill.sourcePath)}</span> · ${escapeHtml(skill.update)}</div>
+          </div>
+          <div class="queue-actions">${actionButtons(skill, true)}</div>
+          ${selected ? `<div class="queue-detail"><div><p class="eyebrow">Why it is here</p><strong>${queueReason(skill)}</strong><p class="muted">${queueGuidance(skill)}</p></div><div class="facts-inline"><span class="muted">Installed</span><span class="mono">${escapeHtml(skill.installed)} · ${escapeHtml(skill.installedDate)}</span><span class="muted">Available</span><span class="mono">${escapeHtml(skill.available)} · ${escapeHtml(skill.availableDate)}</span><span class="muted">Local path</span><span class="mono">${escapeHtml(skill.path)}</span><span class="muted">Harnesses</span><span>${skill.harnesses.filter(Boolean).length} of 4 exposed</span></div>${confirmation(skill)}</div>` : ""}
+        </article>`;
+      }
+
+      function queueReason(skill) {
+        if (skill.update === "Update Available") return "A newer verified revision is ready.";
+        if (skill.management === "Verified Adoption Available") return "Provenance matches an existing canonical folder.";
+        if (skill.health === "Locally Modified") return "Recorded content differs from the local folder.";
+        if (skill.health === "Collision") return "Two local folders claim the same Skill identity.";
+        if (skill.health === "Invalid Metadata") return "The local SKILL.md metadata cannot be read safely.";
+        if (skill.management === "Unmanaged") return "Skilly has no Management Record for this folder.";
+        return "No action required.";
+      }
+
+      function queueGuidance(skill) {
+        if (skill.management === "Verified Adoption Available") return "Adoption records Provenance without replacing content.";
+        if (skill.health === "Locally Modified") return "Managed Reinstall requires one explicit replacement step.";
+        if (skill.management === "Unmanaged") return "Removal always names the exact local path before deletion.";
+        return "Review the current and available revisions before acting.";
+      }
+
+      function variantB() {
+        const matching = filteredSkills();
+        const updates = matching.filter(isUpdate);
+        const attention = matching.filter(skill => !isUpdate(skill) && isAttention(skill));
+        const healthy = matching.filter(skill => !isUpdate(skill) && !isAttention(skill));
+        return `
+          ${shellHeader()}${operationStrip()}
+          <div class="queue-shell">
+            <header class="queue-header"><div><p class="eyebrow">Action Queue</p><h1>${updates.length + attention.length} items need a decision</h1><p>Updates and uncertain local state come first. Healthy installations stay quiet.</p></div><div class="refresh-block"><button class="btn" data-action="refresh">Refresh checks</button><div class="muted">${escapeHtml(state.refreshedAt)}</div></div></header>
+            <section class="source-task" aria-label="Add a Skill source"><div><strong>Add from a source</strong><small>Inspect first, then choose Skills</small></div><input data-field="source" aria-label="Skill source URL" value="${escapeHtml(state.sourceUrl)}"><button class="btn primary" data-action="open-inspector">Inspect source</button></section>
+            <div class="queue-controls"><input class="search-box" data-field="search" type="search" placeholder="Filter this queue" value="${escapeHtml(state.search)}"><span class="provider-note">Microsoft APM provider needs setup; existing records remain visible.</span></div>
+            <section class="queue-section"><div class="queue-section-title"><h2>Ready to update</h2><span>${updates.length} verified</span></div>${updates.map(queueItem).join("") || `<div class="empty">No updates waiting.</div>`}</section>
+            <section class="queue-section"><div class="queue-section-title"><h2>Needs attention</h2><span>${attention.length} adoption, recovery, or local decisions</span></div>${attention.map(queueItem).join("") || `<div class="empty">No attention items.</div>`}</section>
+            <section class="queue-section"><div class="queue-section-title"><h2>Healthy installed</h2><span>${healthy.length} compact records</span></div><div class="healthy-stack">${healthy.map(skill => `<div class="healthy-row ${skill.id === state.selectedId ? "selected" : ""}" data-action="select" data-id="${skill.id}" tabindex="0"><strong>${escapeHtml(skill.name)}</strong><span>${escapeHtml(skill.provider)}</span>${status(skill.update)}<span>${actionButtons(skill, true)}</span></div>`).join("") || `<div class="empty">No healthy Skills match.</div>`}</div></section>
+          </div>`;
+      }
+
+      function sourceKey(skill) {
+        if (skill.provider === "Unknown / local") return "unknown";
+        return skill.source;
+      }
+
+      function sourceGroups() {
+        const map = new Map();
+        filteredSkills().forEach(skill => {
+          const key = sourceKey(skill);
+          if (!map.has(key)) map.set(key, { key, provider: skill.provider, source: skill.provider === "Unknown / local" ? "Unknown and local folders" : skill.source, skills: [] });
+          map.get(key).skills.push(skill);
+        });
+        return [...map.values()].sort((a, b) => a.provider.localeCompare(b.provider) || a.source.localeCompare(b.source));
+      }
+
+      function groupTracking(group) {
+        const rules = [...new Set(group.skills.map(skill => skill.tracking))];
+        return rules.length === 1 ? rules[0] : `${rules.length} tracking rules`;
+      }
+
+      function groupStatus(group) {
+        if (group.skills.some(skill => ["Collision", "Invalid Metadata"].includes(skill.health))) return "Attention";
+        if (group.skills.some(isUpdate)) return "Update found";
+        if (group.skills.some(skill => skill.health === "Locally Modified")) return "Check blocked";
+        return group.provider === "Unknown / local" ? "Not tracked" : "Checked";
+      }
+
+      function variantC() {
+        const groups = sourceGroups();
+        const selected = selectedSkill();
+        return `
+          ${shellHeader()}${operationStrip()}
+          <div class="ledger-shell">
+            <header class="ledger-header"><div><p class="eyebrow">Source Ledger</p><h1>${groups.length} Skill Libraries, ${state.skills.length} installations</h1><p>Start with Provenance, then inspect the Skills and Harness Exposures it governs.</p></div><div class="ledger-add"><input data-field="source" aria-label="Skill source URL" value="${escapeHtml(state.sourceUrl)}"><button class="btn primary" data-action="open-inspector">Inspect source</button></div></header>
+            <div class="ledger-tools"><input class="search-box" data-field="search" type="search" placeholder="Find source, Skill, status" value="${escapeHtml(state.search)}"><button class="btn" data-action="refresh">Refresh all source checks</button><span class="provider-note">APM CLI missing; one source check skipped.</span></div>
+            <div class="ledger-column-head"><span>Skill Library / Provider</span><span>Tracking / resolved ref</span><span>Last check</span><span>Contained</span></div>
+            <section aria-label="Provenance ledger">${groups.map(group => {
+              const expanded = state.expandedSources.has(group.key);
+              const groupState = groupStatus(group);
+              return `<article class="source-group"><button class="source-head" data-action="toggle-source" data-source-key="${escapeHtml(group.key)}" aria-expanded="${expanded}"><span class="source-title"><strong><span class="twisty">${expanded ? "−" : "+"}</span>${escapeHtml(group.source)}</strong><small>${escapeHtml(group.provider)}</small></span><span><span class="mono">${escapeHtml(groupTracking(group))}</span><br><small class="muted">${escapeHtml(group.skills[0].installed)}</small></span><span class="check-cell">${status(groupState)}</span><span>${group.skills.length} Skill${group.skills.length === 1 ? "" : "s"}</span></button>
+              ${expanded ? `<div class="source-skills">${group.skills.map(skill => `<div class="source-skill ${skill.id === state.selectedId ? "selected" : ""}" data-action="select" data-id="${skill.id}" tabindex="0"><span class="branch-line"></span><span><strong>${escapeHtml(skill.name)}</strong><br><small class="muted mono">${escapeHtml(skill.sourcePath)}</small></span><span>${status(skill.management)}</span><span>${status(skill.health)}</span><span>${status(skill.update)}</span></div>`).join("")}</div>` : ""}</article>`;
+            }).join("") || `<div class="empty">No source records match.</div>`}</section>
+            ${selected ? `<aside class="ledger-detail"><div><p class="eyebrow">Selected Source Skill</p><h2>${escapeHtml(selected.name)}</h2><p>${escapeHtml(selected.description)}</p></div><div class="ledger-facts"><strong>Provenance</strong> ${escapeHtml(selected.provider)} · <span class="mono">${escapeHtml(selected.sourcePath)}</span><br><strong>Tracking</strong> <span class="mono">${escapeHtml(selected.tracking)}</span> resolved to <span class="mono">${escapeHtml(selected.installed)}</span><br><strong>Installation</strong> <span class="mono">${escapeHtml(selected.path)}</span><br><strong>Exposure</strong> ${selected.harnesses.filter(Boolean).length}/4 Harnesses${selected.harnesses[2] ? "; Claude via junction" : ""}${confirmation(selected)}</div><div class="action-row">${actionButtons(selected)}</div></aside>` : ""}
+          </div>`;
+      }
+
+      function sourceInspector() {
+        if (!state.inspectorOpen) return "";
+        const selectedCount = state.candidates.filter(candidate => candidate.selected).length;
+        return `<div class="scrim" data-action="close-inspector"></div><aside class="inspector" role="dialog" aria-modal="true" aria-labelledby="inspect-title">
+          <div class="inspector-head"><h2 id="inspect-title">Inspect Skill source</h2><span class="tag accent">Read-only inspection</span><button class="btn small" data-action="close-inspector" aria-label="Close source inspector">Close</button></div>
+          <div class="inspector-form"><input data-field="source" aria-label="Source URL to inspect" value="${escapeHtml(state.sourceUrl)}"><button class="btn primary" data-action="run-inspect">Inspect</button></div>
+          ${state.inspected ? `
+            <div class="inspection-summary"><strong>44 Skills found</strong><span>GitHub · branch <span class="mono">main</span> · checked now</span><span class="spacer"></span><button class="btn small" data-action="select-all-candidates">${state.allCandidatesSelected ? "Clear all" : "Select all 44"}</button></div>
+            <div class="candidate-list" aria-label="Skills found in source">${state.candidates.filter(candidate => candidate.visible).map(candidate => `<div class="candidate-row"><label><input type="checkbox" data-action="toggle-candidate" data-id="${candidate.id}" ${candidate.selected ? "checked" : ""}><strong>${escapeHtml(candidate.name)}</strong><small class="mono">${escapeHtml(candidate.path)}</small><span class="tag">Installable</span></label></div>`).join("")}<div class="candidate-row"><span></span><strong>36 more Skills</strong><small>Select all to include the full inspected source.</small><span class="tag">Discovered</span></div></div>
+            <div class="inspector-foot"><span class="provider-note">Microsoft APM CLI is not ready; this GitHub install is unaffected.</span><strong>${selectedCount} selected</strong><button class="btn primary" data-action="install-selected" ${selectedCount ? "" : "disabled"}>Install selected</button></div>`
+            : `<div class="inspector-empty"><div><strong>Inspect before installing</strong><span>Skilly will normalize the source, enumerate stable Source Skill paths, and check collisions. Nothing is installed yet.</span><br><br><span class="mono">${escapeHtml(SOURCE_URL)}</span></div></div><div class="inspector-foot"><span class="provider-note">Provider readiness is advisory and does not block GitHub inspection.</span></div>`}
+        </aside>`;
+      }
+
+      function switcher() {
+        const current = variants[state.variant];
+        return `<nav class="switcher" aria-label="Prototype variant switcher"><button data-action="previous-variant" aria-label="Previous variant">←</button><div class="switch-copy"><strong>${state.variant} · ${current.name}</strong><span>${current.description}</span></div><button data-action="next-variant" aria-label="Next variant">→</button></nav>`;
+      }
+
+      function render(preserveFocus = false) {
+        let focusedField = null;
+        let selectionStart = null;
+        if (preserveFocus && document.activeElement && document.activeElement.dataset.field) {
+          focusedField = document.activeElement.dataset.field;
+          selectionStart = document.activeElement.selectionStart;
+        }
+        const app = document.getElementById("app");
+        app.innerHTML = `${state.variant === "A" ? variantA() : state.variant === "B" ? variantB() : variantC()}${sourceInspector()}${switcher()}`;
+        document.title = `Skilly prototype · ${state.variant} ${variants[state.variant].name}`;
+        if (focusedField) {
+          const target = app.querySelector(`[data-field="${focusedField}"]`);
+          if (target) {
+            target.focus();
+            if (typeof target.setSelectionRange === "function" && selectionStart !== null) target.setSelectionRange(selectionStart, selectionStart);
+          }
+        }
+      }
+
+      function setOperation(label, message) {
+        state.operation = { label, message, time: clock() };
+      }
+
+      function cycleVariant(direction) {
+        const keys = Object.keys(variants);
+        const index = keys.indexOf(state.variant);
+        state.variant = keys[(index + direction + keys.length) % keys.length];
+        const url = new URL(location.href);
+        url.searchParams.set("variant", state.variant);
+        history.replaceState(null, "", url);
+        state.pending = null;
+        setOperation("View changed", `${state.variant} · ${variants[state.variant].name}. Inventory state is shared across variants.`);
+        render();
+      }
+
+      function selectSkill(id) {
+        if (skillById(id)) {
+          state.selectedId = id;
+          state.pending = null;
+          render();
+        }
+      }
+
+      function removeSkill(id, label, message) {
+        const index = state.skills.findIndex(skill => skill.id === id);
+        if (index < 0) return;
+        state.skills.splice(index, 1);
+        state.selectedId = state.skills[Math.min(index, state.skills.length - 1)]?.id || "";
+        state.pending = null;
+        setOperation(label, message);
+        render();
+      }
+
+      function installCandidates() {
+        const selected = state.candidates.filter(candidate => candidate.selected);
+        let installed = 0;
+        selected.forEach(candidate => {
+          if (skillById(candidate.id)) return;
+          state.skills.push({
+            id: candidate.id, name: candidate.name, description: candidate.description,
+            management: "Managed", health: "Healthy", update: "Current", provider: "GitHub",
+            source: "github.com/cursor/plugins", sourceLabel: "cursor/plugins", sourcePath: `pstack/skills/${candidate.path}`,
+            tracking: "main", installed: "c92ea41", available: "c92ea41", installedDate: "2026-08-26", availableDate: "2026-08-26",
+            path: `~/.agents/skills/${candidate.path}`, harnesses: [true, true, true, true]
+          });
+          installed += 1;
+        });
+        state.inspectorOpen = false;
+        state.inspected = false;
+        state.allCandidatesSelected = false;
+        state.candidates.forEach(candidate => { candidate.selected = false; });
+        if (installed) state.selectedId = selected.find(candidate => skillById(candidate.id))?.id || state.selectedId;
+        setOperation("Install complete", `${installed} Skill${installed === 1 ? "" : "s"} installed to ~/.agents/skills and exposed to all four Harnesses; Claude Code uses its junction.`);
+        render();
+      }
+
+      document.addEventListener("input", event => {
+        const field = event.target.dataset.field;
+        if (field === "search") {
+          state.search = event.target.value;
+          render(true);
+        }
+        if (field === "source") {
+          state.sourceUrl = event.target.value;
+          document.querySelectorAll('[data-field="source"]').forEach(input => { if (input !== event.target) input.value = state.sourceUrl; });
+        }
+      });
+
+      document.addEventListener("click", event => {
+        const target = event.target.closest("[data-action]");
+        if (!target) return;
+        const action = target.dataset.action;
+        const id = target.dataset.id;
+
+        if (action === "previous-variant") return cycleVariant(-1);
+        if (action === "next-variant") return cycleVariant(1);
+        if (action === "select") return selectSkill(id);
+        if (action === "filter") { state.filter = target.dataset.filter; render(); return; }
+        if (action === "sort") {
+          if (state.sort === target.dataset.sort) state.sortDirection *= -1;
+          else { state.sort = target.dataset.sort; state.sortDirection = 1; }
+          render(); return;
+        }
+        if (action === "refresh") {
+          state.refreshedAt = `Checked ${clock()}`;
+          setOperation("Checks refreshed", "Read-only comparison completed: 1 update, 1 locally modified Skill, and 2 metadata problems remain.");
+          render(); return;
+        }
+        if (action === "open-inspector") { state.inspectorOpen = true; state.inspected = false; render(); return; }
+        if (action === "close-inspector") { state.inspectorOpen = false; render(); return; }
+        if (action === "run-inspect") {
+          state.inspected = true;
+          setOperation("Source inspected", "44 Skills found at cursor/plugins pstack/skills. No installation changes made.");
+          render(); return;
+        }
+        if (action === "toggle-candidate") {
+          const candidate = state.candidates.find(item => item.id === id);
+          if (candidate) candidate.selected = target.checked;
+          state.allCandidatesSelected = state.candidates.every(item => item.selected);
+          render(); return;
+        }
+        if (action === "select-all-candidates") {
+          state.allCandidatesSelected = !state.allCandidatesSelected;
+          state.candidates.forEach(candidate => { candidate.selected = state.allCandidatesSelected; });
+          render(); return;
+        }
+        if (action === "install-selected") return installCandidates();
+        if (action === "update") {
+          const skill = skillById(id);
+          if (!skill || skill.update !== "Update Available" || skill.health !== "Healthy") return;
+          skill.installed = skill.available; skill.installedDate = skill.availableDate; skill.update = "Current";
+          state.selectedId = id;
+          setOperation("Update complete", `${skill.name} is Current at ${skill.installed}; four Harness Exposures remain healthy.`);
+          render(); return;
+        }
+        if (action === "adopt") {
+          const skill = skillById(id);
+          if (!skill || skill.management !== "Verified Adoption Available" || !skill.verified) return;
+          skill.management = "Managed"; skill.installedDate = "2026-08-26";
+          state.selectedId = id;
+          setOperation("Adoption complete", `${skill.name} is now Managed. Its existing content was not replaced; verified Provenance was recorded.`);
+          render(); return;
+        }
+        if (action === "request-reinstall") {
+          const skill = skillById(id);
+          if (!skill || skill.management !== "Managed" || skill.health !== "Locally Modified") return;
+          state.selectedId = id; state.pending = { type: "reinstall", id }; render(); return;
+        }
+        if (action === "confirm-reinstall") {
+          const skill = skillById(id);
+          if (!skill || state.pending?.type !== "reinstall") return;
+          skill.health = "Healthy"; skill.update = "Current"; skill.installed = skill.available; skill.installedDate = "2026-08-26";
+          state.pending = null;
+          setOperation("Managed Reinstall complete", `${skill.name} local files were replaced with verified revision ${skill.installed}; Harness Exposures are Healthy.`);
+          render(); return;
+        }
+        if (action === "uninstall") {
+          const skill = skillById(id);
+          if (!skill || skill.management !== "Managed" || skill.health !== "Healthy" || skill.update === "Update Available") return;
+          return removeSkill(id, "Uninstall complete", `${skill.name} Management Record, canonical installation, and four Harness Exposures were removed.`);
+        }
+        if (action === "request-remove") {
+          const skill = skillById(id);
+          if (!skill || skill.management !== "Unmanaged") return;
+          state.selectedId = id; state.pending = { type: "remove", id }; render(); return;
+        }
+        if (action === "confirm-remove") {
+          const skill = skillById(id);
+          if (!skill || skill.management !== "Unmanaged" || state.pending?.type !== "remove") return;
+          return removeSkill(id, "Local folder removed", `${skill.path} was deleted. No Management Record existed.`);
+        }
+        if (action === "cancel-confirm") { state.pending = null; render(); return; }
+        if (action === "toggle-source") {
+          const key = target.dataset.sourceKey;
+          if (state.expandedSources.has(key)) state.expandedSources.delete(key); else state.expandedSources.add(key);
+          render();
+        }
+      });
+
+      document.addEventListener("keydown", event => {
+        const editable = event.target.matches("input, textarea, [contenteditable], [contenteditable='true']");
+        if (!editable && event.key === "ArrowLeft") { event.preventDefault(); cycleVariant(-1); }
+        if (!editable && event.key === "ArrowRight") { event.preventDefault(); cycleVariant(1); }
+        if (!editable && (event.key === "Enter" || event.key === " ")) {
+          const selectable = event.target.closest('[data-action="select"]');
+          if (selectable) { event.preventDefault(); selectSkill(selectable.dataset.id); }
+        }
+        if (event.key === "Escape" && state.inspectorOpen) { state.inspectorOpen = false; render(); }
+      });
+
+      window.addEventListener("popstate", () => { state.variant = getVariant(); render(); });
+      render();
+    })();
+  </script>
+</body>
+</html>
