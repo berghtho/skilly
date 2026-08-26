@@ -4,7 +4,7 @@ namespace Skilly.Infrastructure;
 
 public static class SkillyPaths
 {
-    public const int StateSchemaVersion = 1;
+    public const int StateSchemaVersion = 2;
 
     public static string LocalAppDataRoot
     {
@@ -30,10 +30,5 @@ public static class SkillyPaths
     {
         Directory.CreateDirectory(ApplicationRoot);
         Directory.CreateDirectory(LogsDirectory);
-
-        if (!File.Exists(StateFilePath))
-        {
-            File.WriteAllText(StateFilePath, $"{{\"schemaVersion\":{StateSchemaVersion}}}\n");
-        }
     }
 }

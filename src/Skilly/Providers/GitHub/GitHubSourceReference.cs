@@ -83,5 +83,7 @@ public sealed record GitHubSourceReference(
         ? $"{Host}/{Owner}/{Repository}"
         : $"{Host}/{Owner}/{Repository}/tree/{RequestedRef}/{RequestedPath}";
 
+    public string NormalizedSource => $"{Host}/{Owner}/{Repository}".ToLowerInvariant();
+
     public override string ToString() => Normalized;
 }

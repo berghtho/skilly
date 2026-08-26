@@ -11,7 +11,8 @@ public partial class MainWindow : Window
     private readonly Infrastructure.RollingLog _log;
     private readonly GitHubProvider _githubProvider;
     private readonly GitHubCheckRunner _checkRunner;
-    private readonly Func<InventorySnapshot> _refreshInventory;
+    private readonly Func<IReadOnlyList<AdoptionEvidence>?, InventorySnapshot> _refreshInventory;
+    private IReadOnlyList<AdoptionEvidence> _adoptionEvidence = [];
     private readonly SemaphoreSlim _maintenanceGate = new(1, 1);
     private CancellationTokenSource? _mutationCancellation;
     private volatile bool _mutationInProgress;
@@ -21,7 +22,7 @@ public partial class MainWindow : Window
         ViewModels.MainViewModel viewModel,
         GitHubProvider githubProvider,
         GitHubCheckRunner checkRunner,
-        Func<InventorySnapshot> refreshInventory)
+        Func<IReadOnlyList<AdoptionEvidence>?, InventorySnapshot> refreshInventory)
     {
         InitializeComponent();
         _log = log;
@@ -66,17 +67,24 @@ public partial class MainWindow : Window
             }
 
             var inspection = inspectionResult.Value!;
+            var discoveryResult = await Task.Run(() => _githubProvider.DiscoverAdoptions(inspection, _refreshInventory(null)));
+            var discovery = discoveryResult.Succeeded ? discoveryResult.Value! : new AdoptionDiscovery([], [discoveryResult.Diagnostics]);
             var dialog = new SourceInspectionWindow(inspection, _githubProvider, viewModel.MutationsAllowed) { Owner = this };
             var installed = dialog.ShowDialog() == true;
             await dialog.OperationCompletion;
             if (installed)
             {
-                viewModel.LoadInventory(_refreshInventory());
+                _adoptionEvidence = [];
+                viewModel.LoadInventory(RefreshInventory());
                 viewModel.Announce($"Installed {dialog.InstalledCount} Skill(s) from GitHub and verified all Harness Exposures.");
             }
             else
             {
-                viewModel.Announce($"Read-only inspection found {inspection.Skills.Count} Source Skill(s). Nothing changed.");
+                _adoptionEvidence = discovery.Evidence;
+                viewModel.LoadInventory(RefreshInventory());
+                viewModel.Announce(
+                    $"Read-only inspection found {inspection.Skills.Count} Source Skill(s) and verified {discovery.Evidence.Count} Adoption candidate(s). Nothing changed."
+                    + (discovery.Diagnostics.Count == 0 ? string.Empty : $" {discovery.Diagnostics[0]}"));
             }
             ApplyRecoveryMode(viewModel);
         }
@@ -103,6 +111,8 @@ public partial class MainWindow : Window
 
     private async void OnRefreshChecks(object sender, RoutedEventArgs e)
         => await RefreshChecks(background: false);
+
+    private InventorySnapshot RefreshInventory() => _refreshInventory(_adoptionEvidence);
 
     private async Task RefreshChecks(bool background)
     {
@@ -131,7 +141,7 @@ public partial class MainWindow : Window
         try
         {
             var result = await Task.Run(_checkRunner.Refresh);
-            viewModel.LoadInventory(_refreshInventory());
+            viewModel.LoadInventory(RefreshInventory());
             viewModel.Announce(result.FailureCount == 0
                 ? $"Checked {result.CheckedCount} managed GitHub Skill(s). Installed content was not changed."
                 : $"Checked {result.CheckedCount} managed GitHub Skill(s); {result.FailureCount} check(s) failed and prior results are stale. Installed content was not changed.");
@@ -170,20 +180,70 @@ public partial class MainWindow : Window
             var result = await Task.Run(() => _githubProvider.Update(record, _mutationCancellation!.Token));
             if (!result.Succeeded)
             {
-                viewModel.LoadInventory(_refreshInventory());
+                viewModel.LoadInventory(RefreshInventory());
                 ApplyRecoveryMode(viewModel);
                 viewModel.Announce($"GitHub update failed. {result.Diagnostics}");
                 return;
             }
 
-            viewModel.LoadInventory(_refreshInventory());
+            viewModel.LoadInventory(RefreshInventory());
             viewModel.Announce($"Updated the selected GitHub Skill to {result.Value!.InstalledRevision[..12]} and verified content, state, and Claude exposure.");
         }
         catch (Exception exception)
         {
             _log.Error("GitHub update failed.", exception);
-            viewModel.LoadInventory(_refreshInventory());
+            viewModel.LoadInventory(RefreshInventory());
             viewModel.Announce($"GitHub update failed. {exception.Message}");
+        }
+        finally
+        {
+            EndMutation();
+            _maintenanceGate.Release();
+        }
+    }
+
+    private async void OnAdoptSelected(object sender, RoutedEventArgs e)
+    {
+        var viewModel = (ViewModels.MainViewModel)DataContext;
+        var evidence = viewModel.SelectedRow?.Entry.AdoptionEvidence;
+        if (evidence is null || viewModel.SelectedRow?.CanAdopt != true || !viewModel.MutationsAllowed)
+        {
+            viewModel.Announce("Adoption is unavailable for the selected Skill. Nothing changed.");
+            return;
+        }
+        if (!await _maintenanceGate.WaitAsync(0))
+        {
+            viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
+            return;
+        }
+
+        BeginMutation();
+        viewModel.Announce("Adopting the selected exact verified Skill. Existing Skill content will be preserved.");
+        try
+        {
+            var result = await Task.Run(() => _githubProvider.Adopt(evidence, _mutationCancellation!.Token));
+            _adoptionEvidence = _adoptionEvidence.Where(candidate =>
+                !string.Equals(
+                    candidate.ProposedRecord.CanonicalPath,
+                    evidence.ProposedRecord.CanonicalPath,
+                    StringComparison.OrdinalIgnoreCase)).ToList();
+            viewModel.LoadInventory(RefreshInventory());
+            if (!result.Succeeded)
+            {
+                ApplyRecoveryMode(viewModel);
+                viewModel.Announce($"Adoption failed. {result.Diagnostics} The installation remains Unmanaged; Skill content was not rewritten.");
+                return;
+            }
+
+            viewModel.Announce($"Adopted the selected Skill at {result.Value!.ExactPath}; verified Provenance was recorded and Skill content was preserved.");
+        }
+        catch (Exception exception)
+        {
+            _log.Error("GitHub Adoption failed.", exception);
+            _adoptionEvidence = [];
+            viewModel.LoadInventory(RefreshInventory());
+            ApplyRecoveryMode(viewModel);
+            viewModel.Announce($"Adoption failed. {exception.Message} Skill content was not rewritten.");
         }
         finally
         {
@@ -234,7 +294,7 @@ public partial class MainWindow : Window
 
             BeginMutation();
             var result = await Task.Run(() => _githubProvider.ManagedReinstall(plan, _mutationCancellation!.Token));
-            viewModel.LoadInventory(_refreshInventory());
+            viewModel.LoadInventory(RefreshInventory());
             if (!result.Succeeded)
             {
                 ApplyRecoveryMode(viewModel);
@@ -246,7 +306,7 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             _log.Error("Managed Reinstall failed.", exception);
-            viewModel.LoadInventory(_refreshInventory());
+            viewModel.LoadInventory(RefreshInventory());
             viewModel.Announce($"Managed Reinstall failed. {exception.Message}");
         }
         finally
@@ -277,7 +337,7 @@ public partial class MainWindow : Window
         {
             viewModel.Announce($"Uninstalling Healthy Managed Skill at {record.CanonicalPath}.");
             var result = await Task.Run(() => _githubProvider.Uninstall(record, _mutationCancellation!.Token));
-            viewModel.LoadInventory(_refreshInventory());
+            viewModel.LoadInventory(RefreshInventory());
             if (!result.Succeeded)
             {
                 ApplyRecoveryMode(viewModel);
@@ -325,7 +385,7 @@ public partial class MainWindow : Window
         try
         {
             var result = await Task.Run(() => _githubProvider.RemoveLocalFolder(exactPath, _mutationCancellation!.Token));
-            viewModel.LoadInventory(_refreshInventory());
+            viewModel.LoadInventory(RefreshInventory());
             if (!result.Succeeded)
             {
                 ApplyRecoveryMode(viewModel);

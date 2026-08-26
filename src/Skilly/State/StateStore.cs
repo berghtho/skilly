@@ -7,7 +7,7 @@ namespace Skilly.State;
 
 public sealed class SkillyState
 {
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = SkillyPaths.StateSchemaVersion;
 
     public List<ManagementRecord> Records { get; set; } = [];
 
@@ -47,6 +47,8 @@ public sealed class ProvenanceInfo
     public required string SourceProvider { get; set; }
 
     public required string OriginalReference { get; set; }
+
+    public required string NormalizedSource { get; set; }
 
     public required string Host { get; set; }
 
@@ -108,6 +110,7 @@ public enum MutationType
     ManagedReinstall,
     Uninstall,
     RemoveLocalFolder,
+    Adoption,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -116,6 +119,7 @@ public enum OperationOutcome
     Installed,
     Updated,
     Reinstalled,
+    Adopted,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -178,6 +182,8 @@ public enum TrackingRuleKind
 
 public sealed class RecoveryRequiredException(string message, Exception? inner = null) : Exception(message, inner);
 
+internal sealed class UnsupportedNewerSchemaException(string message) : Exception(message);
+
 public sealed class StateStore(RollingLog log, string? filePath = null, Action<SkillyState>? beforeSave = null)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -208,9 +214,20 @@ public sealed class StateStore(RollingLog log, string? filePath = null, Action<S
 
             try
             {
-                var state = Deserialize(FilePath);
+                var (state, originalVersion) = Deserialize(FilePath);
+                if (originalVersion < SkillyPaths.StateSchemaVersion)
+                {
+                    BackupBeforeMigration();
+                    WriteAtomic(state, retainBackup: true);
+                    log.Info($"Migrated authority state from schema {originalVersion} to {SkillyPaths.StateSchemaVersion}.");
+                }
                 log.Info($"Loaded authority state with {state.Records.Count} management record(s).");
                 return state;
+            }
+            catch (UnsupportedNewerSchemaException exception)
+            {
+                EnterRecoveryRequired(exception.Message);
+                throw new RecoveryRequiredException(exception.Message, exception);
             }
             catch (Exception exception)
             {
@@ -220,10 +237,15 @@ public sealed class StateStore(RollingLog log, string? filePath = null, Action<S
                 {
                     if (File.Exists(backupPath))
                     {
-                        var backup = Deserialize(backupPath);
+                        var (backup, _) = Deserialize(backupPath);
+                        WriteAtomic(backup, retainBackup: false);
                         log.Info($"Loaded backup authority state with {backup.Records.Count} management record(s).");
                         return backup;
                     }
+                }
+                catch (UnsupportedNewerSchemaException backupException)
+                {
+                    log.Error($"Backup authority state at '{backupPath}' uses an unsupported newer schema.", backupException);
                 }
                 catch (Exception backupException)
                 {
@@ -246,19 +268,13 @@ public sealed class StateStore(RollingLog log, string? filePath = null, Action<S
                 throw new RecoveryRequiredException(RecoveryDiagnostic ?? "Skilly is read-only because recovery is required.");
             }
 
+            if (state.SchemaVersion != SkillyPaths.StateSchemaVersion)
+            {
+                throw new InvalidOperationException($"Cannot save authority state schema {state.SchemaVersion}.");
+            }
+
             beforeSave?.Invoke(state);
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            var tempPath = FilePath + ".tmp";
-            File.WriteAllText(tempPath, JsonSerializer.Serialize(state, SerializerOptions));
-            if (File.Exists(FilePath))
-            {
-                var backupPath = FilePath + ".bak";
-                File.Replace(tempPath, FilePath, backupPath);
-            }
-            else
-            {
-                File.Move(tempPath, FilePath);
-            }
+            WriteAtomic(state, retainBackup: true);
 
             log.Info($"Saved authority state ({state.Records.Count} record(s), pending={(state.PendingOperation is not null)})");
         }
@@ -274,15 +290,87 @@ public sealed class StateStore(RollingLog log, string? filePath = null, Action<S
         }
     }
 
-    private static SkillyState Deserialize(string path)
+    private (SkillyState State, int OriginalVersion) Deserialize(string path)
     {
-        var state = JsonSerializer.Deserialize<SkillyState>(File.ReadAllText(path), SerializerOptions);
-        if (state is null || state.SchemaVersion != SkillyPaths.StateSchemaVersion)
+        var json = File.ReadAllText(path);
+        using var document = JsonDocument.Parse(json);
+        if (!document.RootElement.TryGetProperty("schemaVersion", out var schemaElement)
+            || !schemaElement.TryGetInt32(out var schemaVersion))
         {
-            throw new InvalidOperationException(
-                $"State schema version {(state?.SchemaVersion.ToString() ?? "null")} is not supported.");
+            throw new InvalidOperationException("Authority state has no valid integer schema version.");
         }
 
-        return state;
+        if (schemaVersion > SkillyPaths.StateSchemaVersion)
+        {
+            throw new UnsupportedNewerSchemaException(
+                $"Authority state schema {schemaVersion} is newer than supported schema {SkillyPaths.StateSchemaVersion}; Skilly is read-only.");
+        }
+        if (schemaVersion < 1)
+        {
+            throw new InvalidOperationException($"Authority state schema {schemaVersion} cannot be migrated safely.");
+        }
+
+        if (schemaVersion == 1)
+        {
+            var node = System.Text.Json.Nodes.JsonNode.Parse(json)?.AsObject()
+                       ?? throw new InvalidOperationException("Authority state is empty.");
+            if (node["records"] is System.Text.Json.Nodes.JsonArray records)
+            {
+                foreach (var record in records.OfType<System.Text.Json.Nodes.JsonObject>())
+                {
+                    if (record["provenance"] is not System.Text.Json.Nodes.JsonObject provenance)
+                    {
+                        continue;
+                    }
+                    var host = provenance["host"]?.GetValue<string>() ?? string.Empty;
+                    var owner = provenance["owner"]?.GetValue<string>() ?? string.Empty;
+                    var repository = provenance["repository"]?.GetValue<string>() ?? string.Empty;
+                    provenance["normalizedSource"] = NormalizeSource(host, owner, repository);
+                }
+            }
+            node["schemaVersion"] = SkillyPaths.StateSchemaVersion;
+            json = node.ToJsonString(SerializerOptions);
+        }
+
+        var state = JsonSerializer.Deserialize<SkillyState>(json, SerializerOptions);
+        if (state is null || state.Records is null)
+        {
+            throw new InvalidOperationException("Authority state is incomplete.");
+        }
+        return (state, schemaVersion);
     }
+
+    private void BackupBeforeMigration()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+        File.Copy(FilePath, FilePath + ".bak", overwrite: true);
+    }
+
+    private void WriteAtomic(SkillyState state, bool retainBackup)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+        var tempPath = FilePath + ".tmp";
+        try
+        {
+            File.WriteAllText(tempPath, JsonSerializer.Serialize(state, SerializerOptions));
+            if (File.Exists(FilePath))
+            {
+                File.Replace(tempPath, FilePath, retainBackup ? FilePath + ".bak" : null);
+            }
+            else
+            {
+                File.Move(tempPath, FilePath);
+            }
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
+        }
+    }
+
+    private static string NormalizeSource(string host, string owner, string repository)
+        => $"{host}/{owner}/{repository}".ToLowerInvariant();
 }

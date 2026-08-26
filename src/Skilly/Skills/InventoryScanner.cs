@@ -13,11 +13,18 @@ public sealed record InventorySnapshot(IReadOnlyList<InventoryEntry> Entries, Da
 
 public sealed class InventoryScanner
 {
-    public InventorySnapshot Scan(string home, State.SkillyState? state = null)
+    public InventorySnapshot Scan(
+        string home,
+        State.SkillyState? state = null,
+        IReadOnlyList<AdoptionEvidence>? adoptionEvidence = null)
     {
         var recordsByPath = (state?.Records ?? [])
             .GroupBy(static record => record.CanonicalPath.TrimEnd(Path.DirectorySeparatorChar), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(static group => group.Key, static group => group.Last(), StringComparer.OrdinalIgnoreCase);
+        var adoptionByPath = (adoptionEvidence ?? [])
+            .GroupBy(evidence => NormalizePath(evidence.ProposedRecord.CanonicalPath), StringComparer.OrdinalIgnoreCase)
+            .Where(static group => group.Count() == 1)
+            .ToDictionary(static group => group.Key, static group => group.Single(), StringComparer.OrdinalIgnoreCase);
 
         var roots = new[]
         {
@@ -58,7 +65,10 @@ public sealed class InventoryScanner
             var record = recordsByPath.TryGetValue(NormalizePath(candidate.FileSystemInfo.FullName), out var matched)
                 ? matched
                 : null;
-            entries.Add(BuildFolderEntry(candidate, duplicateNames.Contains(candidate), record));
+            var evidence = adoptionByPath.TryGetValue(NormalizePath(candidate.FileSystemInfo.FullName), out var verified)
+                ? verified
+                : null;
+            entries.Add(BuildFolderEntry(candidate, duplicateNames.Contains(candidate), record, evidence));
         }
 
         foreach (var link in links.Where(link => !link.ConsumedAsExposure))
@@ -139,7 +149,8 @@ public sealed class InventoryScanner
     private InventoryEntry BuildFolderEntry(
         Candidate candidate,
         bool isDuplicate,
-        State.ManagementRecord? record)
+        State.ManagementRecord? record,
+        AdoptionEvidence? adoptionEvidence)
     {
         var metadata = SkillMdReader.Read(candidate.FileSystemInfo.FullName, candidate.FolderName);
         var health = metadata.Status == MetadataReadStatus.Valid ? InstallationHealth.Healthy : InstallationHealth.InvalidMetadata;
@@ -179,18 +190,37 @@ public sealed class InventoryScanner
             exposures[Harness.ClaudeCode] = claude;
         }
 
+        var verifiedAdoption = record is null
+                               && adoptionEvidence is not null
+                               && candidate.Root.Kind == RootKind.CanonicalAgents
+                               && !isDuplicate
+                               && health == InstallationHealth.Healthy
+                               && candidate.ClaudeExposure?.State is ExposureState.MissingJunction or ExposureState.VerifiedJunction
+                               && IsCompleteEvidence(adoptionEvidence, candidate)
+                               && string.Equals(
+                                   PayloadHasher.HashFolder(candidate.FileSystemInfo.FullName),
+                                   adoptionEvidence.ExpectedPayloadHash,
+                                   StringComparison.OrdinalIgnoreCase)
+                               && Directory.EnumerateFiles(candidate.FileSystemInfo.FullName, "*", SearchOption.AllDirectories).Count()
+                                   == adoptionEvidence.ExpectedFileCount;
+
         return new InventoryEntry
         {
             FolderName = candidate.FolderName,
             LocalPath = candidate.FileSystemInfo.FullName,
             RootKind = candidate.Root.Kind,
             Kind = EntryKind.RealFolder,
-            ManagementStatus = record is null ? ManagementStatus.Unmanaged : ManagementStatus.Managed,
+            ManagementStatus = record is not null
+                ? ManagementStatus.Managed
+                : verifiedAdoption
+                    ? ManagementStatus.VerifiedAdoptionAvailable
+                    : ManagementStatus.Unmanaged,
             Health = health,
             HealthDetail = detail,
             Metadata = metadata,
             Exposures = exposures,
             ManagementRecord = record,
+            AdoptionEvidence = verifiedAdoption ? adoptionEvidence : null,
         };
     }
 
@@ -269,6 +299,28 @@ public sealed class InventoryScanner
     private static string NormalizePath(string path) => Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
     private static string NormalizeRelative(string relativePath) => relativePath.Replace('/', Path.DirectorySeparatorChar);
+
+    private static bool IsCompleteEvidence(AdoptionEvidence evidence, Candidate candidate)
+    {
+        var record = evidence.ProposedRecord;
+        var provenance = record.Provenance;
+        var normalizedSource = $"{provenance.Host}/{provenance.Owner}/{provenance.Repository}".ToLowerInvariant();
+        var requestedPath = provenance.RequestedPath?.Trim('/') ?? string.Empty;
+        var repositoryPath = provenance.SourceSkillPath == "."
+            ? requestedPath
+            : requestedPath.Length == 0
+                ? provenance.SourceSkillPath
+                : requestedPath + "/" + provenance.SourceSkillPath;
+        var expectedProviderEvidence = $"gh api contents/{(repositoryPath.Length == 0 ? "." : repositoryPath)}@{record.InstalledRevision}";
+        return string.Equals(provenance.SourceProvider, "github", StringComparison.Ordinal)
+               && string.Equals(provenance.NormalizedSource, normalizedSource, StringComparison.Ordinal)
+               && !string.IsNullOrWhiteSpace(provenance.SourceSkillPath)
+               && string.Equals(provenance.ResolvedCommit, record.InstalledRevision, StringComparison.OrdinalIgnoreCase)
+               && string.Equals(record.ProviderEvidence, expectedProviderEvidence, StringComparison.Ordinal)
+               && string.Equals(record.InstalledPayloadHash, evidence.ExpectedPayloadHash, StringComparison.OrdinalIgnoreCase)
+               && record.InstalledFileCount == evidence.ExpectedFileCount
+               && string.Equals(NormalizePath(record.CanonicalPath), NormalizePath(candidate.FileSystemInfo.FullName), StringComparison.OrdinalIgnoreCase);
+    }
 
     private sealed class Candidate(HarnessRoot root, string folderName, FileSystemInfo fileSystemInfo, EntryKind kind)
     {

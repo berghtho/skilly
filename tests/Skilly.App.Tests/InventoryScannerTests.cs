@@ -141,6 +141,7 @@ public sealed class InventoryScannerTests : IDisposable
                     {
                         SourceProvider = "github",
                         OriginalReference = "https://github.com/acme/library",
+                        NormalizedSource = "github.com/acme/library",
                         Host = "github.com",
                         Owner = "acme",
                         Repository = "library",

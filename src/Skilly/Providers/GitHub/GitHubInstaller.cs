@@ -231,6 +231,7 @@ public sealed class GitHubInstaller(
             {
                 SourceProvider = "github",
                 OriginalReference = inspection.Reference.Original,
+                NormalizedSource = inspection.Reference.NormalizedSource,
                 Host = inspection.Reference.Host,
                 Owner = inspection.Reference.Owner,
                 Repository = inspection.Reference.Repository,

@@ -45,7 +45,7 @@ public sealed class InventoryRow
 
     public string RootLabel { get; }
 
-    private ManagementRecord? Record => Entry.ManagementRecord;
+    private ManagementRecord? Record => Entry.ManagementRecord ?? Entry.AdoptionEvidence?.ProposedRecord;
 
     private CheckSnapshot? Check => Record?.LatestCheck;
 
@@ -117,7 +117,11 @@ public sealed class InventoryRow
     public bool CanUpdate => Entry.Health == InstallationHealth.Healthy
                              && Check?.Status == State.UpdateStatus.UpdateAvailable
                              && !Check.IsStale
-                              && Check.Failure is null;
+                               && Check.Failure is null;
+
+    public bool CanAdopt => Entry.ManagementStatus == ManagementStatus.VerifiedAdoptionAvailable
+                            && Entry.Health == InstallationHealth.Healthy
+                            && Entry.AdoptionEvidence is not null;
 
     public bool CanManagedReinstall => Entry.ManagementStatus == ManagementStatus.Managed
                                          && Entry.Health is InstallationHealth.LocallyModified or InstallationHealth.ExposureProblem;
@@ -128,7 +132,9 @@ public sealed class InventoryRow
     public bool CanRemoveLocalFolder => Entry.ManagementStatus == ManagementStatus.Unmanaged
                                         && Entry.Kind == EntryKind.RealFolder;
 
-    public string ActionState => CanUpdate
+    public string ActionState => CanAdopt
+            ? "Direct Adoption is available. It records verified Provenance and preserves Skill content."
+            : CanUpdate
             ? "A verified direct update is available."
             : Entry.Health == InstallationHealth.LocallyModified
             ? "Normal update is blocked because this Skill Installation is Locally Modified. Managed Reinstall is available."

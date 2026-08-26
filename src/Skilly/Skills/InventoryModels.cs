@@ -1,5 +1,7 @@
 namespace Skilly.Skills;
 
+public sealed record AdoptionEvidence(State.ManagementRecord ProposedRecord, string ExpectedPayloadHash, int ExpectedFileCount);
+
 public enum ManagementStatus
 {
     Managed,
@@ -80,6 +82,8 @@ public sealed class InventoryEntry
     public required IReadOnlyDictionary<Harness, HarnessExposure> Exposures { get; init; }
 
     public State.ManagementRecord? ManagementRecord { get; init; }
+
+    public AdoptionEvidence? AdoptionEvidence { get; init; }
 
     public bool NeedsAttention =>
         Health is InstallationHealth.LocallyModified

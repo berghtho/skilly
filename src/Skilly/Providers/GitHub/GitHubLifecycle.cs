@@ -86,6 +86,86 @@ public sealed class GitHubLifecycle(
             payload);
     }
 
+    public LifecycleResult Adopt(AdoptionEvidence evidence, CancellationToken cancellationToken = default)
+    {
+        var state = RequireWritableState();
+        var record = evidence.ProposedRecord;
+        ValidateAdoptionEvidence(state, evidence);
+
+        var sourcePayload = checker.FetchPayload(record, record.InstalledRevision);
+        if (!string.Equals(sourcePayload.Hash, evidence.ExpectedPayloadHash, StringComparison.OrdinalIgnoreCase)
+            || sourcePayload.Files.Count != evidence.ExpectedFileCount)
+        {
+            throw new ProviderFailure("The immutable provider payload no longer matches the verified Adoption evidence.");
+        }
+
+        var startingHash = PayloadHasher.HashFolder(record.CanonicalPath);
+        if (!string.Equals(startingHash, evidence.ExpectedPayloadHash, StringComparison.OrdinalIgnoreCase)
+            || Directory.EnumerateFiles(record.CanonicalPath, "*", SearchOption.AllDirectories).Count() != evidence.ExpectedFileCount)
+        {
+            throw new ProviderFailure("The Skill Installation changed after verification and remains Unmanaged.");
+        }
+
+        var junctionPath = record.IntendedClaudeJunctionPath!;
+        var junctionExisted = PathEntryExists(junctionPath);
+        if (junctionExisted && !Junction.IsJunctionTo(junctionPath, record.CanonicalPath))
+        {
+            throw new ProviderFailure("The Claude destination has conflicting topology; Adoption is unavailable.");
+        }
+
+        var pending = CreatePending(
+            MutationType.Adoption,
+            [record.InstallationId],
+            [record.CanonicalPath, junctionPath],
+            [startingHash, null],
+            [PathState.Directory, junctionExisted ? PathState.Junction : PathState.Missing]);
+        state.PendingOperation = pending;
+        stateStore.Save(state);
+        var createdJunction = false;
+        var authorityAdded = false;
+        try
+        {
+            ThrowIfCancellationRequested(pending, cancellationToken);
+            SavePhase(state, pending, PendingOperationPhase.MutationStarted);
+            if (!junctionExisted)
+            {
+                Junction.Create(junctionPath, record.CanonicalPath);
+                createdJunction = true;
+            }
+
+            if (!MatchesHash(record.CanonicalPath, startingHash)
+                || !Junction.IsJunctionTo(junctionPath, record.CanonicalPath))
+            {
+                throw new ProviderFailure("Adoption postconditions did not preserve exact content and Claude exposure topology.");
+            }
+
+            ThrowIfCancellationRequested(pending, cancellationToken);
+            SavePhase(state, pending, PendingOperationPhase.Verified);
+            record.LastOperationOutcome = OperationOutcome.Adopted;
+            state.Records.Add(record);
+            authorityAdded = true;
+            state.PendingOperation = null;
+            state.LastOperationNote = $"adopted GitHub Skill '{record.Provenance.SourceSkillPath}' without rewriting content";
+            stateStore.Save(state);
+            return new LifecycleResult(record.CanonicalPath, "Adoption recorded exact verified Provenance; Skill content was preserved.");
+        }
+        catch (OperationCanceledException)
+        {
+            RetainForRestart(state, pending, "Adoption cancellation requested; restart recovery will reconcile it.");
+            throw;
+        }
+        catch (Exception exception)
+        {
+            if (authorityAdded)
+            {
+                state.Records.Remove(record);
+            }
+            var restored = !createdJunction || RemoveCreatedAdoptionJunction(junctionPath, record.CanonicalPath);
+            FinishFailedMutation(state, pending, restored, $"GitHub Adoption failed: {exception.Message}");
+            throw Failure("Adoption", restored, exception);
+        }
+    }
+
     public LifecycleResult ManagedReinstall(ManagedReinstallPlan plan, CancellationToken cancellationToken = default)
     {
         var state = RequireWritableState();
@@ -277,6 +357,7 @@ public sealed class GitHubLifecycle(
                 MutationType.Uninstall => RecoverUninstall(state, pending),
                 MutationType.RemoveLocalFolder => RecoverLocalRemoval(state, pending),
                 MutationType.Install => RecoverInstall(state, pending),
+                MutationType.Adoption => RecoverAdoption(state, pending),
                 _ => RequireManualRecovery("The pending mutation type is not recoverable by this version."),
             };
         }
@@ -493,6 +574,33 @@ public sealed class GitHubLifecycle(
         return RequireManualRecovery("An interrupted install created content without committed management authority.");
     }
 
+    private RecoveryResult RecoverAdoption(SkillyState state, PendingOperation pending)
+    {
+        if (pending.StartingPaths.Count != 2 || pending.StartingHashes.Count == 0
+            || !MatchesHash(pending.StartingPaths[0], pending.StartingHashes[0]))
+        {
+            return RequireManualRecovery("The pending Adoption no longer matches its verified canonical payload.");
+        }
+
+        var junction = pending.StartingPaths[1];
+        if (pending.StartingPathStates.ElementAtOrDefault(1) == PathState.Missing && PathEntryExists(junction))
+        {
+            if (!RemoveCreatedAdoptionJunction(junction, pending.StartingPaths[0]))
+            {
+                return RequireManualRecovery("The Claude entry created by pending Adoption cannot be safely removed.");
+            }
+        }
+        else if (pending.StartingPathStates.ElementAtOrDefault(1) == PathState.Junction
+                 && !Junction.IsJunctionTo(junction, pending.StartingPaths[0]))
+        {
+            return RequireManualRecovery("The pre-existing Claude junction changed while Adoption was pending.");
+        }
+
+        state.Records.RemoveAll(record => pending.AffectedInstallationIds.Contains(record.InstallationId));
+        ClearRecovered(state, pending, "Pending Adoption was safely rolled back; the installation remains Unmanaged.");
+        return new RecoveryResult(RecoveryDisposition.Restored, state.LastOperationNote!);
+    }
+
     private RecoveryResult RequireManualRecovery(string diagnostic)
     {
         stateStore.EnterRecoveryRequired($"Recovery Required: {diagnostic}");
@@ -524,6 +632,59 @@ public sealed class GitHubLifecycle(
         }
 
         return record;
+    }
+
+    private static void ValidateAdoptionEvidence(SkillyState state, AdoptionEvidence evidence)
+    {
+        var record = evidence.ProposedRecord;
+        var provenance = record.Provenance;
+        var normalizedSource = $"{provenance.Host}/{provenance.Owner}/{provenance.Repository}".ToLowerInvariant();
+        var repositoryPath = GitHubChecker.RepositoryPath(provenance);
+        var providerEvidence = $"gh api contents/{(repositoryPath.Length == 0 ? "." : repositoryPath)}@{record.InstalledRevision}";
+        if (!string.Equals(record.Provenance.SourceProvider, "github", StringComparison.Ordinal)
+            || !string.Equals(provenance.NormalizedSource, normalizedSource, StringComparison.Ordinal)
+            || string.IsNullOrWhiteSpace(record.Provenance.SourceSkillPath)
+            || string.IsNullOrWhiteSpace(record.Provenance.ResolvedCommit)
+            || !string.Equals(record.Provenance.ResolvedCommit, record.InstalledRevision, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(record.InstalledPayloadHash, evidence.ExpectedPayloadHash, StringComparison.OrdinalIgnoreCase)
+            || record.InstalledFileCount != evidence.ExpectedFileCount
+            || !string.Equals(record.ProviderEvidence, providerEvidence, StringComparison.Ordinal))
+        {
+            throw new ProviderFailure("Adoption evidence does not contain exact normalized source, path, revision, content, and provider identity.");
+        }
+        if (state.Records.Any(candidate =>
+                candidate.InstallationId == record.InstallationId
+                || string.Equals(candidate.CanonicalPath, record.CanonicalPath, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new ProviderFailure("The selected Skill Installation already has management authority.");
+        }
+        if (!Directory.Exists(record.CanonicalPath) || IsReparsePoint(record.CanonicalPath)
+            || SkillMdReader.Read(record.CanonicalPath, Path.GetFileName(record.CanonicalPath)).Status != MetadataReadStatus.Valid
+            || record.IntendedClaudeJunctionPath is null)
+        {
+            throw new ProviderFailure("Adoption requires a valid real canonical Skill folder and intended Claude Harness Exposure.");
+        }
+    }
+
+    private static bool RemoveCreatedAdoptionJunction(string junctionPath, string canonicalPath)
+    {
+        try
+        {
+            if (!PathEntryExists(junctionPath))
+            {
+                return true;
+            }
+            if (!Junction.IsJunctionTo(junctionPath, canonicalPath))
+            {
+                return false;
+            }
+            Directory.Delete(junctionPath, recursive: false);
+            return !PathEntryExists(junctionPath);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static string RecheckManagedPath(ManagementRecord record, bool allowLocalModification, bool requireHealthyExposure)

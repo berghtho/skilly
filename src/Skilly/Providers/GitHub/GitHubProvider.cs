@@ -8,7 +8,8 @@ public sealed class GitHubProvider(
     GitHubInstaller installer,
     GitHubChecker checker,
     GitHubUpdater updater,
-    GitHubLifecycle lifecycle)
+    GitHubLifecycle lifecycle,
+    GitHubAdoptionVerifier adoptionVerifier)
 {
     public bool RecoveryRequired => lifecycle.RecoveryRequired;
 
@@ -45,6 +46,35 @@ public sealed class GitHubProvider(
         catch (Exception exception)
         {
             return ProviderResult<InstallResult>.Failure(exception.Message);
+        }
+    }
+
+    public ProviderResult<AdoptionDiscovery> DiscoverAdoptions(SourceInspection inspection, Skills.InventorySnapshot inventory)
+    {
+        try
+        {
+            var discovery = adoptionVerifier.Discover(inspection, inventory);
+            return ProviderResult<AdoptionDiscovery>.Success(
+                discovery,
+                $"Verified {discovery.Evidence.Count} exact Adoption candidate(s); nothing changed.");
+        }
+        catch (Exception exception)
+        {
+            return ProviderResult<AdoptionDiscovery>.Failure(exception.Message);
+        }
+    }
+
+    public ProviderResult<LifecycleResult> Adopt(Skills.AdoptionEvidence evidence, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return ProviderResult<LifecycleResult>.Success(
+                lifecycle.Adopt(evidence, cancellationToken),
+                "Adoption recorded verified Provenance without rewriting Skill content.");
+        }
+        catch (Exception exception)
+        {
+            return ProviderResult<LifecycleResult>.Failure(exception.Message);
         }
     }
 

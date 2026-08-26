@@ -234,6 +234,14 @@
                             <TextBlock Style="{StaticResource DetailLabel}" Text="Available action" />
                             <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.ActionState}" />
                             <StackPanel IsEnabled="{Binding MutationsAllowed}">
+                                <Button Content="_Adopt Skill"
+                                        Click="OnAdoptSelected"
+                                        IsEnabled="{Binding SelectedRow.CanAdopt}"
+                                        HorizontalAlignment="Left"
+                                        MinWidth="110"
+                                        Margin="0,2,0,6"
+                                        AutomationProperties.Name="Adopt exact verified Skill without changing content"
+                                        AutomationProperties.AutomationId="Skilly.AdoptSkill" />
                                 <Button Content="_Update Skill"
                                         Click="OnUpdateSelected"
                                         IsEnabled="{Binding SelectedRow.CanUpdate}"

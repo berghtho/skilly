@@ -75,7 +75,14 @@ public sealed class GitHubProviderFixture : IDisposable
         var installer = new GitHubInstaller(client, StateStore, Log, Home);
         var checker = new GitHubChecker(client);
         Lifecycle = new GitHubLifecycle(checker, StateStore, Log);
-        Provider = new GitHubProvider(client, inspector, installer, checker, new GitHubUpdater(checker, StateStore, Log), Lifecycle);
+        Provider = new GitHubProvider(
+            client,
+            inspector,
+            installer,
+            checker,
+            new GitHubUpdater(checker, StateStore, Log),
+            Lifecycle,
+            new GitHubAdoptionVerifier(client, Home));
     }
 
     public string Root { get; }

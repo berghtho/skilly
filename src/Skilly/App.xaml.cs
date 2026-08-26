@@ -47,19 +47,20 @@ public partial class App : Application
         var checker = new GitHubChecker(ghClient);
         var updater = new GitHubUpdater(checker, stateStore, _log);
         var lifecycle = new GitHubLifecycle(checker, stateStore, _log);
+        var adoptionVerifier = new GitHubAdoptionVerifier(ghClient, home);
         var recovery = lifecycle.RecoverPendingOperation();
-        var githubProvider = new GitHubProvider(ghClient, inspector, installer, checker, updater, lifecycle);
+        var githubProvider = new GitHubProvider(ghClient, inspector, installer, checker, updater, lifecycle, adoptionVerifier);
         var checkRunner = new GitHubCheckRunner(githubProvider, stateStore);
         var scanner = new InventoryScanner();
-        InventorySnapshot RefreshInventory()
+        InventorySnapshot RefreshInventory(IReadOnlyList<AdoptionEvidence>? adoptionEvidence = null)
         {
             try
             {
-                return scanner.Scan(home, stateStore.Load());
+                return scanner.Scan(home, stateStore.Load(), adoptionEvidence);
             }
             catch (RecoveryRequiredException)
             {
-                return scanner.Scan(home, new SkillyState());
+                return scanner.Scan(home, new SkillyState(), adoptionEvidence);
             }
         }
 
