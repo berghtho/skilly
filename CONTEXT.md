@@ -48,6 +48,14 @@ _Avoid_: Update Status
 The explicit act of recording verified Provenance for an existing canonical Unmanaged Installation without replacing its content.
 _Avoid_: Import, claim
 
+**Managed Reinstall**:
+The explicit replacement of an existing installation with verified source content when normal Adoption or update is unsafe.
+_Avoid_: Update, repair
+
+**Recovery Required**:
+A read-only condition where an interrupted or failed mutation cannot be reconciled or restored safely without user intervention.
+_Avoid_: Failed operation
+
 **Source Provider**:
 A supported mechanism that supplies Skills and defines how Skilly checks, installs, updates, and removes them, such as `skills`, Microsoft APM, or GitHub.
 _Avoid_: Package manager, registry
