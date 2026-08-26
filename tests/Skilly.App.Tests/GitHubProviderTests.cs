@@ -21,6 +21,14 @@ public sealed class GitHubProviderFixture : IDisposable
         Directory.CreateDirectory(Home);
         Directory.CreateDirectory(Path.Combine(FixtureRoot, "files", "skills", "alpha", "scripts"));
         Directory.CreateDirectory(Path.Combine(FixtureRoot, "files", "skills", "beta"));
+        Directory.CreateDirectory(Path.Combine(FixtureRoot, "files", "unrelated"));
+
+        File.WriteAllText(
+            Path.Combine(FixtureRoot, "files", "SKILL.md"),
+            "---\nname: Library Display\ndescription: Repository-root Skill.\n---\n");
+        File.WriteAllText(
+            Path.Combine(FixtureRoot, "files", "unrelated", "SKILL.md"),
+            "---\nname: Unrelated Display\ndescription: Outside the requested subtree.\n---\n");
 
         File.WriteAllText(Path.Combine(FixtureRoot, "repository.json"), "{\"default_branch\":\"main\"}");
         File.WriteAllText(Path.Combine(FixtureRoot, "commit.json"), $"{{\"sha\":\"{CommitSha}\"}}");
@@ -99,6 +107,7 @@ public sealed class GitHubProviderFixture : IDisposable
                 new { path = "skills/alpha/scripts/run.ps1", type = "blob" },
                 new { path = "skills/beta/SKILL.md", type = "blob" },
                 new { path = "unrelated/SKILL.md", type = "blob" },
+                new { path = "SKILL.md", type = "blob" },
             },
         };
         File.WriteAllText(Path.Combine(FixtureRoot, "tree.json"), JsonSerializer.Serialize(payload));
@@ -161,6 +170,32 @@ public sealed class GitHubProviderTests
             beta => Assert.Equal("beta", beta.SkillPath));
         Assert.False(File.Exists(fixture.StatePath));
         Assert.False(Directory.Exists(Path.Combine(fixture.Home, ".agents")));
+    }
+
+    [Fact]
+    public void Inspection_supports_direct_Skill_folder_and_repository_root_Skill()
+    {
+        using var fixture = new GitHubProviderFixture();
+        Assert.True(GitHubSourceReference.TryParse(
+            "https://github.com/acme/library/tree/main/skills/alpha",
+            out var directReference,
+            out var directError), directError);
+
+        var direct = fixture.Provider.Inspect(directReference).ValueOrThrow();
+        var directSkill = Assert.Single(direct.Skills);
+        Assert.Equal(".", directSkill.SkillPath);
+        Assert.Equal("skills/alpha", directSkill.RepositoryPath);
+        Assert.Equal("alpha", directSkill.FolderName);
+
+        Assert.True(GitHubSourceReference.TryParse(
+            "https://github.com/acme/library",
+            out var rootReference,
+            out var rootError), rootError);
+        var root = fixture.Provider.Inspect(rootReference).ValueOrThrow();
+        var rootSkill = Assert.Single(root.Skills, static skill => skill.RepositoryPath.Length == 0);
+        Assert.Equal(".", rootSkill.SkillPath);
+        Assert.Equal("library", rootSkill.FolderName);
+        Assert.Equal("Library Display", rootSkill.DeclaredName);
     }
 
     [Fact]

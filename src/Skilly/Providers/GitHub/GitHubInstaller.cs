@@ -161,7 +161,9 @@ public sealed class GitHubInstaller(
         var files = new List<(string RelativePath, byte[] Content)>();
         foreach (var path in skill.FilePaths)
         {
-            var relative = path[(skill.RepositoryPath.Length + 1)..];
+            var relative = skill.RepositoryPath.Length == 0
+                ? path
+                : path[(skill.RepositoryPath.Length + 1)..];
             files.Add((relative, client.GetFileContent(inspection.Reference.Owner, inspection.Reference.Repository, path, inspection.Commit.Sha)));
         }
 
@@ -222,7 +224,7 @@ public sealed class GitHubInstaller(
             InstalledRevision = inspection.Commit.Sha,
             InstalledPayloadHash = actualHash,
             InstalledFileCount = files.Count,
-            ProviderEvidence = $"gh api contents/{skill.RepositoryPath}@{inspection.Commit.Sha}",
+            ProviderEvidence = $"gh api contents/{(skill.RepositoryPath.Length == 0 ? "." : skill.RepositoryPath)}@{inspection.Commit.Sha}",
             LastOperationOutcome = OperationOutcome.Installed,
         };
     }

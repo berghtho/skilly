@@ -46,8 +46,8 @@ public sealed class SourceInspector(GhClient client, RollingLog log)
             .ToList();
 
         var skillFolders = blobs
-            .Where(path => path.EndsWith("/SKILL.md", StringComparison.Ordinal))
-            .Select(path => path[..^"/SKILL.md".Length])
+            .Where(path => path == "SKILL.md" || path.EndsWith("/SKILL.md", StringComparison.Ordinal))
+            .Select(path => path == "SKILL.md" ? string.Empty : path[..^"/SKILL.md".Length])
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
@@ -60,7 +60,7 @@ public sealed class SourceInspector(GhClient client, RollingLog log)
         var skills = new List<SourceSkill>();
         foreach (var folder in skillFolders.OrderBy(static folder => folder, StringComparer.Ordinal))
         {
-            var skillMdPath = folder + "/SKILL.md";
+            var skillMdPath = folder.Length == 0 ? "SKILL.md" : folder + "/SKILL.md";
             byte[] skillMdBytes;
             try
             {
@@ -73,9 +73,18 @@ public sealed class SourceInspector(GhClient client, RollingLog log)
             }
 
             var metadata = SkillMdReader.Parse(System.Text.Encoding.UTF8.GetString(skillMdBytes));
-            var files = blobs.Where(path => path.StartsWith(folder + "/", StringComparison.Ordinal)).ToList();
-            var folderName = folder[(folder.LastIndexOf('/') + 1)..];
-            var skillPath = prefix.Length == 0 ? folder : folder[prefix.Length..];
+            var files = folder.Length == 0
+                ? blobs
+                : blobs.Where(path => path.StartsWith(folder + "/", StringComparison.Ordinal)).ToList();
+            var folderName = folder.Length == 0
+                ? reference.Repository
+                : folder[(folder.LastIndexOf('/') + 1)..];
+            var requestedRoot = reference.RequestedPath?.TrimEnd('/') ?? string.Empty;
+            var skillPath = folder == requestedRoot
+                ? "."
+                : requestedRoot.Length == 0
+                    ? folder
+                    : folder[(requestedRoot.Length + 1)..];
             if (skillPath.Length == 0)
             {
                 skillPath = ".";
