@@ -39,3 +39,11 @@ _Avoid_: Package manager, registry
 **Provenance**:
 The recorded Source Provider, normalized source identity, Source Skill path, requested tracking rule, and resolved revision or content hash from which a Skill Installation came.
 _Avoid_: Origin metadata
+
+**Tracking Rule**:
+The moving or immutable source reference against which a Skill Installation is checked, such as a branch, version constraint, tag, or commit.
+_Avoid_: Update channel
+
+**Update Status**:
+The read-only result of comparing a managed Skill Installation with its Tracking Rule: Current, Update Available, Pinned, Source Unavailable, or Check Failed.
+_Avoid_: Version status
