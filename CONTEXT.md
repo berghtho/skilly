@@ -32,6 +32,18 @@ _Avoid_: Consumer, host, client
 A discovered Skill folder whose source and update mechanism are not yet known to Skilly.
 _Avoid_: Imported skill
 
+**Management Status**:
+Whether Skilly has authority to manage an installation: Managed, Verified Adoption Available, or Unmanaged.
+_Avoid_: Ownership state
+
+**Installation Health**:
+The result of reconciling an installation with its recorded payload, metadata, and Harness Exposures: Healthy, Locally Modified, Missing, Exposure Problem, Invalid Metadata, or Collision.
+_Avoid_: Update Status
+
+**Adoption**:
+The explicit act of recording verified Provenance for an existing canonical Unmanaged Installation without replacing its content.
+_Avoid_: Import, claim
+
 **Source Provider**:
 A supported mechanism that supplies Skills and defines how Skilly checks, installs, updates, and removes them, such as `skills`, Microsoft APM, or GitHub.
 _Avoid_: Package manager, registry
