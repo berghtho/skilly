@@ -1,6 +1,7 @@
 using Skilly.State;
 using Skilly.Providers.SkillsCli;
 using Skilly.Providers.GitHub;
+using Skilly.Providers.Apm;
 
 namespace Skilly.Providers;
 
@@ -11,12 +12,14 @@ public sealed class ProviderCheckRunner
     private readonly GitHubProvider _provider;
     private readonly StateStore _stateStore;
     private readonly SkillsCliProvider? _skillsProvider;
+    private readonly ApmProvider? _apmProvider;
 
-    public ProviderCheckRunner(GitHubProvider provider, StateStore stateStore, SkillsCliProvider? skillsProvider = null)
+    public ProviderCheckRunner(GitHubProvider provider, StateStore stateStore, SkillsCliProvider? skillsProvider = null, ApmProvider? apmProvider = null)
     {
         _provider = provider;
         _stateStore = stateStore;
         _skillsProvider = skillsProvider;
+        _apmProvider = apmProvider;
     }
 
     public CheckRefreshResult Refresh()
@@ -30,13 +33,16 @@ public sealed class ProviderCheckRunner
         var checkedCount = 0;
         var failureCount = 0;
         foreach (var record in state.Records.Where(record =>
-                     string.Equals(record.Provenance.SourceProvider, "github", StringComparison.Ordinal)
-                     || (_skillsProvider is not null && string.Equals(record.Provenance.SourceProvider, "skills", StringComparison.Ordinal))))
+                      string.Equals(record.Provenance.SourceProvider, "github", StringComparison.Ordinal)
+                     || (_skillsProvider is not null && string.Equals(record.Provenance.SourceProvider, "skills", StringComparison.Ordinal))
+                     || (_apmProvider is not null && string.Equals(record.Provenance.SourceProvider, ApmClient.ProviderId, StringComparison.Ordinal))))
         {
             checkedCount++;
             var result = string.Equals(record.Provenance.SourceProvider, "skills", StringComparison.Ordinal)
                 ? _skillsProvider!.Check(record)
-                : _provider.Check(record);
+                : string.Equals(record.Provenance.SourceProvider, ApmClient.ProviderId, StringComparison.Ordinal)
+                    ? _apmProvider!.Check(record)
+                    : _provider.Check(record);
             if (result.Succeeded)
             {
                 var check = result.Value!;

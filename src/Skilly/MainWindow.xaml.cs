@@ -5,6 +5,7 @@ using Skilly.Providers.GitHub;
 using Skilly.Providers.SkillsCli;
 using Skilly.Providers;
 using Skilly.Skills;
+using Skilly.Providers.Apm;
 
 namespace Skilly;
 
@@ -13,6 +14,7 @@ public partial class MainWindow : Window
     private readonly Infrastructure.RollingLog _log;
     private readonly GitHubProvider _githubProvider;
     private readonly SkillsCliProvider _skillsProvider;
+    private readonly ApmProvider _apmProvider;
     private readonly ProviderCheckRunner _checkRunner;
     private readonly Func<IReadOnlyList<AdoptionEvidence>?, InventorySnapshot> _refreshInventory;
     private IReadOnlyList<AdoptionEvidence> _adoptionEvidence = [];
@@ -25,6 +27,7 @@ public partial class MainWindow : Window
         ViewModels.MainViewModel viewModel,
         GitHubProvider githubProvider,
         SkillsCliProvider skillsProvider,
+        ApmProvider apmProvider,
         ProviderCheckRunner checkRunner,
         Func<IReadOnlyList<AdoptionEvidence>?, InventorySnapshot> refreshInventory)
     {
@@ -32,6 +35,7 @@ public partial class MainWindow : Window
         _log = log;
         _githubProvider = githubProvider;
         _skillsProvider = skillsProvider;
+        _apmProvider = apmProvider;
         _checkRunner = checkRunner;
         _refreshInventory = refreshInventory;
         DataContext = viewModel;
@@ -51,6 +55,11 @@ public partial class MainWindow : Window
         if (string.Equals(viewModel.SelectedSourceProvider, SkillsCliClient.Package, StringComparison.Ordinal))
         {
             await InspectSkillsSource(viewModel);
+            return;
+        }
+        if (string.Equals(viewModel.SelectedSourceProvider, ApmClient.Provider, StringComparison.Ordinal))
+        {
+            await InspectApmSource(viewModel);
             return;
         }
         if (!GitHubSourceReference.TryParse(viewModel.SourceText, out var reference, out var parseError))
@@ -102,6 +111,48 @@ public partial class MainWindow : Window
         {
             _log.Error("GitHub source inspection failed.", exception);
             viewModel.Announce($"GitHub source inspection failed. {exception.Message} Nothing changed.");
+        }
+        finally
+        {
+            InspectSourceButton.IsEnabled = true;
+            _maintenanceGate.Release();
+        }
+    }
+
+    private async Task InspectApmSource(ViewModels.MainViewModel viewModel)
+    {
+        if (!await _maintenanceGate.WaitAsync(0))
+        {
+            viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
+            return;
+        }
+        InspectSourceButton.IsEnabled = false;
+        viewModel.Announce("Inspecting source through Microsoft APM in an isolated home. User state has not changed.");
+        try
+        {
+            var result = await Task.Run(() => _apmProvider.Inspect(viewModel.SourceText));
+            if (!result.Succeeded)
+            {
+                viewModel.SetApmReadiness(new ProviderReadiness(false, ApmClient.Provider, $"Microsoft APM source readiness failed: {result.Diagnostics}"));
+                viewModel.Announce($"Microsoft APM source inspection failed. {result.Diagnostics} Nothing changed.");
+                return;
+            }
+            viewModel.SetApmReadiness(_apmProvider.GetReadiness());
+            var inspection = result.Value!;
+            var dialog = new SourceInspectionWindow(inspection, _apmProvider, viewModel.MutationsAllowed) { Owner = this };
+            var installed = dialog.ShowDialog() == true;
+            await dialog.OperationCompletion;
+            _adoptionEvidence = [];
+            viewModel.LoadInventory(RefreshInventory());
+            viewModel.Announce(installed
+                ? $"Installed {dialog.InstalledCount} Skill(s) through Microsoft APM; manifest, lock, canonical content, state, and Harness Exposures were verified."
+                : $"Read-only Microsoft APM inspection found {inspection.Skills.Count} Source Skill(s). User state was not changed.");
+            ApplyRecoveryMode(viewModel);
+        }
+        catch (Exception exception)
+        {
+            _log.Error("Microsoft APM source inspection failed.", exception);
+            viewModel.Announce($"Microsoft APM source inspection failed. {exception.Message} Nothing changed.");
         }
         finally
         {
@@ -233,6 +284,7 @@ public partial class MainWindow : Window
         try
         {
             var skillsOwned = string.Equals(record.Provenance.SourceProvider, "skills", StringComparison.Ordinal);
+            var apmOwned = string.Equals(record.Provenance.SourceProvider, ApmClient.ProviderId, StringComparison.Ordinal);
             var result = skillsOwned
                 ? await Task.Run(() =>
                 {
@@ -243,7 +295,15 @@ public partial class MainWindow : Window
                             providerResult.Diagnostics)
                         : Providers.ProviderResult<UpdateResult>.Failure(providerResult.Diagnostics);
                 })
-                : await Task.Run(() => _githubProvider.Update(record, _mutationCancellation!.Token));
+                : apmOwned
+                    ? await Task.Run(() =>
+                    {
+                        var providerResult = _apmProvider.Update(record, _mutationCancellation!.Token);
+                        return providerResult.Succeeded
+                            ? ProviderResult<UpdateResult>.Success(new UpdateResult(providerResult.Value!.InstallationId, providerResult.Value.InstalledRevision), providerResult.Diagnostics)
+                            : ProviderResult<UpdateResult>.Failure(providerResult.Diagnostics);
+                    })
+                    : await Task.Run(() => _githubProvider.Update(record, _mutationCancellation!.Token));
             if (!result.Succeeded)
             {
                 viewModel.LoadInventory(RefreshInventory());
@@ -405,7 +465,9 @@ public partial class MainWindow : Window
             viewModel.Announce($"Uninstalling Healthy Managed Skill at {record.CanonicalPath}.");
             var result = string.Equals(record.Provenance.SourceProvider, "skills", StringComparison.Ordinal)
                 ? await Task.Run(() => _skillsProvider.Uninstall(record, _mutationCancellation!.Token))
-                : await Task.Run(() => _githubProvider.Uninstall(record, _mutationCancellation!.Token));
+                : string.Equals(record.Provenance.SourceProvider, ApmClient.ProviderId, StringComparison.Ordinal)
+                    ? await Task.Run(() => _apmProvider.Uninstall(record, _mutationCancellation!.Token))
+                    : await Task.Run(() => _githubProvider.Uninstall(record, _mutationCancellation!.Token));
             viewModel.LoadInventory(RefreshInventory());
             if (!result.Succeeded)
             {
@@ -493,6 +555,10 @@ public partial class MainWindow : Window
         {
             viewModel.EnterRecoveryRequired($"Recovery Required: {_skillsProvider.RecoveryDiagnostic}");
         }
+        else if (_apmProvider.RecoveryRequired)
+        {
+            viewModel.EnterRecoveryRequired($"Recovery Required: {_apmProvider.RecoveryDiagnostic}");
+        }
     }
 
     protected override void OnClosing(CancelEventArgs e)
@@ -504,6 +570,7 @@ public partial class MainWindow : Window
             {
                 _githubProvider.RequestMutationCancellation();
                 _skillsProvider.RequestMutationCancellation();
+                _apmProvider.RequestMutationCancellation();
             }
             catch (Exception exception)
             {

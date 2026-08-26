@@ -7,6 +7,7 @@ using Skilly.Providers.SkillsCli;
 using Skilly.Providers;
 using Skilly.Skills;
 using Skilly.State;
+using Skilly.Providers.Apm;
 
 namespace Skilly;
 
@@ -52,6 +53,7 @@ public partial class App : Application
         var adoptionVerifier = new GitHubAdoptionVerifier(ghClient, home);
         var githubProvider = new GitHubProvider(ghClient, inspector, installer, checker, updater, lifecycle, adoptionVerifier);
         var skillsProvider = new SkillsCliProvider(new SkillsCliClient(processRunner), stateStore, _log, home);
+        var apmProvider = new ApmProvider(new ApmClient(processRunner), stateStore, _log, home);
         PendingOperation? pending = null;
         try
         {
@@ -63,8 +65,10 @@ public partial class App : Application
         }
         var recovery = skillsProvider.OwnsPendingOperation(pending)
             ? skillsProvider.RecoverPendingOperation()
-            : lifecycle.RecoverPendingOperation();
-        var checkRunner = new ProviderCheckRunner(githubProvider, stateStore, skillsProvider);
+            : apmProvider.OwnsPendingOperation(pending)
+                ? apmProvider.RecoverPendingOperation()
+                : lifecycle.RecoverPendingOperation();
+        var checkRunner = new ProviderCheckRunner(githubProvider, stateStore, skillsProvider, apmProvider);
         var scanner = new InventoryScanner();
         InventorySnapshot RefreshInventory(IReadOnlyList<AdoptionEvidence>? adoptionEvidence = null)
         {
@@ -85,23 +89,26 @@ public partial class App : Application
             viewModel.EnterRecoveryRequired(recovery.Message);
         }
 
-        _mainWindow = new MainWindow(_log, viewModel, githubProvider, skillsProvider, checkRunner, RefreshInventory);
+        _mainWindow = new MainWindow(_log, viewModel, githubProvider, skillsProvider, apmProvider, checkRunner, RefreshInventory);
         MainWindow = _mainWindow;
         _mainWindow.Show();
-        _ = RefreshProviderReadiness(viewModel, githubProvider, skillsProvider);
+        _ = RefreshProviderReadiness(viewModel, githubProvider, skillsProvider, apmProvider);
         _log.Info("Primary instance ready.");
     }
 
     private static async Task RefreshProviderReadiness(
         ViewModels.MainViewModel viewModel,
         GitHubProvider githubProvider,
-        SkillsCliProvider skillsProvider)
+        SkillsCliProvider skillsProvider,
+        ApmProvider apmProvider)
     {
         var githubTask = Task.Run(githubProvider.GetReadiness);
         var skillsTask = Task.Run(skillsProvider.GetReadiness);
-        await Task.WhenAll(githubTask, skillsTask);
+        var apmTask = Task.Run(apmProvider.GetReadiness);
+        await Task.WhenAll(githubTask, skillsTask, apmTask);
         viewModel.SetGitHubReadiness(githubTask.Result);
         viewModel.SetSkillsReadiness(skillsTask.Result);
+        viewModel.SetApmReadiness(apmTask.Result);
     }
 
     private static string ResolveHome()

@@ -5,6 +5,7 @@ using System.Windows.Input;
 using Skilly.Skills;
 using Skilly.State;
 using Skilly.Providers.SkillsCli;
+using Skilly.Providers.Apm;
 
 namespace Skilly.ViewModels;
 
@@ -56,6 +57,7 @@ public sealed class InventoryRow
         {
             "github" => $"GitHub - {Record.Provenance.Owner}/{Record.Provenance.Repository}",
             "skills" => $"skills@{Record.Provenance.ProviderVersion} - {Record.Provenance.Repository}",
+            "apm" => $"Microsoft APM {Record.Provenance.ProviderVersion} - {Record.Provenance.Repository}",
             _ => Record.Provenance.SourceProvider,
         };
 
@@ -213,6 +215,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _skillsReadiness = $"{SkillsCliClient.Package} readiness has not been checked.";
     private bool _githubReadinessProblem;
     private bool _skillsReadinessProblem;
+    private string _apmReadiness = "Microsoft APM readiness has not been checked.";
+    private bool _apmReadinessProblem;
     private bool _hasProviderReadinessProblem;
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -275,7 +279,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set => SetProperty(ref _sourceText, value);
     }
 
-    public IReadOnlyList<string> SourceProviders { get; } = ["GitHub", SkillsCliClient.Package];
+    public IReadOnlyList<string> SourceProviders { get; } = ["GitHub", SkillsCliClient.Package, ApmClient.Provider];
 
     public string SelectedSourceProvider
     {
@@ -307,8 +311,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public string SkillsReadiness => _skillsReadiness;
 
+    public string ApmReadiness => _apmReadiness;
+
     public string ProviderReadiness => string.Join(Environment.NewLine,
-        new[] { _githubReadinessProblem ? _githubReadiness : null, _skillsReadinessProblem ? _skillsReadiness : null }
+        new[] { _githubReadinessProblem ? _githubReadiness : null, _skillsReadinessProblem ? _skillsReadiness : null, _apmReadinessProblem ? _apmReadiness : null }
             .Where(static value => value is not null));
 
     public bool HasProviderReadinessProblem => _hasProviderReadinessProblem;
@@ -331,7 +337,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         _githubReadiness = readiness.Diagnostic;
         _githubReadinessProblem = !readiness.IsReady;
-        _hasProviderReadinessProblem = _githubReadinessProblem || _skillsReadinessProblem;
+        _hasProviderReadinessProblem = _githubReadinessProblem || _skillsReadinessProblem || _apmReadinessProblem;
         OnPropertyChanged(nameof(GitHubReadiness));
         OnPropertyChanged(nameof(ProviderReadiness));
         OnPropertyChanged(nameof(HasProviderReadinessProblem));
@@ -341,8 +347,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         _skillsReadiness = readiness.Diagnostic;
         _skillsReadinessProblem = !readiness.IsReady;
-        _hasProviderReadinessProblem = _githubReadinessProblem || _skillsReadinessProblem;
+        _hasProviderReadinessProblem = _githubReadinessProblem || _skillsReadinessProblem || _apmReadinessProblem;
         OnPropertyChanged(nameof(SkillsReadiness));
+        OnPropertyChanged(nameof(ProviderReadiness));
+        OnPropertyChanged(nameof(HasProviderReadinessProblem));
+    }
+
+    public void SetApmReadiness(Providers.ProviderReadiness readiness)
+    {
+        _apmReadiness = readiness.Diagnostic;
+        _apmReadinessProblem = !readiness.IsReady;
+        _hasProviderReadinessProblem = _githubReadinessProblem || _skillsReadinessProblem || _apmReadinessProblem;
+        OnPropertyChanged(nameof(ApmReadiness));
         OnPropertyChanged(nameof(ProviderReadiness));
         OnPropertyChanged(nameof(HasProviderReadinessProblem));
     }
