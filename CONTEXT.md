@@ -36,6 +36,10 @@ _Avoid_: Imported skill
 Whether Skilly has authority to manage an installation: Managed, Verified Adoption Available, or Unmanaged.
 _Avoid_: Ownership state
 
+**Management Record**:
+Skilly's durable statement of Provenance and intended Harness Exposures for one Managed Skill Installation; without it, Skilly has no management authority.
+_Avoid_: Cache, provider lockfile
+
 **Installation Health**:
 The result of reconciling an installation with its recorded payload, metadata, and Harness Exposures: Healthy, Locally Modified, Missing, Exposure Problem, Invalid Metadata, or Collision.
 _Avoid_: Update Status
