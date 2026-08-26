@@ -25,7 +25,7 @@
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Source:" FontWeight="SemiBold" Margin="0,0,8,3" />
                 <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Source}" TextWrapping="Wrap" />
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Tracking Rule:" FontWeight="SemiBold" Margin="0,0,8,3" />
-                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding RequestedRef}" />
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding TrackingRule}" />
                 <TextBlock Grid.Row="2" Grid.Column="0" Text="Resolved commit:" FontWeight="SemiBold" Margin="0,0,8,0" />
                 <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Commit}" />
             </Grid>

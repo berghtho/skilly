@@ -38,9 +38,14 @@ public sealed class GitHubInstaller(
         }
 
         var canonicalRoot = HarnessRoot.Create(RootKind.CanonicalAgents, home).FullPath;
+        var claudeRoot = HarnessRoot.Create(RootKind.ClaudeSkills, home).FullPath;
         var destinations = selected.ToDictionary(
             skill => skill.SkillPath,
             skill => Path.Combine(canonicalRoot, skill.FolderName),
+            StringComparer.Ordinal);
+        var claudeDestinations = selected.ToDictionary(
+            skill => skill.SkillPath,
+            skill => Path.Combine(claudeRoot, skill.FolderName),
             StringComparer.Ordinal);
 
         if (destinations.Values.Distinct(StringComparer.OrdinalIgnoreCase).Count() != selected.Count)
@@ -57,6 +62,15 @@ public sealed class GitHubInstaller(
             }
         }
 
+        foreach (var claudeDestination in claudeDestinations.Values)
+        {
+            if (PathEntryExists(claudeDestination))
+            {
+                throw new ProviderFailure(
+                    $"'{claudeDestination}' already exists. A copied or foreign Claude entry cannot be accepted as an exposure.");
+            }
+        }
+
         var state = stateStore.Load();
         if (state.PendingOperation is not null)
         {
@@ -67,12 +81,13 @@ public sealed class GitHubInstaller(
             static skill => skill.SkillPath,
             static _ => Guid.NewGuid().ToString("N"),
             StringComparer.Ordinal);
+        var startingPaths = destinations.Values.Concat(claudeDestinations.Values).ToList();
         var pending = new PendingOperation
         {
-            OperationType = "install",
+            OperationType = MutationType.Install,
             AffectedInstallationIds = [.. installationIds.Values],
-            StartingPaths = [.. destinations.Values],
-            StartingHashes = [.. destinations.Values.Select(static _ => (string?)null)],
+            StartingPaths = startingPaths,
+            StartingHashes = [.. startingPaths.Select(static _ => (string?)null)],
             StartedAt = DateTimeOffset.Now,
         };
 
@@ -88,14 +103,7 @@ public sealed class GitHubInstaller(
             foreach (var skill in selected)
             {
                 var destination = destinations[skill.SkillPath];
-                var claudeJunctionPath = Path.Combine(
-                    HarnessRoot.Create(RootKind.ClaudeSkills, home).FullPath,
-                    skill.FolderName);
-                if (PathEntryExists(claudeJunctionPath))
-                {
-                    throw new ProviderFailure(
-                        $"'{claudeJunctionPath}' already exists. A copied or foreign Claude entry cannot be accepted as an exposure.");
-                }
+                var claudeJunctionPath = claudeDestinations[skill.SkillPath];
 
                 created.Add((destination, claudeJunctionPath));
                 var record = InstallSingle(
@@ -153,7 +161,7 @@ public sealed class GitHubInstaller(
         var files = new List<(string RelativePath, byte[] Content)>();
         foreach (var path in skill.FilePaths)
         {
-            var relative = path[(skill.SkillPath.Length + 1)..];
+            var relative = path[(skill.RepositoryPath.Length + 1)..];
             files.Add((relative, client.GetFileContent(inspection.Reference.Owner, inspection.Reference.Repository, path, inspection.Commit.Sha)));
         }
 
@@ -204,7 +212,6 @@ public sealed class GitHubInstaller(
                 Host = inspection.Reference.Host,
                 Owner = inspection.Reference.Owner,
                 Repository = inspection.Reference.Repository,
-                RequestedRef = inspection.RequestedTrackingRule,
                 RequestedPath = inspection.Reference.RequestedPath,
                 SourceSkillPath = skill.SkillPath,
                 TrackingRule = inspection.RequestedTrackingRule,
@@ -215,8 +222,8 @@ public sealed class GitHubInstaller(
             InstalledRevision = inspection.Commit.Sha,
             InstalledPayloadHash = actualHash,
             InstalledFileCount = files.Count,
-            ProviderEvidence = $"gh api contents/{skill.SkillPath}@{inspection.Commit.Sha}",
-            LastOperationOutcome = "installed",
+            ProviderEvidence = $"gh api contents/{skill.RepositoryPath}@{inspection.Commit.Sha}",
+            LastOperationOutcome = OperationOutcome.Installed,
         };
     }
 

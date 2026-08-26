@@ -34,7 +34,7 @@ public sealed class ManagementRecord
 
     public required string ProviderEvidence { get; set; }
 
-    public string? LastOperationOutcome { get; set; }
+    public OperationOutcome? LastOperationOutcome { get; set; }
 
     [JsonIgnore]
     public string DisplayRevision => InstalledRevision.Length > 12 ? InstalledRevision[..12] : InstalledRevision;
@@ -52,8 +52,6 @@ public sealed class ProvenanceInfo
 
     public required string Repository { get; set; }
 
-    public required string RequestedRef { get; set; }
-
     public string? RequestedPath { get; set; }
 
     public required string SourceSkillPath { get; set; }
@@ -67,7 +65,7 @@ public sealed class ProvenanceInfo
 
 public sealed class PendingOperation
 {
-    public required string OperationType { get; set; }
+    public required MutationType OperationType { get; set; }
 
     public List<string> AffectedInstallationIds { get; set; } = [];
 
@@ -76,6 +74,18 @@ public sealed class PendingOperation
     public List<string?> StartingHashes { get; set; } = [];
 
     public required DateTimeOffset StartedAt { get; set; }
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum MutationType
+{
+    Install,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum OperationOutcome
+{
+    Installed,
 }
 
 public sealed class StateStore(RollingLog log, string? filePath = null)

@@ -5,6 +5,7 @@ namespace Skilly.Providers.GitHub;
 
 public sealed record SourceSkill(
     string SkillPath,
+    string RepositoryPath,
     string FolderName,
     string? DeclaredName,
     string? Description,
@@ -14,7 +15,6 @@ public sealed record SourceSkill(
 {
     public bool MatchesAlias(string candidate)
         => string.Equals(candidate, SkillPath, StringComparison.Ordinal)
-           || string.Equals(candidate, FolderName, StringComparison.Ordinal)
            || (DeclaredName is not null && string.Equals(candidate, DeclaredName, StringComparison.Ordinal));
 }
 
@@ -75,8 +75,14 @@ public sealed class SourceInspector(GhClient client, RollingLog log)
             var metadata = SkillMdReader.Parse(System.Text.Encoding.UTF8.GetString(skillMdBytes));
             var files = blobs.Where(path => path.StartsWith(folder + "/", StringComparison.Ordinal)).ToList();
             var folderName = folder[(folder.LastIndexOf('/') + 1)..];
+            var skillPath = prefix.Length == 0 ? folder : folder[prefix.Length..];
+            if (skillPath.Length == 0)
+            {
+                skillPath = ".";
+            }
             var validIdentity = SkillMdReader.IsValidSkillFolderName(folderName);
             skills.Add(new SourceSkill(
+                skillPath,
                 folder,
                 folderName,
                 metadata.DeclaredName,

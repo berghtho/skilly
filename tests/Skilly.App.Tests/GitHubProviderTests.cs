@@ -150,14 +150,15 @@ public sealed class GitHubProviderTests
             inspection.Skills,
             alpha =>
             {
-                Assert.Equal("skills/alpha", alpha.SkillPath);
+                Assert.Equal("alpha", alpha.SkillPath);
+                Assert.Equal("skills/alpha", alpha.RepositoryPath);
                 Assert.Equal("alpha", alpha.FolderName);
                 Assert.True(alpha.MatchesAlias("alpha"));
                 Assert.True(alpha.MatchesAlias("Alpha Display"));
                 Assert.False(alpha.MatchesAlias("alpha display"));
                 Assert.Equal(2, alpha.FilePaths.Count);
             },
-            beta => Assert.Equal("skills/beta", beta.SkillPath));
+            beta => Assert.Equal("beta", beta.SkillPath));
         Assert.False(File.Exists(fixture.StatePath));
         Assert.False(Directory.Exists(Path.Combine(fixture.Home, ".agents")));
     }
@@ -188,6 +189,13 @@ public sealed class GitHubProviderTests
             Assert.Equal(GitHubProviderFixture.CommitSha, record.InstalledRevision);
             Assert.Equal(PayloadHasher.HashFolder(record.CanonicalPath), record.InstalledPayloadHash);
         });
+
+        using (var observed = JsonDocument.Parse(File.ReadAllText(Path.Combine(fixture.FixtureRoot, "observed-pending.json"))))
+        {
+            var pending = observed.RootElement.GetProperty("pendingOperation");
+            Assert.Equal(4, pending.GetProperty("startingPaths").GetArrayLength());
+            Assert.Equal(4, pending.GetProperty("startingHashes").GetArrayLength());
+        }
 
         var inventory = new InventoryScanner().Scan(fixture.Home, state);
         Assert.Equal(2, inventory.Entries.Count);
@@ -300,7 +308,15 @@ public sealed class GitHubProviderTests
     {
         using var fixture = new GitHubProviderFixture();
         var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
-        var invalid = new SourceSkill("skills/invalid", "invalid", null, null, false, "missing name", ["skills/invalid/SKILL.md"]);
+        var invalid = new SourceSkill(
+            "invalid",
+            "skills/invalid",
+            "invalid",
+            null,
+            null,
+            false,
+            "missing name",
+            ["skills/invalid/SKILL.md"]);
         var viewModel = new SourceInspectionViewModel(inspection with
         {
             Skills = [.. inspection.Skills, invalid],
@@ -319,5 +335,24 @@ public sealed class GitHubProviderTests
         Assert.False(viewModel.Skills[^1].IsSelected);
         viewModel.SelectAll(false);
         Assert.False(viewModel.CanInstall);
+
+        var duplicateAlias = new SourceSkill(
+            "nested/other",
+            "skills/nested/other",
+            "other",
+            "Alpha Display",
+            "Another exact alias.",
+            true,
+            null,
+            ["skills/nested/other/SKILL.md"]);
+        var ambiguous = new SourceInspectionViewModel(inspection with
+        {
+            Skills = [inspection.Skills[0], duplicateAlias],
+        });
+        ambiguous.ExactSelection = "Alpha Display";
+        Assert.False(ambiguous.SelectExact());
+        Assert.Contains("ambiguous", ambiguous.Status, StringComparison.OrdinalIgnoreCase);
+        ambiguous.ExactSelection = "alpha";
+        Assert.True(ambiguous.SelectExact());
     }
 }

@@ -70,7 +70,7 @@ public sealed class SourceInspectionViewModel : INotifyPropertyChanged
 
     public string Source => Inspection.Reference.Normalized;
 
-    public string RequestedRef => Inspection.RequestedTrackingRule;
+    public string TrackingRule => Inspection.RequestedTrackingRule;
 
     public string Commit => Inspection.Commit.Sha[..Math.Min(12, Inspection.Commit.Sha.Length)];
 
@@ -138,12 +138,20 @@ public sealed class SourceInspectionViewModel : INotifyPropertyChanged
     public bool SelectExact()
     {
         var candidate = ExactSelection.Trim();
-        var match = Skills.SingleOrDefault(item => item.Skill.MatchesAlias(candidate));
-        if (match is null)
+        var matches = Skills.Where(item => item.Skill.MatchesAlias(candidate)).ToList();
+        if (matches.Count == 0)
         {
             Status = $"No exact Source Skill path or declared-name alias matches '{candidate}'. Nothing changed.";
             return false;
         }
+
+        if (matches.Count > 1)
+        {
+            Status = $"'{candidate}' is ambiguous across {matches.Count} Source Skills. Select the exact relative path instead.";
+            return false;
+        }
+
+        var match = matches[0];
 
         if (!match.Skill.MetadataValid)
         {

@@ -54,6 +54,12 @@ if (endpoint.Contains("/contents/", StringComparison.Ordinal))
             Console.Error.WriteLine("pendingOperation did not include starting hashes");
             return 23;
         }
+
+        var observedPath = Path.Combine(fixtureRoot, "observed-pending.json");
+        if (!File.Exists(observedPath))
+        {
+            File.Copy(statePath, observedPath);
+        }
     }
 
     var contentStart = endpoint.IndexOf("/contents/", StringComparison.Ordinal) + "/contents/".Length;
