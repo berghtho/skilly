@@ -86,7 +86,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="200" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="360" />
+                <ColumnDefinition Width="380" />
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0"
@@ -102,19 +102,11 @@
                     <ListBox x:Name="FilterRail"
                              ItemsSource="{Binding Filters}"
                              SelectedItem="{Binding SelectedFilter, Mode=TwoWay}"
+                             DisplayMemberPath="Name"
                              AutomationProperties.Name="Inventory filters"
                              AutomationProperties.AutomationId="Skilly.FilterRail"
                              BorderThickness="0"
-                             TabIndex="3">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock AutomationProperties.Name="{Binding Name}">
-                                    <Run Text="{Binding Name, Mode=OneWay}" />
-                                    <Run Text=" (" /><Run Text="{Binding Count, Mode=OneWay}" /><Run Text=")" />
-                                </TextBlock>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                             TabIndex="3" />
                 </DockPanel>
             </Border>
 
@@ -126,32 +118,47 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
                     <TextBlock Grid.Row="0"
                                Style="{StaticResource PaneHeader}"
                                Text="Skills"
                                Margin="8,8,8,4" />
-                    <ListView Grid.Row="1"
+                    <DockPanel Grid.Row="1" Margin="8,0,8,6">
+                        <TextBlock DockPanel.Dock="Left"
+                                   x:Name="SearchLabel"
+                                   Text="_Search:"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,6,0" />
+                        <TextBox x:Name="SearchBox"
+                                 Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 AutomationProperties.Name="Search skills"
+                                 AutomationProperties.LabeledBy="{Binding ElementName=SearchLabel}"
+                                 VerticalContentAlignment="Center"
+                                 TabIndex="4" />
+                    </DockPanel>
+                    <ListView Grid.Row="2"
                               x:Name="SkillList"
-                              ItemsSource="{Binding Skills}"
-                              SelectedItem="{Binding SelectedSkill, Mode=TwoWay}"
+                              ItemsSource="{Binding Rows}"
+                              SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
                               AutomationProperties.Name="Skill list"
                               AutomationProperties.AutomationId="Skilly.SkillList"
                               BorderThickness="0"
-                              TabIndex="4">
+                              TabIndex="5"
+                              GridViewColumnHeader.Click="OnSkillListHeaderClick">
                         <ListView.View>
                             <GridView AllowsColumnReorder="True">
-                                <GridViewColumn Header="Skill" Width="150" DisplayMemberBinding="{Binding Name}" />
-                                <GridViewColumn Header="Provenance" Width="170" DisplayMemberBinding="{Binding Provenance}" />
-                                <GridViewColumn Header="Management" Width="120" DisplayMemberBinding="{Binding ManagementStatus}" />
-                                <GridViewColumn Header="Health" Width="120" DisplayMemberBinding="{Binding InstallationHealth}" />
-                                <GridViewColumn Header="Update" Width="120" DisplayMemberBinding="{Binding UpdateStatus}" />
-                                <GridViewColumn Header="Exposures" Width="90" DisplayMemberBinding="{Binding Exposures}" />
+                                <GridViewColumn Header="Skill" Width="140" DisplayMemberBinding="{Binding Name}" />
+                                <GridViewColumn Header="Root" Width="130" DisplayMemberBinding="{Binding RootLabel}" />
+                                <GridViewColumn Header="Management" Width="100" DisplayMemberBinding="{Binding Management}" />
+                                <GridViewColumn Header="Health" Width="120" DisplayMemberBinding="{Binding Health}" />
+                                <GridViewColumn Header="Update" Width="90" DisplayMemberBinding="{Binding UpdateStatus}" />
+                                <GridViewColumn Header="Exposures" Width="150" DisplayMemberBinding="{Binding ExposuresSummary}" />
                             </GridView>
                         </ListView.View>
                     </ListView>
-                    <TextBlock Grid.Row="1"
+                    <TextBlock Grid.Row="2"
                                Text="No Skills found yet. Global installations will appear here."
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"
@@ -171,24 +178,55 @@
                               Focusable="False">
                     <StackPanel Margin="10,8,10,12">
                         <TextBlock Style="{StaticResource PaneHeader}" Text="{Binding DetailsHeader}" />
-                        <TextBlock Text="Select a Skill to inspect its Provenance, statuses, and Harness Exposures."
+                        <TextBlock Text="Select a Skill to inspect its metadata, statuses, and Harness Exposures."
                                    Foreground="#888888"
                                    TextWrapping="Wrap"
-                                   Visibility="{Binding HasNoSelectedSkill, Converter={StaticResource BoolToVisibility}}" />
+                                   Visibility="{Binding HasNoSelection, Converter={StaticResource BoolToVisibility}}" />
 
-                        <StackPanel Visibility="{Binding HasSelectedSkill, Converter={StaticResource BoolToVisibility}}">
+                        <StackPanel Visibility="{Binding HasSelection, Converter={StaticResource BoolToVisibility}}">
                             <TextBlock Style="{StaticResource DetailLabel}" Text="Description" />
-                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedSkill.Name}" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.Entry.Metadata.Description}" />
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="Declared name" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.DisplayName}" />
                             <TextBlock Style="{StaticResource DetailLabel}" Text="Provenance" />
-                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedSkill.Provenance}" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.Provenance}" />
                             <TextBlock Style="{StaticResource DetailLabel}" Text="Management Status" />
-                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedSkill.ManagementStatus}" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.Management}" />
                             <TextBlock Style="{StaticResource DetailLabel}" Text="Installation Health" />
-                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedSkill.InstallationHealth}" />
+                            <TextBlock Style="{StaticResource DetailValue}">
+                                <Run Text="{Binding SelectedRow.Health, Mode=OneWay}" /><LineBreak />
+                                <Run Text="{Binding SelectedRow.Entry.HealthDetail, Mode=OneWay}" Foreground="#666666" />
+                            </TextBlock>
                             <TextBlock Style="{StaticResource DetailLabel}" Text="Update Status" />
-                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedSkill.UpdateStatus}" />
-                            <TextBlock Style="{StaticResource DetailLabel}" Text="Harness Exposures" />
-                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedSkill.Exposures}" />
+                            <TextBlock Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.UpdateStatus}" />
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="Local path" />
+                            <TextBlock Style="{StaticResource DetailValue}"
+                                       Text="{Binding SelectedRow.Entry.LocalPath, Mode=OneWay}"
+                                       AutomationProperties.Name="Exact local path" />
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="OpenCode" />
+                            <TextBlock Style="{StaticResource DetailValue}">
+                                <Run Text="{Binding SelectedRow.ExposureDisplay[OpenCode].Display, Mode=OneWay}" />
+                                <Run Text=" — " />
+                                <Run Text="{Binding SelectedRow.ExposureDisplay[OpenCode].Detail, Mode=OneWay}" Foreground="#666666" />
+                            </TextBlock>
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="Codex" />
+                            <TextBlock Style="{StaticResource DetailValue}">
+                                <Run Text="{Binding SelectedRow.ExposureDisplay[Codex].Display, Mode=OneWay}" />
+                                <Run Text=" — " />
+                                <Run Text="{Binding SelectedRow.ExposureDisplay[Codex].Detail, Mode=OneWay}" Foreground="#666666" />
+                            </TextBlock>
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="Claude Code" />
+                            <TextBlock Style="{StaticResource DetailValue}">
+                                <Run Text="{Binding SelectedRow.ExposureDisplay[ClaudeCode].Display, Mode=OneWay}" />
+                                <Run Text=" — " />
+                                <Run Text="{Binding SelectedRow.ExposureDisplay[ClaudeCode].Detail, Mode=OneWay}" Foreground="#666666" />
+                            </TextBlock>
+                            <TextBlock Style="{StaticResource DetailLabel}" Text="GitHub Copilot" />
+                            <TextBlock Style="{StaticResource DetailValue}">
+                                <Run Text="{Binding SelectedRow.ExposureDisplay[GitHubCopilot].Display, Mode=OneWay}" />
+                                <Run Text=" — " />
+                                <Run Text="{Binding SelectedRow.ExposureDisplay[GitHubCopilot].Detail, Mode=OneWay}" Foreground="#666666" />
+                            </TextBlock>
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>

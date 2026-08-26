@@ -36,10 +36,24 @@ public partial class App : Application
         StartFocusWatcher();
 
         var viewModel = new ViewModels.MainViewModel();
+        var scanner = new Skills.InventoryScanner();
+        viewModel.LoadInventory(scanner.Scan(ResolveHome()));
+
         _mainWindow = new MainWindow(_log, viewModel);
         MainWindow = _mainWindow;
         _mainWindow.Show();
         _log.Info("Primary instance ready.");
+    }
+
+    private static string ResolveHome()
+    {
+        var configured = Environment.GetEnvironmentVariable("USERPROFILE");
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return configured;
+        }
+
+        return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     }
 
     private void StartFocusWatcher()
