@@ -29,7 +29,7 @@ A discovered Skill folder whose source and update mechanism are not yet known to
 _Avoid_: Imported skill
 
 **Source Provider**:
-A supported mechanism that supplies Skills and defines how Skilly checks, installs, updates, and removes them, such as `skills`, `apm`, or GitHub.
+A supported mechanism that supplies Skills and defines how Skilly checks, installs, updates, and removes them, such as `skills`, Microsoft APM, or GitHub.
 _Avoid_: Package manager, registry
 
 **Provenance**:
