@@ -36,6 +36,7 @@
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="150" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
@@ -45,27 +46,33 @@
                            Text="_Skill source:"
                            VerticalAlignment="Center"
                            Margin="0,0,8,0" />
-                <TextBox Grid.Column="1"
+                <ComboBox Grid.Column="1"
+                          ItemsSource="{Binding SourceProviders}"
+                          SelectedItem="{Binding SelectedSourceProvider, Mode=TwoWay}"
+                          AutomationProperties.Name="Source provider"
+                          Margin="0,0,8,0"
+                          TabIndex="0" />
+                <TextBox Grid.Column="2"
                          x:Name="SourceBox"
                          Text="{Binding SourceText, UpdateSourceTrigger=PropertyChanged}"
                          AutomationProperties.Name="Skill source URL or reference"
                          AutomationProperties.LabeledBy="{Binding ElementName=SourceLabel}"
                          VerticalContentAlignment="Center"
                          Margin="0,0,8,0"
-                         TabIndex="0" />
-                <Button Grid.Column="2"
+                          TabIndex="1" />
+                <Button Grid.Column="3"
                         x:Name="InspectSourceButton"
                         Content="_Inspect source"
                         Click="OnInspectSource"
                         Margin="0,0,8,0"
                         MinWidth="110"
-                        TabIndex="1" />
-                <Button Grid.Column="3"
+                         TabIndex="2" />
+                <Button Grid.Column="4"
                         x:Name="RefreshChecksButton"
                         Content="_Refresh checks"
                         Click="OnRefreshChecks"
                         MinWidth="110"
-                        TabIndex="2" />
+                         TabIndex="3" />
             </Grid>
         </Border>
 
@@ -89,7 +96,7 @@
                 BorderThickness="0,0,0,1"
                 Visibility="{Binding HasProviderReadinessProblem, Converter={StaticResource BoolToVisibility}}"
                 AutomationProperties.Name="Provider readiness notice">
-            <TextBlock Text="{Binding GitHubReadiness}" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding ProviderReadiness}" TextWrapping="Wrap" />
         </Border>
 
         <StatusBar DockPanel.Dock="Bottom"

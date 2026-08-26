@@ -5,13 +5,6 @@ using Skilly.State;
 
 namespace Skilly.Providers.GitHub;
 
-public sealed class ProviderFailure : Exception
-{
-    public ProviderFailure(string message) : base(message)
-    {
-    }
-}
-
 public sealed record InstalledSkill(string SkillPath, string CanonicalPath);
 
 public sealed record InstallResult(IReadOnlyList<InstalledSkill> InstalledSkills)

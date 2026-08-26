@@ -2,8 +2,6 @@ using Skilly.Providers;
 
 namespace Skilly.Providers.GitHub;
 
-public sealed record ProviderReadiness(bool IsReady, string Provider, string Diagnostic, string? Version = null);
-
 public sealed class GitHubProvider(
     GhClient client,
     SourceInspector inspector,

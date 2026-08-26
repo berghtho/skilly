@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using Skilly.Skills;
 using Skilly.State;
+using Skilly.Providers.SkillsCli;
 
 namespace Skilly.ViewModels;
 
@@ -51,7 +52,12 @@ public sealed class InventoryRow
 
     public string Provenance => Record is null
         ? "Not recorded"
-        : $"GitHub - {Record.Provenance.Owner}/{Record.Provenance.Repository}";
+        : Record.Provenance.SourceProvider switch
+        {
+            "github" => $"GitHub - {Record.Provenance.Owner}/{Record.Provenance.Repository}",
+            "skills" => $"skills@{Record.Provenance.ProviderVersion} - {Record.Provenance.Repository}",
+            _ => Record.Provenance.SourceProvider,
+        };
 
     public string Source => Record?.Provenance.OriginalReference ?? "Not recorded";
 
@@ -123,7 +129,8 @@ public sealed class InventoryRow
                             && Entry.Health == InstallationHealth.Healthy
                             && Entry.AdoptionEvidence is not null;
 
-    public bool CanManagedReinstall => Entry.ManagementStatus == ManagementStatus.Managed
+    public bool CanManagedReinstall => string.Equals(Record?.Provenance.SourceProvider, "github", StringComparison.Ordinal)
+                                          && Entry.ManagementStatus == ManagementStatus.Managed
                                          && Entry.Health is InstallationHealth.LocallyModified or InstallationHealth.ExposureProblem;
 
     public bool CanUninstall => Entry.ManagementStatus == ManagementStatus.Managed
@@ -193,6 +200,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     ];
 
     private string _sourceText = string.Empty;
+    private string _selectedSourceProvider = "GitHub";
     private string _searchText = string.Empty;
     private FilterCount _selectedFilter;
     private InventoryRow? _selectedRow;
@@ -202,6 +210,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _recoveryRequired;
     private string _recoveryDiagnostic = string.Empty;
     private string _githubReadiness = "GitHub readiness has not been checked.";
+    private string _skillsReadiness = $"{SkillsCliClient.Package} readiness has not been checked.";
+    private bool _githubReadinessProblem;
+    private bool _skillsReadinessProblem;
     private bool _hasProviderReadinessProblem;
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -264,6 +275,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set => SetProperty(ref _sourceText, value);
     }
 
+    public IReadOnlyList<string> SourceProviders { get; } = ["GitHub", SkillsCliClient.Package];
+
+    public string SelectedSourceProvider
+    {
+        get => _selectedSourceProvider;
+        set => SetProperty(ref _selectedSourceProvider, value);
+    }
+
     public string SearchText
     {
         get => _searchText;
@@ -286,6 +305,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public string GitHubReadiness => _githubReadiness;
 
+    public string SkillsReadiness => _skillsReadiness;
+
+    public string ProviderReadiness => string.Join(Environment.NewLine,
+        new[] { _githubReadinessProblem ? _githubReadiness : null, _skillsReadinessProblem ? _skillsReadiness : null }
+            .Where(static value => value is not null));
+
     public bool HasProviderReadinessProblem => _hasProviderReadinessProblem;
 
     public bool HasSkills => Rows.Count > 0;
@@ -302,11 +327,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public void Announce(string message) => SetStatus(message);
 
-    public void SetGitHubReadiness(Providers.GitHub.ProviderReadiness readiness)
+    public void SetGitHubReadiness(Providers.ProviderReadiness readiness)
     {
         _githubReadiness = readiness.Diagnostic;
-        _hasProviderReadinessProblem = !readiness.IsReady;
+        _githubReadinessProblem = !readiness.IsReady;
+        _hasProviderReadinessProblem = _githubReadinessProblem || _skillsReadinessProblem;
         OnPropertyChanged(nameof(GitHubReadiness));
+        OnPropertyChanged(nameof(ProviderReadiness));
+        OnPropertyChanged(nameof(HasProviderReadinessProblem));
+    }
+
+    public void SetSkillsReadiness(Providers.ProviderReadiness readiness)
+    {
+        _skillsReadiness = readiness.Diagnostic;
+        _skillsReadinessProblem = !readiness.IsReady;
+        _hasProviderReadinessProblem = _githubReadinessProblem || _skillsReadinessProblem;
+        OnPropertyChanged(nameof(SkillsReadiness));
+        OnPropertyChanged(nameof(ProviderReadiness));
         OnPropertyChanged(nameof(HasProviderReadinessProblem));
     }
 

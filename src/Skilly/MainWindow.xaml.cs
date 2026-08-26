@@ -2,6 +2,8 @@
 using System.Windows.Controls;
 using System.ComponentModel;
 using Skilly.Providers.GitHub;
+using Skilly.Providers.SkillsCli;
+using Skilly.Providers;
 using Skilly.Skills;
 
 namespace Skilly;
@@ -10,7 +12,8 @@ public partial class MainWindow : Window
 {
     private readonly Infrastructure.RollingLog _log;
     private readonly GitHubProvider _githubProvider;
-    private readonly GitHubCheckRunner _checkRunner;
+    private readonly SkillsCliProvider _skillsProvider;
+    private readonly ProviderCheckRunner _checkRunner;
     private readonly Func<IReadOnlyList<AdoptionEvidence>?, InventorySnapshot> _refreshInventory;
     private IReadOnlyList<AdoptionEvidence> _adoptionEvidence = [];
     private readonly SemaphoreSlim _maintenanceGate = new(1, 1);
@@ -21,12 +24,14 @@ public partial class MainWindow : Window
         Infrastructure.RollingLog log,
         ViewModels.MainViewModel viewModel,
         GitHubProvider githubProvider,
-        GitHubCheckRunner checkRunner,
+        SkillsCliProvider skillsProvider,
+        ProviderCheckRunner checkRunner,
         Func<IReadOnlyList<AdoptionEvidence>?, InventorySnapshot> refreshInventory)
     {
         InitializeComponent();
         _log = log;
         _githubProvider = githubProvider;
+        _skillsProvider = skillsProvider;
         _checkRunner = checkRunner;
         _refreshInventory = refreshInventory;
         DataContext = viewModel;
@@ -43,6 +48,11 @@ public partial class MainWindow : Window
     private async void OnInspectSource(object sender, RoutedEventArgs e)
     {
         var viewModel = (ViewModels.MainViewModel)DataContext;
+        if (string.Equals(viewModel.SelectedSourceProvider, SkillsCliClient.Package, StringComparison.Ordinal))
+        {
+            await InspectSkillsSource(viewModel);
+            return;
+        }
         if (!GitHubSourceReference.TryParse(viewModel.SourceText, out var reference, out var parseError))
         {
             viewModel.Announce($"Source inspection failed. {parseError} Nothing changed.");
@@ -100,6 +110,51 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task InspectSkillsSource(ViewModels.MainViewModel viewModel)
+    {
+        if (!await _maintenanceGate.WaitAsync(0))
+        {
+            viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
+            return;
+        }
+        InspectSourceButton.IsEnabled = false;
+        viewModel.Announce($"Inspecting source read-only through {SkillsCliClient.Package}. Nothing has changed.");
+        try
+        {
+            var result = await Task.Run(() => _skillsProvider.Inspect(viewModel.SourceText));
+            if (!result.Succeeded)
+            {
+                viewModel.SetSkillsReadiness(new Providers.ProviderReadiness(
+                    false,
+                    SkillsCliClient.Package,
+                    $"{SkillsCliClient.Package} source readiness failed: {result.Diagnostics}"));
+                viewModel.Announce($"{SkillsCliClient.Package} source inspection failed. {result.Diagnostics} Nothing changed.");
+                return;
+            }
+            viewModel.SetSkillsReadiness(_skillsProvider.GetReadiness());
+            var inspection = result.Value!;
+            var dialog = new SourceInspectionWindow(inspection, _skillsProvider, viewModel.MutationsAllowed) { Owner = this };
+            var installed = dialog.ShowDialog() == true;
+            await dialog.OperationCompletion;
+            _adoptionEvidence = [];
+            viewModel.LoadInventory(RefreshInventory());
+            viewModel.Announce(installed
+                ? $"Installed {dialog.InstalledCount} Skill(s) through {SkillsCliClient.Package}; canonical content, provider lock, authority, and Harness Exposures were verified."
+                : $"Read-only {SkillsCliClient.Package} inspection found {inspection.Skills.Count} Source Skill(s). Nothing changed.");
+            ApplyRecoveryMode(viewModel);
+        }
+        catch (Exception exception)
+        {
+            _log.Error($"{SkillsCliClient.Package} source inspection failed.", exception);
+            viewModel.Announce($"{SkillsCliClient.Package} source inspection failed. {exception.Message} Nothing changed.");
+        }
+        finally
+        {
+            InspectSourceButton.IsEnabled = true;
+            _maintenanceGate.Release();
+        }
+    }
+
     private void OnSkillListHeaderClick(object sender, RoutedEventArgs e)
     {
         if (e.OriginalSource is GridViewColumnHeader header && header.Column?.Header is string label
@@ -143,8 +198,8 @@ public partial class MainWindow : Window
             var result = await Task.Run(_checkRunner.Refresh);
             viewModel.LoadInventory(RefreshInventory());
             viewModel.Announce(result.FailureCount == 0
-                ? $"Checked {result.CheckedCount} managed GitHub Skill(s). Installed content was not changed."
-                : $"Checked {result.CheckedCount} managed GitHub Skill(s); {result.FailureCount} check(s) failed and prior results are stale. Installed content was not changed.");
+                ? $"Checked {result.CheckedCount} managed Skill(s) across available providers. Installed content was not changed."
+                : $"Checked {result.CheckedCount} managed Skill(s); {result.FailureCount} check(s) failed and prior results are stale. Installed content was not changed.");
         }
         catch (Exception exception)
         {
@@ -174,26 +229,38 @@ public partial class MainWindow : Window
         }
 
         BeginMutation();
-        viewModel.Announce("Updating the selected GitHub Skill from verified source content.");
+        viewModel.Announce("Updating the selected Skill through its owning provider from verified source content.");
         try
         {
-            var result = await Task.Run(() => _githubProvider.Update(record, _mutationCancellation!.Token));
+            var skillsOwned = string.Equals(record.Provenance.SourceProvider, "skills", StringComparison.Ordinal);
+            var result = skillsOwned
+                ? await Task.Run(() =>
+                {
+                    var providerResult = _skillsProvider.Update(record, _mutationCancellation!.Token);
+                    return providerResult.Succeeded
+                        ? Providers.ProviderResult<UpdateResult>.Success(
+                            new UpdateResult(providerResult.Value!.InstallationId, providerResult.Value.InstalledRevision),
+                            providerResult.Diagnostics)
+                        : Providers.ProviderResult<UpdateResult>.Failure(providerResult.Diagnostics);
+                })
+                : await Task.Run(() => _githubProvider.Update(record, _mutationCancellation!.Token));
             if (!result.Succeeded)
             {
                 viewModel.LoadInventory(RefreshInventory());
                 ApplyRecoveryMode(viewModel);
-                viewModel.Announce($"GitHub update failed. {result.Diagnostics}");
+                viewModel.Announce($"Provider update failed. {result.Diagnostics}");
                 return;
             }
 
             viewModel.LoadInventory(RefreshInventory());
-            viewModel.Announce($"Updated the selected GitHub Skill to {result.Value!.InstalledRevision[..12]} and verified content, state, and Claude exposure.");
+            var revision = result.Value!.InstalledRevision;
+            viewModel.Announce($"Updated the selected Skill to {revision[..Math.Min(12, revision.Length)]} and verified provider evidence, content, state, and Claude exposure.");
         }
         catch (Exception exception)
         {
-            _log.Error("GitHub update failed.", exception);
+            _log.Error("Provider update failed.", exception);
             viewModel.LoadInventory(RefreshInventory());
-            viewModel.Announce($"GitHub update failed. {exception.Message}");
+            viewModel.Announce($"Provider update failed. {exception.Message}");
         }
         finally
         {
@@ -336,7 +403,9 @@ public partial class MainWindow : Window
         try
         {
             viewModel.Announce($"Uninstalling Healthy Managed Skill at {record.CanonicalPath}.");
-            var result = await Task.Run(() => _githubProvider.Uninstall(record, _mutationCancellation!.Token));
+            var result = string.Equals(record.Provenance.SourceProvider, "skills", StringComparison.Ordinal)
+                ? await Task.Run(() => _skillsProvider.Uninstall(record, _mutationCancellation!.Token))
+                : await Task.Run(() => _githubProvider.Uninstall(record, _mutationCancellation!.Token));
             viewModel.LoadInventory(RefreshInventory());
             if (!result.Succeeded)
             {
@@ -420,6 +489,10 @@ public partial class MainWindow : Window
         {
             viewModel.EnterRecoveryRequired($"Recovery Required: {_githubProvider.RecoveryDiagnostic}");
         }
+        else if (_skillsProvider.RecoveryRequired)
+        {
+            viewModel.EnterRecoveryRequired($"Recovery Required: {_skillsProvider.RecoveryDiagnostic}");
+        }
     }
 
     protected override void OnClosing(CancelEventArgs e)
@@ -430,6 +503,7 @@ public partial class MainWindow : Window
             try
             {
                 _githubProvider.RequestMutationCancellation();
+                _skillsProvider.RequestMutationCancellation();
             }
             catch (Exception exception)
             {

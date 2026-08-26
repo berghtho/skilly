@@ -3,6 +3,8 @@ using System.Windows;
 using System.Threading;
 using Skilly.Infrastructure;
 using Skilly.Providers.GitHub;
+using Skilly.Providers.SkillsCli;
+using Skilly.Providers;
 using Skilly.Skills;
 using Skilly.State;
 
@@ -48,9 +50,21 @@ public partial class App : Application
         var updater = new GitHubUpdater(checker, stateStore, _log);
         var lifecycle = new GitHubLifecycle(checker, stateStore, _log);
         var adoptionVerifier = new GitHubAdoptionVerifier(ghClient, home);
-        var recovery = lifecycle.RecoverPendingOperation();
         var githubProvider = new GitHubProvider(ghClient, inspector, installer, checker, updater, lifecycle, adoptionVerifier);
-        var checkRunner = new GitHubCheckRunner(githubProvider, stateStore);
+        var skillsProvider = new SkillsCliProvider(new SkillsCliClient(processRunner), stateStore, _log, home);
+        PendingOperation? pending = null;
+        try
+        {
+            pending = stateStore.Load().PendingOperation;
+        }
+        catch (RecoveryRequiredException)
+        {
+            // The provider recovery path below reports the durable-state failure without resetting authority.
+        }
+        var recovery = skillsProvider.OwnsPendingOperation(pending)
+            ? skillsProvider.RecoverPendingOperation()
+            : lifecycle.RecoverPendingOperation();
+        var checkRunner = new ProviderCheckRunner(githubProvider, stateStore, skillsProvider);
         var scanner = new InventoryScanner();
         InventorySnapshot RefreshInventory(IReadOnlyList<AdoptionEvidence>? adoptionEvidence = null)
         {
@@ -66,16 +80,28 @@ public partial class App : Application
 
         var viewModel = new ViewModels.MainViewModel();
         viewModel.LoadInventory(RefreshInventory());
-        viewModel.SetGitHubReadiness(githubProvider.GetReadiness());
         if (recovery.Disposition == RecoveryDisposition.RecoveryRequired)
         {
             viewModel.EnterRecoveryRequired(recovery.Message);
         }
 
-        _mainWindow = new MainWindow(_log, viewModel, githubProvider, checkRunner, RefreshInventory);
+        _mainWindow = new MainWindow(_log, viewModel, githubProvider, skillsProvider, checkRunner, RefreshInventory);
         MainWindow = _mainWindow;
         _mainWindow.Show();
+        _ = RefreshProviderReadiness(viewModel, githubProvider, skillsProvider);
         _log.Info("Primary instance ready.");
+    }
+
+    private static async Task RefreshProviderReadiness(
+        ViewModels.MainViewModel viewModel,
+        GitHubProvider githubProvider,
+        SkillsCliProvider skillsProvider)
+    {
+        var githubTask = Task.Run(githubProvider.GetReadiness);
+        var skillsTask = Task.Run(skillsProvider.GetReadiness);
+        await Task.WhenAll(githubTask, skillsTask);
+        viewModel.SetGitHubReadiness(githubTask.Result);
+        viewModel.SetSkillsReadiness(skillsTask.Result);
     }
 
     private static string ResolveHome()

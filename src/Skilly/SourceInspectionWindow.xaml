@@ -1,17 +1,17 @@
 <Window x:Class="Skilly.SourceInspectionWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Inspect GitHub Skill Library"
+        Title="Inspect Skill Library"
         Width="780"
         Height="600"
         MinWidth="640"
         MinHeight="440"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
-        AutomationProperties.Name="GitHub source inspector">
+        AutomationProperties.Name="Source inspector">
     <DockPanel Margin="14">
         <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-            <TextBlock Text="GitHub Source Inspection" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+            <TextBlock Text="Source Inspection" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -26,7 +26,7 @@
                 <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Source}" TextWrapping="Wrap" />
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Tracking Rule:" FontWeight="SemiBold" Margin="0,0,8,3" />
                 <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding TrackingRule}" />
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="Resolved commit:" FontWeight="SemiBold" Margin="0,0,8,0" />
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Resolved identity:" FontWeight="SemiBold" Margin="0,0,8,0" />
                 <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Commit}" />
             </Grid>
         </StackPanel>
@@ -79,7 +79,7 @@
                     </GridViewColumn>
                     <GridViewColumn Header="Source Skill path" Width="245" DisplayMemberBinding="{Binding Skill.SkillPath}" />
                     <GridViewColumn Header="Alias" Width="190" DisplayMemberBinding="{Binding Alias}" />
-                    <GridViewColumn Header="Files" Width="50" DisplayMemberBinding="{Binding Skill.FilePaths.Count}" />
+                    <GridViewColumn Header="Files" Width="50" DisplayMemberBinding="{Binding Skill.FileCount}" />
                     <GridViewColumn Header="Installability" Width="210" DisplayMemberBinding="{Binding Installability}" />
                 </GridView>
             </ListView.View>

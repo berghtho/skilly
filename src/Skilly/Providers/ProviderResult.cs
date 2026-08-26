@@ -1,5 +1,9 @@
 namespace Skilly.Providers;
 
+public sealed record ProviderReadiness(bool IsReady, string Provider, string Diagnostic, string? Version = null);
+
+public sealed class ProviderFailure(string message) : Exception(message);
+
 public enum ProviderResultStatus
 {
     Success,

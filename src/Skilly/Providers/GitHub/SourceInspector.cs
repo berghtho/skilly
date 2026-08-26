@@ -16,6 +16,8 @@ public sealed record SourceSkill(
     string ContentIdentity = "",
     IReadOnlyDictionary<string, string>? BlobIdentities = null)
 {
+    public int FileCount => FilePaths.Count;
+
     public bool MatchesAlias(string candidate)
         => string.Equals(candidate, SkillPath, StringComparison.Ordinal)
            || (DeclaredName is not null && string.Equals(candidate, DeclaredName, StringComparison.Ordinal));

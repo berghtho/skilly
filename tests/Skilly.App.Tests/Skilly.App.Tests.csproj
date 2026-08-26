@@ -23,6 +23,7 @@
     <ProjectReference Include="..\..\src\Skilly\Skilly.csproj" />
     <ProjectReference Include="..\FakeGh\FakeGh.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\FakeGit\FakeGit.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\FakeSkills\FakeSkills.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

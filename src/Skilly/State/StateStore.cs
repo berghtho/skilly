@@ -69,6 +69,8 @@ public sealed class ProvenanceInfo
     public required string SelectedContentIdentity { get; set; }
 
     public required string ProviderVersion { get; set; }
+
+    public string? ProviderSkillName { get; set; }
 }
 
 public sealed class PendingOperation
@@ -132,6 +134,7 @@ public enum PathState
     Missing,
     Directory,
     Junction,
+    File,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]

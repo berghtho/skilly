@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using Skilly.Infrastructure;
+using Skilly.Providers;
 using Skilly.Providers.GitHub;
 using Skilly.Skills;
 using Skilly.State;
@@ -598,7 +599,7 @@ public sealed class GitHubProviderTests
         using var fixture = new GitHubProviderFixture();
         var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
         fixture.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
-        var runner = new GitHubCheckRunner(fixture.Provider, fixture.StateStore);
+        var runner = new ProviderCheckRunner(fixture.Provider, fixture.StateStore);
 
         var successful = runner.Refresh();
         var prior = Assert.Single(fixture.StateStore.Load().Records).LatestCheck!;
@@ -633,7 +634,7 @@ public sealed class GitHubProviderTests
         fixture.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
         fixture.FailRequestsContaining("/commits/");
 
-        new GitHubCheckRunner(fixture.Provider, fixture.StateStore).Refresh();
+        new ProviderCheckRunner(fixture.Provider, fixture.StateStore).Refresh();
 
         var check = Assert.Single(fixture.StateStore.Load().Records).LatestCheck!;
         Assert.Equal(UpdateStatus.CheckFailed, check.Status);
@@ -649,7 +650,7 @@ public sealed class GitHubProviderTests
         fixture.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
         fixture.ReturnNotFoundFor("/commits/main");
 
-        new GitHubCheckRunner(fixture.Provider, fixture.StateStore).Refresh();
+        new ProviderCheckRunner(fixture.Provider, fixture.StateStore).Refresh();
 
         var check = Assert.Single(fixture.StateStore.Load().Records).LatestCheck!;
         Assert.Equal(UpdateStatus.SourceUnavailable, check.Status);
@@ -666,7 +667,7 @@ public sealed class GitHubProviderTests
         fixture.SetCommit(GitHubProviderFixture.LaterCommitSha);
         var sourceSkillMd = Path.Combine(fixture.FixtureRoot, "files", "skills", "alpha", "SKILL.md");
         File.AppendAllText(sourceSkillMd, "\nChanged upstream.\n");
-        new GitHubCheckRunner(fixture.Provider, fixture.StateStore).Refresh();
+        new ProviderCheckRunner(fixture.Provider, fixture.StateStore).Refresh();
         var checkedRecord = Assert.Single(fixture.StateStore.Load().Records);
         Assert.Equal(UpdateStatus.UpdateAvailable, checkedRecord.LatestCheck!.Status);
 
@@ -699,7 +700,7 @@ public sealed class GitHubProviderTests
         File.AppendAllText(
             Path.Combine(fixture.FixtureRoot, "files", "skills", "alpha", "SKILL.md"),
             "\nChanged upstream.\n");
-        new GitHubCheckRunner(fixture.Provider, fixture.StateStore).Refresh();
+        new ProviderCheckRunner(fixture.Provider, fixture.StateStore).Refresh();
         var checkedRecord = Assert.Single(fixture.StateStore.Load().Records);
         var localSkillMd = Path.Combine(checkedRecord.CanonicalPath, "SKILL.md");
         File.AppendAllText(localSkillMd, "\nLocal edit.\n");
@@ -724,7 +725,7 @@ public sealed class GitHubProviderTests
         fixture.SetCommit(GitHubProviderFixture.LaterCommitSha);
         var upstreamSkillMd = Path.Combine(fixture.FixtureRoot, "files", "skills", "alpha", "SKILL.md");
         File.AppendAllText(upstreamSkillMd, "\nFirst upstream change.\n");
-        new GitHubCheckRunner(fixture.Provider, fixture.StateStore).Refresh();
+        new ProviderCheckRunner(fixture.Provider, fixture.StateStore).Refresh();
         var checkedRecord = Assert.Single(fixture.StateStore.Load().Records);
         File.AppendAllText(upstreamSkillMd, "\nChanged again after Check.\n");
         var installedBefore = File.ReadAllText(Path.Combine(checkedRecord.CanonicalPath, "SKILL.md"));
@@ -747,7 +748,7 @@ public sealed class GitHubProviderTests
         File.AppendAllText(
             Path.Combine(fixture.FixtureRoot, "files", "skills", "alpha", "SKILL.md"),
             "\nChanged upstream.\n");
-        new GitHubCheckRunner(fixture.Provider, fixture.StateStore).Refresh();
+        new ProviderCheckRunner(fixture.Provider, fixture.StateStore).Refresh();
         var checkedRecord = Assert.Single(fixture.StateStore.Load().Records);
         Directory.Delete(fixture.ClaudePath("alpha"), recursive: false);
 
@@ -769,7 +770,7 @@ public sealed class GitHubProviderTests
         File.AppendAllText(
             Path.Combine(fixture.FixtureRoot, "files", "skills", "alpha", "SKILL.md"),
             "\nChanged upstream.\n");
-        new GitHubCheckRunner(fixture.Provider, fixture.StateStore).Refresh();
+        new ProviderCheckRunner(fixture.Provider, fixture.StateStore).Refresh();
         var viewModel = new MainViewModel();
 
         viewModel.LoadInventory(new InventoryScanner().Scan(fixture.Home, fixture.StateStore.Load()));

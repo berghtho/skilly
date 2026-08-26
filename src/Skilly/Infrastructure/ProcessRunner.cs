@@ -16,7 +16,11 @@ public sealed class ProcessRunner(
     RollingLog log,
     IReadOnlyDictionary<string, string?>? environment = null)
 {
-    public ProcessResult Run(string fileName, IReadOnlyList<string> arguments, TimeSpan? timeout = null)
+    public ProcessResult Run(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        TimeSpan? timeout = null,
+        IReadOnlyDictionary<string, string?>? additionalEnvironment = null)
     {
         var startInfo = new ProcessStartInfo(fileName)
         {
@@ -33,6 +37,14 @@ public sealed class ProcessRunner(
         if (environment is not null)
         {
             foreach (var variable in environment)
+            {
+                startInfo.Environment[variable.Key] = variable.Value;
+            }
+        }
+
+        if (additionalEnvironment is not null)
+        {
+            foreach (var variable in additionalEnvironment)
             {
                 startInfo.Environment[variable.Key] = variable.Value;
             }
