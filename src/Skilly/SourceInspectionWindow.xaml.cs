@@ -24,6 +24,8 @@ public partial class SourceInspectionWindow : Window
 
     private void OnSelectNone(object sender, RoutedEventArgs e) => _viewModel.SelectAll(false);
 
+    private void OnSelectExact(object sender, RoutedEventArgs e) => _viewModel.SelectExact();
+
     private async void OnInstallSelected(object sender, RoutedEventArgs e)
     {
         var selected = _viewModel.Skills
@@ -40,7 +42,13 @@ public partial class SourceInspectionWindow : Window
         try
         {
             var result = await Task.Run(() => _provider.Install(_viewModel.Inspection, selected));
-            InstalledCount = result.SucceededCount;
+            if (!result.Succeeded)
+            {
+                _viewModel.Status = $"Installation failed. {result.Diagnostics}";
+                return;
+            }
+
+            InstalledCount = result.Value!.SucceededCount;
             _viewModel.IsBusy = false;
             DialogResult = true;
         }

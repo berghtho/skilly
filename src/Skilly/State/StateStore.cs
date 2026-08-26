@@ -61,6 +61,8 @@ public sealed class ProvenanceInfo
     public required string TrackingRule { get; set; }
 
     public required string ResolvedCommit { get; set; }
+
+    public required string ProviderVersion { get; set; }
 }
 
 public sealed class PendingOperation
@@ -70,6 +72,8 @@ public sealed class PendingOperation
     public List<string> AffectedInstallationIds { get; set; } = [];
 
     public List<string> StartingPaths { get; set; } = [];
+
+    public List<string?> StartingHashes { get; set; } = [];
 
     public required DateTimeOffset StartedAt { get; set; }
 }

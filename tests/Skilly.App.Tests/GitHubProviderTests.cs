@@ -141,7 +141,7 @@ public sealed class GitHubProviderTests
     {
         using var fixture = new GitHubProviderFixture();
 
-        var inspection = fixture.Provider.Inspect(fixture.Reference);
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
 
         Assert.Equal(2, inspection.Skills.Count);
         Assert.Equal(GitHubProviderFixture.CommitSha, inspection.Commit.Sha);
@@ -166,10 +166,10 @@ public sealed class GitHubProviderTests
     public void Install_records_pending_before_payload_then_verifies_topology_and_authority()
     {
         using var fixture = new GitHubProviderFixture();
-        var inspection = fixture.Provider.Inspect(fixture.Reference);
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
         fixture.RequirePendingOperationBeforeContent();
 
-        var result = fixture.Provider.Install(inspection, inspection.Skills);
+        var result = fixture.Provider.Install(inspection, inspection.Skills).ValueOrThrow();
 
         Assert.Equal(2, result.SucceededCount);
         Assert.True(File.Exists(Path.Combine(fixture.CanonicalPath("alpha"), "scripts", "run.ps1")));
@@ -184,6 +184,7 @@ public sealed class GitHubProviderTests
             Assert.Equal("github", record.Provenance.SourceProvider);
             Assert.Equal("main", record.Provenance.TrackingRule);
             Assert.Equal(GitHubProviderFixture.CommitSha, record.Provenance.ResolvedCommit);
+            Assert.Equal("gh version 99.0.0-fake", record.Provenance.ProviderVersion);
             Assert.Equal(GitHubProviderFixture.CommitSha, record.InstalledRevision);
             Assert.Equal(PayloadHasher.HashFolder(record.CanonicalPath), record.InstalledPayloadHash);
         });
@@ -208,13 +209,14 @@ public sealed class GitHubProviderTests
     public void Collision_blocks_install_before_state_or_content_changes()
     {
         using var fixture = new GitHubProviderFixture();
-        var inspection = fixture.Provider.Inspect(fixture.Reference);
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
         Directory.CreateDirectory(fixture.CanonicalPath("alpha"));
         File.WriteAllText(Path.Combine(fixture.CanonicalPath("alpha"), "keep.txt"), "keep");
 
-        var error = Assert.Throws<ProviderFailure>(() => fixture.Provider.Install(inspection, [inspection.Skills[0]]));
+        var result = fixture.Provider.Install(inspection, [inspection.Skills[0]]);
 
-        Assert.Contains("Collision", error.Message);
+        Assert.False(result.Succeeded);
+        Assert.Contains("Collision", result.Diagnostics);
         Assert.Equal("keep", File.ReadAllText(Path.Combine(fixture.CanonicalPath("alpha"), "keep.txt")));
         Assert.False(File.Exists(fixture.StatePath));
     }
@@ -223,13 +225,14 @@ public sealed class GitHubProviderTests
     public void Existing_real_Claude_folder_is_failure_and_is_never_replaced_by_a_junction()
     {
         using var fixture = new GitHubProviderFixture();
-        var inspection = fixture.Provider.Inspect(fixture.Reference);
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
         Directory.CreateDirectory(fixture.ClaudePath("alpha"));
         File.WriteAllText(Path.Combine(fixture.ClaudePath("alpha"), "keep.txt"), "keep");
 
-        var error = Assert.Throws<ProviderFailure>(() => fixture.Provider.Install(inspection, [inspection.Skills[0]]));
+        var result = fixture.Provider.Install(inspection, [inspection.Skills[0]]);
 
-        Assert.Contains("Claude", error.Message);
+        Assert.False(result.Succeeded);
+        Assert.Contains("Claude", result.Diagnostics);
         Assert.Equal("keep", File.ReadAllText(Path.Combine(fixture.ClaudePath("alpha"), "keep.txt")));
         Assert.False(Directory.Exists(fixture.CanonicalPath("alpha")));
         var state = fixture.StateStore.Load();
@@ -242,9 +245,10 @@ public sealed class GitHubProviderTests
     {
         using var fixture = new GitHubProviderFixture("/commits/");
 
-        var error = Assert.Throws<GhApiException>(() => fixture.Provider.Inspect(fixture.Reference));
+        var result = fixture.Provider.Inspect(fixture.Reference);
 
-        Assert.Contains("exit code 17", error.Message);
+        Assert.False(result.Succeeded);
+        Assert.Contains("exit code 17", result.Diagnostics);
         Assert.False(File.Exists(fixture.StatePath));
         Assert.False(Directory.Exists(Path.Combine(fixture.Home, ".agents")));
     }
@@ -253,12 +257,13 @@ public sealed class GitHubProviderTests
     public void Payload_failure_after_journaling_rolls_back_created_paths_and_clears_pending()
     {
         using var fixture = new GitHubProviderFixture("scripts/run.ps1");
-        var inspection = fixture.Provider.Inspect(fixture.Reference);
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
         fixture.RequirePendingOperationBeforeContent();
 
-        var error = Assert.Throws<ProviderFailure>(() => fixture.Provider.Install(inspection, [inspection.Skills[0]]));
+        var result = fixture.Provider.Install(inspection, [inspection.Skills[0]]);
 
-        Assert.Contains("failed", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(result.Succeeded);
+        Assert.Contains("failed", result.Diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.False(Directory.Exists(fixture.CanonicalPath("alpha")));
         Assert.False(Directory.Exists(fixture.ClaudePath("alpha")));
         var state = fixture.StateStore.Load();
@@ -272,9 +277,10 @@ public sealed class GitHubProviderTests
         using var fixture = new GitHubProviderFixture();
         fixture.WriteTree(truncated: true);
 
-        var error = Assert.Throws<GhApiException>(() => fixture.Provider.Inspect(fixture.Reference));
+        var result = fixture.Provider.Inspect(fixture.Reference);
 
-        Assert.Contains("truncated", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(result.Succeeded);
+        Assert.Contains("truncated", result.Diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.False(File.Exists(fixture.StatePath));
     }
 
@@ -282,9 +288,10 @@ public sealed class GitHubProviderTests
     public void Install_is_unavailable_when_nothing_is_selected()
     {
         using var fixture = new GitHubProviderFixture();
-        var inspection = fixture.Provider.Inspect(fixture.Reference);
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
 
-        Assert.Throws<ProviderFailure>(() => fixture.Provider.Install(inspection, []));
+        var result = fixture.Provider.Install(inspection, []);
+        Assert.False(result.Succeeded);
         Assert.False(File.Exists(fixture.StatePath));
     }
 
@@ -292,7 +299,7 @@ public sealed class GitHubProviderTests
     public void Selection_supports_none_and_all_while_invalid_Source_Skills_remain_unselectable()
     {
         using var fixture = new GitHubProviderFixture();
-        var inspection = fixture.Provider.Inspect(fixture.Reference);
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
         var invalid = new SourceSkill("skills/invalid", "invalid", null, null, false, "missing name", ["skills/invalid/SKILL.md"]);
         var viewModel = new SourceInspectionViewModel(inspection with
         {
@@ -300,6 +307,12 @@ public sealed class GitHubProviderTests
         });
 
         Assert.False(viewModel.CanInstall);
+        viewModel.ExactSelection = "Alpha Display";
+        Assert.True(viewModel.SelectExact());
+        Assert.Equal(1, viewModel.SelectedCount);
+        viewModel.SelectAll(false);
+        viewModel.ExactSelection = "alpha display";
+        Assert.False(viewModel.SelectExact());
         viewModel.SelectAll(true);
         Assert.True(viewModel.CanInstall);
         Assert.Equal(2, viewModel.SelectedCount);

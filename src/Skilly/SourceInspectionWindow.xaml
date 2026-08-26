@@ -32,6 +32,15 @@
         </StackPanel>
 
         <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+            <DockPanel Margin="0,0,0,8" IsEnabled="{Binding CanSelect}">
+                <Button DockPanel.Dock="Right"
+                        Content="Select _exact"
+                        Click="OnSelectExact"
+                        MinWidth="100"
+                        Margin="8,0,0,0" />
+                <TextBox Text="{Binding ExactSelection, UpdateSourceTrigger=PropertyChanged}"
+                         AutomationProperties.Name="Exact Source Skill path or declared-name alias" />
+            </DockPanel>
             <TextBlock Text="{Binding Status}"
                        TextWrapping="Wrap"
                        AutomationProperties.Name="Source inspection status"

@@ -12,11 +12,11 @@ public sealed class ProviderFailure : Exception
     }
 }
 
-public sealed record InstallSkillOutcome(string SkillPath, string CanonicalPath, bool Succeeded, string? Error);
+public sealed record InstalledSkill(string SkillPath, string CanonicalPath);
 
-public sealed record InstallResult(IReadOnlyList<InstallSkillOutcome> Outcomes)
+public sealed record InstallResult(IReadOnlyList<InstalledSkill> InstalledSkills)
 {
-    public int SucceededCount => Outcomes.Count(static outcome => outcome.Succeeded);
+    public int SucceededCount => InstalledSkills.Count;
 }
 
 public sealed class GitHubInstaller(
@@ -72,6 +72,7 @@ public sealed class GitHubInstaller(
             OperationType = "install",
             AffectedInstallationIds = [.. installationIds.Values],
             StartingPaths = [.. destinations.Values],
+            StartingHashes = [.. destinations.Values.Select(static _ => (string?)null)],
             StartedAt = DateTimeOffset.Now,
         };
 
@@ -112,11 +113,9 @@ public sealed class GitHubInstaller(
             state.LastOperationNote = $"installed {records.Count} GitHub Skill(s)";
             stateStore.Save(state);
 
-            return new InstallResult(records.Select(record => new InstallSkillOutcome(
+            return new InstallResult(records.Select(record => new InstalledSkill(
                 record.Provenance.SourceSkillPath,
-                record.CanonicalPath,
-                true,
-                null)).ToList());
+                record.CanonicalPath)).ToList());
         }
         catch (Exception exception)
         {
@@ -210,6 +209,7 @@ public sealed class GitHubInstaller(
                 SourceSkillPath = skill.SkillPath,
                 TrackingRule = inspection.RequestedTrackingRule,
                 ResolvedCommit = inspection.Commit.Sha,
+                ProviderVersion = inspection.ProviderVersion,
             },
             IntendedClaudeJunctionPath = Path.GetFullPath(claudeJunctionPath),
             InstalledRevision = inspection.Commit.Sha,

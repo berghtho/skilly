@@ -46,6 +46,14 @@ if (endpoint.Contains("/contents/", StringComparison.Ordinal))
             Console.Error.WriteLine("pendingOperation was not recorded before content acquisition");
             return 22;
         }
+
+        if (!pending.TryGetProperty("startingHashes", out var startingHashes)
+            || startingHashes.ValueKind != JsonValueKind.Array
+            || startingHashes.GetArrayLength() == 0)
+        {
+            Console.Error.WriteLine("pendingOperation did not include starting hashes");
+            return 23;
+        }
     }
 
     var contentStart = endpoint.IndexOf("/contents/", StringComparison.Ordinal) + "/contents/".Length;

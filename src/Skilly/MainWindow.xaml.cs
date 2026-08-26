@@ -39,13 +39,14 @@ public partial class MainWindow : Window
         viewModel.Announce("Inspecting GitHub source read-only. Nothing has changed.");
         try
         {
-            if (!await Task.Run(_githubProvider.IsAvailable))
+            var inspectionResult = await Task.Run(() => _githubProvider.Inspect(reference));
+            if (!inspectionResult.Succeeded)
             {
-                viewModel.Announce("GitHub provider unavailable: installed, authenticated `gh` is required. Nothing changed.");
+                viewModel.Announce($"GitHub source inspection failed. {inspectionResult.Diagnostics} Nothing changed.");
                 return;
             }
 
-            var inspection = await Task.Run(() => _githubProvider.Inspect(reference));
+            var inspection = inspectionResult.Value!;
             var dialog = new SourceInspectionWindow(inspection, _githubProvider) { Owner = this };
             if (dialog.ShowDialog() == true)
             {

@@ -12,10 +12,8 @@ public sealed record ResolvedCommit(string Sha);
 
 public sealed record TreeEntry(string Path, string Type);
 
-public sealed class TreeSnapshot(bool truncated, IReadOnlyList<TreeEntry> entries)
+public sealed class TreeSnapshot(IReadOnlyList<TreeEntry> entries)
 {
-    public bool Truncated { get; } = truncated;
-
     public IReadOnlyList<TreeEntry> Entries { get; } = entries;
 }
 
@@ -34,17 +32,23 @@ public sealed class GhClient(ProcessRunner runner, string ghExecutable = "gh")
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
-    public bool IsAvailable()
+    public string GetVersion()
     {
-        try
+        var version = runner.Run(ghExecutable, ["--version"], TimeSpan.FromSeconds(15));
+        if (!version.Succeeded)
         {
-            var version = runner.Run(ghExecutable, ["--version"], TimeSpan.FromSeconds(15));
-            return version.Succeeded;
+            throw new GhApiException($"`gh --version` failed with exit code {version.ExitCode}: {Summarize(version.CombinedOutput)}");
         }
-        catch (Exception)
+
+        var firstLine = version.StandardOutput
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(firstLine))
         {
-            return false;
+            throw new GhApiException("`gh --version` returned no version information.");
         }
+
+        return firstLine;
     }
 
     public RepositoryFacts GetRepository(string owner, string repository)
@@ -90,7 +94,7 @@ public sealed class GhClient(ProcessRunner runner, string ghExecutable = "gh")
                 entry.GetProperty("type").GetString()!))
             .ToList();
 
-        return new TreeSnapshot(truncatedElement.GetBoolean(), entries);
+        return new TreeSnapshot(entries);
     }
 
     public byte[] GetFileContent(string owner, string repository, string path, string sha)

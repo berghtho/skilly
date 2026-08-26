@@ -43,6 +43,7 @@ public sealed class SelectableSourceSkill : INotifyPropertyChanged
 public sealed class SourceInspectionViewModel : INotifyPropertyChanged
 {
     private string _status;
+    private string _exactSelection = string.Empty;
     private bool _isBusy;
 
     public SourceInspectionViewModel(SourceInspection inspection)
@@ -111,12 +112,48 @@ public sealed class SourceInspectionViewModel : INotifyPropertyChanged
         }
     }
 
+    public string ExactSelection
+    {
+        get => _exactSelection;
+        set
+        {
+            if (_exactSelection == value)
+            {
+                return;
+            }
+
+            _exactSelection = value;
+            OnPropertyChanged();
+        }
+    }
+
     public void SelectAll(bool selected)
     {
         foreach (var item in Skills.Where(static item => item.Skill.MetadataValid))
         {
             item.IsSelected = selected;
         }
+    }
+
+    public bool SelectExact()
+    {
+        var candidate = ExactSelection.Trim();
+        var match = Skills.SingleOrDefault(item => item.Skill.MatchesAlias(candidate));
+        if (match is null)
+        {
+            Status = $"No exact Source Skill path or declared-name alias matches '{candidate}'. Nothing changed.";
+            return false;
+        }
+
+        if (!match.Skill.MetadataValid)
+        {
+            Status = $"'{candidate}' identifies a Source Skill with invalid metadata and cannot be selected.";
+            return false;
+        }
+
+        match.IsSelected = true;
+        Status = $"Selected '{match.Skill.SkillPath}' by exact path or declared-name alias.";
+        return true;
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

@@ -13,7 +13,8 @@ public sealed record SourceSkill(
     IReadOnlyList<string> FilePaths)
 {
     public bool MatchesAlias(string candidate)
-        => string.Equals(candidate, FolderName, StringComparison.Ordinal)
+        => string.Equals(candidate, SkillPath, StringComparison.Ordinal)
+           || string.Equals(candidate, FolderName, StringComparison.Ordinal)
            || (DeclaredName is not null && string.Equals(candidate, DeclaredName, StringComparison.Ordinal));
 }
 
@@ -22,11 +23,12 @@ public sealed record SourceInspection(
     RepositoryFacts Repository,
     string RequestedTrackingRule,
     ResolvedCommit Commit,
+    string ProviderVersion,
     IReadOnlyList<SourceSkill> Skills);
 
 public sealed class SourceInspector(GhClient client, RollingLog log)
 {
-    public SourceInspection Inspect(GitHubSourceReference reference)
+    public SourceInspection Inspect(GitHubSourceReference reference, string providerVersion)
     {
         log.Info($"Inspecting GitHub source '{reference.Normalized}'.");
         var repository = client.GetRepository(reference.Owner, reference.Repository);
@@ -85,6 +87,6 @@ public sealed class SourceInspector(GhClient client, RollingLog log)
         }
 
         log.Info($"Inspection found {skills.Count} Source Skill(s) below '{(reference.RequestedPath ?? "(root)")}' at commit {commit.Sha}.");
-        return new SourceInspection(reference, repository, requestedRef, commit, skills);
+        return new SourceInspection(reference, repository, requestedRef, commit, providerVersion, skills);
     }
 }
