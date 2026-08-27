@@ -367,7 +367,7 @@ public sealed class ApmProviderTests
         fixture.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
         var record = fixture.StateStore.Load().Records.Single();
         var before = PayloadHasher.HashFolder(record.CanonicalPath);
-        File.WriteAllText(fixture.ManifestPath, File.ReadAllText(fixture.ManifestPath).Replace("github.com/acme/apm-library", "github.com/evil/other", StringComparison.Ordinal));
+        File.WriteAllText(fixture.ManifestPath, File.ReadAllText(fixture.ManifestPath).Replace("github.com/acme/apm-library", "github.com/evil/acme/apm-library", StringComparison.Ordinal));
         Assert.False(fixture.Provider.Check(record).Succeeded);
         Assert.False(fixture.Provider.Uninstall(record).Succeeded);
         Assert.Equal(before, PayloadHasher.HashFolder(record.CanonicalPath));

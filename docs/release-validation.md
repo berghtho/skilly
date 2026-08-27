@@ -19,7 +19,7 @@ Supply explicit external prerequisites only when they are real:
   -RunCrossHarness
 ```
 
-`-RequireAllGates` returns failure when any gate is skipped. Without it, command/test failures still fail the script, while missing explicit prerequisites are recorded as `SKIPPED` rather than fabricated as passes.
+The release command fails when any gate fails or is skipped. Use `-AllowSkippedGates` only for an explicitly partial local diagnostic run; skipped prerequisites remain recorded and are never presented as release success.
 
 The routine packaged test is deliberately reported as `portable-runtime-proof`, not as the live clean-profile gate. It maps profile directories to isolated locations, disables system runtime lookup, verifies internal single-file hosting, observes the second-launch focus signal, and shuts down cleanly. It does not create a Windows account and cannot attest that the current account has no .NET installation.
 

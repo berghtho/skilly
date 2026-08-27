@@ -90,7 +90,7 @@ public sealed class ApmClient(ProcessRunner runner, string executable = "apm.exe
 
     public static void RequireExit(ProcessResult result, string operation)
     {
-        if (!result.Succeeded) throw new ProviderFailure($"{operation} failed with exit code {result.ExitCode}. {result.CombinedOutput.Trim()}");
+        if (!result.Succeeded) throw new ProviderFailure($"{operation} failed with exit code {result.ExitCode}. {SensitiveDataRedactor.Redact(result.CombinedOutput).Trim()}");
     }
 
     private ProcessResult Run(IReadOnlyList<string> arguments, TimeSpan? timeout = null, IReadOnlyDictionary<string, string?>? environment = null)

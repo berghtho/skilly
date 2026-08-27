@@ -44,7 +44,8 @@
                           AutomationProperties.Name="Exact Source Skill path or declared-name alias"
                           AutomationProperties.AutomationId="Skilly.ExactSelection" />
             </DockPanel>
-             <TextBlock Text="{Binding Status}"
+             <TextBlock x:Name="SourceStatus"
+                        Text="{Binding Status}"
                        TextWrapping="Wrap"
                         AutomationProperties.Name="{Binding Status}"
                         AutomationProperties.LiveSetting="Polite"

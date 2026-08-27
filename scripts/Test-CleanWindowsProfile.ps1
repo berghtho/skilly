@@ -42,17 +42,29 @@ try {
     } while ($first.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $deadline)
     if ($first.MainWindowHandle -eq 0) { throw "The direct Skilly.exe launch did not create a window." }
 
+    $logRoot = Join-Path $env:LOCALAPPDATA "Skilly\logs"
+    $logOffsets = @{}
+    if (Test-Path -LiteralPath $logRoot) {
+        Get-ChildItem -LiteralPath $logRoot -Filter "skilly-*.log" -File | ForEach-Object { $logOffsets[$_.FullName] = $_.Length }
+    }
     $second = Start-Process -FilePath $ExePath -WorkingDirectory $workingDirectory -PassThru
     if (-not $second.WaitForExit(20000)) { throw "The second activation did not exit within 20 seconds." }
     if ($second.ExitCode -ne 0) { throw "The second activation exited with code $($second.ExitCode)." }
     $first.Refresh()
     if ($first.HasExited) { throw "The first instance exited during second activation." }
 
-    $logRoot = Join-Path $env:LOCALAPPDATA "Skilly\logs"
     $focusDeadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         $logText = if (Test-Path -LiteralPath $logRoot) {
-            (@(Get-ChildItem -LiteralPath $logRoot -Filter "skilly-*.log" -File | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join "`n")
+            (@(Get-ChildItem -LiteralPath $logRoot -Filter "skilly-*.log" -File | ForEach-Object {
+                $stream = [IO.File]::Open($_.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+                try {
+                    $offset = if ($logOffsets.ContainsKey($_.FullName)) { [long]$logOffsets[$_.FullName] } else { 0 }
+                    [void]$stream.Seek($offset, [IO.SeekOrigin]::Begin)
+                    $reader = [IO.StreamReader]::new($stream)
+                    try { $reader.ReadToEnd() } finally { $reader.Dispose() }
+                } finally { $stream.Dispose() }
+            }) -join "`n")
         } else { "" }
         if ($logText.Contains("focus signal sent=True", [StringComparison]::Ordinal)) { break }
         Start-Sleep -Milliseconds 200

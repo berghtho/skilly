@@ -586,8 +586,8 @@ public sealed class ApmProvider(
     {
         var requested = NormalizeIdentity(source);
         var repository = NormalizeIdentity(evidence.RepositoryUrl);
-        if (!requested.Contains(repository, StringComparison.OrdinalIgnoreCase)
-            && !repository.Contains(requested, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(requested, repository, StringComparison.OrdinalIgnoreCase)
+            && !requested.StartsWith(repository + '/', StringComparison.OrdinalIgnoreCase))
             throw new ProviderFailure("APM lock source evidence does not match the requested normalized Skill Library.");
     }
 

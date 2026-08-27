@@ -8,7 +8,7 @@ param(
     [string]$ApmFixtureTemplate = $env:SKILLY_LIVE_APM_FIXTURE_TEMPLATE,
     [string]$CleanProfileAttestation = $env:SKILLY_CLEAN_PROFILE_ATTESTATION,
     [switch]$RunCrossHarness,
-    [switch]$RequireAllGates
+    [switch]$AllowSkippedGates
 )
 
 $ErrorActionPreference = "Stop"
@@ -276,7 +276,7 @@ try {
 
     $failed = @($results | Where-Object status -eq "FAILED").Count
     $skipped = @($results | Where-Object status -eq "SKIPPED").Count
-    if ($failed -gt 0 -or ($RequireAllGates -and $skipped -gt 0)) { exit 1 }
+    if ($failed -gt 0 -or (-not $AllowSkippedGates -and $skipped -gt 0)) { exit 1 }
 }
 finally {
     Pop-Location

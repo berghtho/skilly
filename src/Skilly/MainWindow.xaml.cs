@@ -1,6 +1,8 @@
 ﻿using System.Windows;
 using System.Windows.Controls;
 using System.ComponentModel;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using Skilly.Providers.GitHub;
 using Skilly.Providers.SkillsCli;
 using Skilly.Providers;
@@ -41,8 +43,23 @@ public partial class MainWindow : Window
         _checkRunner = checkRunner;
         _refreshInventory = refreshInventory;
         DataContext = viewModel;
+        viewModel.PropertyChanged += OnViewModelPropertyChanged;
         Loaded += OnLoaded;
-        Closed += (_, _) => _log.Info("Workbench window closed; shutdown proceeding.");
+        Closed += (_, _) =>
+        {
+            viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            _log.Info("Workbench window closed; shutdown proceeding.");
+        };
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(ViewModels.MainViewModel.Status)) return;
+        Dispatcher.BeginInvoke(() =>
+        {
+            var peer = UIElementAutomationPeer.FromElement(StatusMessage) ?? new TextBlockAutomationPeer(StatusMessage);
+            peer.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+        });
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)

@@ -69,12 +69,30 @@ public sealed class AccessibilityTests(PackagedAppFixture fixture)
 
             var refresh = FindById(window, "Skilly.RefreshChecks")!;
             WaitUntil(() => refresh.Current.IsEnabled, TimeSpan.FromMinutes(1), "Refresh checks did not become available.");
-            ((InvokePattern)refresh.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
             var status = FindById(window, "Skilly.StatusMessage")!;
-            WaitUntil(
-                () => ReadText(status).Contains("Installed content was not changed", StringComparison.Ordinal),
-                TimeSpan.FromMinutes(1),
-                "The polite operation status did not announce the read-only check result.");
+            using var liveRegionChanged = new ManualResetEventSlim();
+            AutomationEventHandler handler = (_, _) => liveRegionChanged.Set();
+            Automation.AddAutomationEventHandler(
+                AutomationElementIdentifiers.LiveRegionChangedEvent,
+                status,
+                TreeScope.Element,
+                handler);
+            try
+            {
+                ((InvokePattern)refresh.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                WaitUntil(
+                    () => ReadText(status).Contains("Installed content was not changed", StringComparison.Ordinal),
+                    TimeSpan.FromMinutes(1),
+                    "The polite operation status did not announce the read-only check result.");
+                Assert.True(liveRegionChanged.Wait(TimeSpan.FromSeconds(10)), "The status change did not raise a LiveRegionChanged event for screen readers.");
+            }
+            finally
+            {
+                Automation.RemoveAutomationEventHandler(
+                    AutomationElementIdentifiers.LiveRegionChangedEvent,
+                    status,
+                    handler);
+            }
 
             ((ExpandCollapsePattern)provider.GetCurrentPattern(ExpandCollapsePattern.Pattern)).Expand();
             var github = provider.FindAll(TreeScope.Descendants, Condition.TrueCondition)

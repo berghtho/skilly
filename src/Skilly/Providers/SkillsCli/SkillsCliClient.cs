@@ -171,7 +171,7 @@ public sealed class SkillsCliClient
     {
         if (!result.Succeeded)
         {
-            throw new ProviderFailure($"{operation} failed with exit code {result.ExitCode}. {result.CombinedOutput.Trim()}");
+            throw new ProviderFailure($"{operation} failed with exit code {result.ExitCode}. {SensitiveDataRedactor.Redact(result.CombinedOutput).Trim()}");
         }
     }
 

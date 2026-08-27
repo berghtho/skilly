@@ -338,6 +338,25 @@ public sealed class SkillsCliProviderTests
     }
 
     [Fact]
+    public void Lookalike_provider_source_suffix_does_not_match_recorded_Skill_Library()
+    {
+        using var fixture = new SkillsCliProviderFixture();
+        var inspection = fixture.Provider.Inspect(SkillsCliProviderFixture.Source).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
+        var record = Assert.Single(fixture.StateStore.Load().Records);
+        var before = PayloadHasher.HashFolder(record.CanonicalPath);
+        var lockText = File.ReadAllText(fixture.ProviderLockPath)
+            .Replace("https://example.test/acme/library.git", "https://evil.test/example.test/acme/library.git", StringComparison.Ordinal);
+        File.WriteAllText(fixture.ProviderLockPath, lockText);
+
+        Assert.False(fixture.Provider.Check(record).Succeeded);
+        Assert.False(fixture.Provider.PlanManagedReinstall(record).Succeeded);
+        Assert.Equal(before, PayloadHasher.HashFolder(record.CanonicalPath));
+        Assert.True(Junction.IsJunctionTo(record.IntendedClaudeJunctionPath!, record.CanonicalPath));
+        Assert.Null(fixture.StateStore.Load().PendingOperation);
+    }
+
+    [Fact]
     public void Interrupted_provider_install_is_restored_on_restart_without_mutating_retry()
     {
         using var fixture = new SkillsCliProviderFixture();

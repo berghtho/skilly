@@ -757,8 +757,6 @@ public sealed class SkillsCliProvider(
             .Where(static value => !string.IsNullOrWhiteSpace(value))
             .Select(value => ComparableSource(value!));
         if (!candidates.Any(candidate => string.Equals(candidate, requested, StringComparison.OrdinalIgnoreCase)
-                                         || requested.EndsWith('/' + candidate, StringComparison.OrdinalIgnoreCase)
-                                         || candidate.EndsWith('/' + requested, StringComparison.OrdinalIgnoreCase)
                                          || requested.StartsWith(candidate + '/', StringComparison.OrdinalIgnoreCase)))
         {
             throw new ProviderFailure("Provider lock source evidence does not match the requested normalized Skill Library.");
@@ -785,7 +783,11 @@ public sealed class SkillsCliProvider(
             }
             normalized = uri.Host + "/" + uri.AbsolutePath.Trim('/');
         }
-        return TrimGitSuffix(normalized.TrimEnd('/'));
+        normalized = TrimGitSuffix(normalized.TrimEnd('/'));
+        var shorthandSegments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return !normalized.Contains(':') && shorthandSegments.Length >= 2 && !shorthandSegments[0].Contains('.')
+            ? $"github.com/{shorthandSegments[0]}/{shorthandSegments[1]}"
+            : normalized;
     }
 
     private static string TrimGitSuffix(string value)
@@ -794,11 +796,7 @@ public sealed class SkillsCliProvider(
     private static void ValidateCredentialFreeReference(string source)
     {
         if (Uri.TryCreate(source.Trim(), UriKind.Absolute, out var uri)
-            && (!string.IsNullOrEmpty(uri.UserInfo)
-                || uri.Query.Contains("token=", StringComparison.OrdinalIgnoreCase)
-                || uri.Query.Contains("key=", StringComparison.OrdinalIgnoreCase)
-                || uri.Query.Contains("secret=", StringComparison.OrdinalIgnoreCase)
-                || uri.Query.Contains("password=", StringComparison.OrdinalIgnoreCase)))
+            && (!string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Query)))
         {
             throw new ProviderFailure(
                 "skills provider source references must not embed credentials; use the provider's existing authentication.");

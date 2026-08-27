@@ -147,8 +147,13 @@ public sealed class ApmGlobalState(string home)
             var repository = RequiredScalar(dependency, "repo_url");
             var identity = Identity(repository, Scalar(dependency, "host"), Scalar(dependency, "virtual_path"));
             var subset = Strings(dependency, "skill_subset");
-            if (!manifestSources.Any(value => Comparable(value).Contains(Comparable(repository), StringComparison.OrdinalIgnoreCase)
-                                              || Comparable(repository).Contains(Comparable(value), StringComparison.OrdinalIgnoreCase)))
+            var repositoryIdentity = Comparable(repository);
+            if (!manifestSources.Any(value =>
+                {
+                    var manifestIdentity = Comparable(value);
+                    return string.Equals(manifestIdentity, repositoryIdentity, StringComparison.OrdinalIgnoreCase)
+                           || manifestIdentity.StartsWith(repositoryIdentity + '/', StringComparison.OrdinalIgnoreCase);
+                }))
             {
                 throw new ProviderFailure($"APM manifest does not declare lock dependency '{identity}'.");
             }
