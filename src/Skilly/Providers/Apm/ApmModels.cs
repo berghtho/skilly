@@ -41,6 +41,27 @@ public sealed record ApmInstallResult(IReadOnlyList<ApmInstalledSkill> Installed
 
 public sealed record ApmUpdateResult(string InstallationId, string InstalledRevision);
 
+public sealed record ApmManagedReinstallTarget(
+    string InstallationId,
+    string ExactPath,
+    string Revision,
+    string PayloadHash,
+    string StartingPayloadHash,
+    string ProviderEvidence,
+    string SkillName);
+
+public sealed record ApmManagedReinstallPlan(
+    string InstallationId,
+    string ExactPath,
+    string Revision,
+    string StartingPayloadHash,
+    string PackageIdentity,
+    string Source,
+    IReadOnlyList<ApmManagedReinstallTarget> Targets) : IManagedReinstallPlan
+{
+    public IReadOnlyList<string> AffectedPaths => Targets.Select(static target => target.ExactPath).ToList();
+}
+
 public sealed record ApmOutdatedRow(string Package, string Current, string Latest, string Status);
 
 public sealed record ApmDependencyEvidence(
@@ -126,8 +147,13 @@ public sealed class ApmGlobalState(string home)
             var repository = RequiredScalar(dependency, "repo_url");
             var identity = Identity(repository, Scalar(dependency, "host"), Scalar(dependency, "virtual_path"));
             var subset = Strings(dependency, "skill_subset");
-            if (!manifestSources.Any(value => Comparable(value).Contains(Comparable(repository), StringComparison.OrdinalIgnoreCase)
-                                              || Comparable(repository).Contains(Comparable(value), StringComparison.OrdinalIgnoreCase)))
+            var repositoryIdentity = Comparable(repository);
+            if (!manifestSources.Any(value =>
+                {
+                    var manifestIdentity = Comparable(value);
+                    return string.Equals(manifestIdentity, repositoryIdentity, StringComparison.OrdinalIgnoreCase)
+                           || manifestIdentity.StartsWith(repositoryIdentity + '/', StringComparison.OrdinalIgnoreCase);
+                }))
             {
                 throw new ProviderFailure($"APM manifest does not declare lock dependency '{identity}'.");
             }

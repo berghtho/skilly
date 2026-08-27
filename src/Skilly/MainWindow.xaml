@@ -46,32 +46,39 @@
                            Text="_Skill source:"
                            VerticalAlignment="Center"
                            Margin="0,0,8,0" />
-                <ComboBox Grid.Column="1"
+                 <ComboBox Grid.Column="1"
+                          x:Name="SourceProviderBox"
                           ItemsSource="{Binding SourceProviders}"
                           SelectedItem="{Binding SelectedSourceProvider, Mode=TwoWay}"
                           AutomationProperties.Name="Source provider"
+                          AutomationProperties.AutomationId="Skilly.SourceProvider"
                           Margin="0,0,8,0"
                           TabIndex="0" />
-                <TextBox Grid.Column="2"
-                         x:Name="SourceBox"
+                 <TextBox Grid.Column="2"
+                          x:Name="SourceBox"
                          Text="{Binding SourceText, UpdateSourceTrigger=PropertyChanged}"
                          AutomationProperties.Name="Skill source URL or reference"
-                         AutomationProperties.LabeledBy="{Binding ElementName=SourceLabel}"
+                          AutomationProperties.LabeledBy="{Binding ElementName=SourceLabel}"
+                          AutomationProperties.AutomationId="Skilly.SourceReference"
                          VerticalContentAlignment="Center"
                          Margin="0,0,8,0"
                           TabIndex="1" />
                 <Button Grid.Column="3"
                         x:Name="InspectSourceButton"
-                        Content="_Inspect source"
+                         Content="_Inspect source"
                         Click="OnInspectSource"
                         Margin="0,0,8,0"
-                        MinWidth="110"
+                         MinWidth="110"
+                         AutomationProperties.Name="Inspect source"
+                         AutomationProperties.AutomationId="Skilly.InspectSource"
                          TabIndex="2" />
                 <Button Grid.Column="4"
                         x:Name="RefreshChecksButton"
                         Content="_Refresh checks"
-                        Click="OnRefreshChecks"
-                        MinWidth="110"
+                         Click="OnRefreshChecks"
+                         MinWidth="110"
+                         AutomationProperties.Name="Refresh checks"
+                         AutomationProperties.AutomationId="Skilly.RefreshChecks"
                          TabIndex="3" />
             </Grid>
         </Border>
@@ -81,8 +88,9 @@
                 Background="#FFF2CC"
                 BorderBrush="#B7791F"
                 BorderThickness="0,0,0,1"
-                Visibility="{Binding RecoveryRequired, Converter={StaticResource BoolToVisibility}}"
-                AutomationProperties.Name="Recovery Required read-only notice">
+                 Visibility="{Binding RecoveryRequired, Converter={StaticResource BoolToVisibility}}"
+                 AutomationProperties.Name="Recovery Required read-only notice"
+                 AutomationProperties.AutomationId="Skilly.RecoveryNotice">
             <StackPanel Orientation="Horizontal">
                 <TextBlock Text="Recovery Required: " FontWeight="Bold" />
                 <TextBlock Text="{Binding RecoveryDiagnostic}" TextWrapping="Wrap" />
@@ -94,8 +102,9 @@
                 Background="#FFF7E6"
                 BorderBrush="#B7791F"
                 BorderThickness="0,0,0,1"
-                Visibility="{Binding HasProviderReadinessProblem, Converter={StaticResource BoolToVisibility}}"
-                AutomationProperties.Name="Provider readiness notice">
+                 Visibility="{Binding HasProviderReadinessProblem, Converter={StaticResource BoolToVisibility}}"
+                 AutomationProperties.Name="Provider readiness notice"
+                 AutomationProperties.AutomationId="Skilly.ProviderReadinessNotice">
             <TextBlock Text="{Binding ProviderReadiness}" TextWrapping="Wrap" />
         </Border>
 
@@ -104,9 +113,10 @@
                    AutomationProperties.AutomationId="OperationStatusBar">
             <StatusBarItem>
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock x:Name="StatusMessage"
-                               Text="{Binding Status.Message}"
-                               AutomationProperties.Name="Last operation result"
+                     <TextBlock x:Name="StatusMessage"
+                                Text="{Binding Status.Message}"
+                                AutomationProperties.Name="{Binding Status.Message}"
+                                AutomationProperties.AutomationId="Skilly.StatusMessage"
                                AutomationProperties.LiveSetting="Polite"
                                Margin="0,0,12,0" />
                     <TextBlock Text="{Binding Status.Timestamp, StringFormat='HH:mm:ss'}"
@@ -137,9 +147,9 @@
                              SelectedItem="{Binding SelectedFilter, Mode=TwoWay}"
                              DisplayMemberPath="Name"
                              AutomationProperties.Name="Inventory filters"
-                             AutomationProperties.AutomationId="Skilly.FilterRail"
-                             BorderThickness="0"
-                             TabIndex="3" />
+                              AutomationProperties.AutomationId="Skilly.FilterRail"
+                              BorderThickness="0"
+                              TabIndex="4" />
                 </DockPanel>
             </Border>
 
@@ -167,9 +177,10 @@
                         <TextBox x:Name="SearchBox"
                                  Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                                  AutomationProperties.Name="Search skills"
-                                 AutomationProperties.LabeledBy="{Binding ElementName=SearchLabel}"
-                                 VerticalContentAlignment="Center"
-                                 TabIndex="4" />
+                                  AutomationProperties.LabeledBy="{Binding ElementName=SearchLabel}"
+                                  AutomationProperties.AutomationId="Skilly.Search"
+                                  VerticalContentAlignment="Center"
+                                  TabIndex="5" />
                     </DockPanel>
                     <ListView Grid.Row="2"
                               x:Name="SkillList"
@@ -177,8 +188,8 @@
                               SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
                               AutomationProperties.Name="Skill list"
                               AutomationProperties.AutomationId="Skilly.SkillList"
-                              BorderThickness="0"
-                              TabIndex="5"
+                               BorderThickness="0"
+                               TabIndex="6"
                               GridViewColumnHeader.Click="OnSkillListHeaderClick">
                         <ListView.View>
                             <GridView AllowsColumnReorder="True">
@@ -259,34 +270,38 @@
                                         Margin="0,2,0,6"
                                         AutomationProperties.Name="Adopt exact verified Skill without changing content"
                                         AutomationProperties.AutomationId="Skilly.AdoptSkill" />
-                                <Button Content="_Update Skill"
+                                 <Button Content="_Update Skill"
                                         Click="OnUpdateSelected"
                                         IsEnabled="{Binding SelectedRow.CanUpdate}"
                                         HorizontalAlignment="Left"
                                         MinWidth="110"
                                         Margin="0,2,0,6"
-                                        AutomationProperties.Name="Update selected Skill" />
+                                          AutomationProperties.Name="Update selected Skill"
+                                          AutomationProperties.AutomationId="Skilly.UpdateSkill" />
                                 <Button Content="Managed _Reinstall"
                                         Click="OnManagedReinstallSelected"
                                         IsEnabled="{Binding SelectedRow.CanManagedReinstall}"
                                         HorizontalAlignment="Left"
                                         MinWidth="130"
                                         Margin="0,2,0,6"
-                                        AutomationProperties.Name="Managed Reinstall selected Skill" />
+                                          AutomationProperties.Name="Managed Reinstall selected Skill"
+                                          AutomationProperties.AutomationId="Skilly.ManagedReinstall" />
                                 <Button Content="_Uninstall"
                                         Click="OnUninstallSelected"
                                         IsEnabled="{Binding SelectedRow.CanUninstall}"
                                         HorizontalAlignment="Left"
                                         MinWidth="110"
                                         Margin="0,2,0,6"
-                                        AutomationProperties.Name="Uninstall Healthy Managed Skill" />
+                                          AutomationProperties.Name="Uninstall Healthy Managed Skill"
+                                          AutomationProperties.AutomationId="Skilly.UninstallSkill" />
                                 <Button Content="Remove Local _Folder"
                                         Click="OnRemoveLocalFolderSelected"
                                         IsEnabled="{Binding SelectedRow.CanRemoveLocalFolder}"
                                         HorizontalAlignment="Left"
                                         MinWidth="150"
                                         Margin="0,2,0,6"
-                                        AutomationProperties.Name="Remove Local Folder for Unmanaged Installation" />
+                                          AutomationProperties.Name="Remove Local Folder for Unmanaged Installation"
+                                          AutomationProperties.AutomationId="Skilly.RemoveLocalFolder" />
                             </StackPanel>
                             <TextBlock Style="{StaticResource DetailLabel}" Text="Local path" />
                             <TextBlock Style="{StaticResource DetailValue}"

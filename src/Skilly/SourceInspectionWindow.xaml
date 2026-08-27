@@ -8,7 +8,7 @@
         MinHeight="440"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
-        AutomationProperties.Name="Source inspector">
+                 AutomationProperties.Name="Source inspector">
     <DockPanel Margin="14">
         <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
             <TextBlock Text="Source Inspection" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
@@ -33,31 +33,37 @@
 
         <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
             <DockPanel Margin="0,0,0,8" IsEnabled="{Binding CanSelect}">
-                <Button DockPanel.Dock="Right"
-                        Content="Select _exact"
-                        Click="OnSelectExact"
+                 <Button DockPanel.Dock="Right"
+                         Content="Select _exact"
+                         Click="OnSelectExact"
+                         AutomationProperties.Name="Select exact Source Skill"
+                         AutomationProperties.AutomationId="Skilly.SelectExact"
                         MinWidth="100"
                         Margin="8,0,0,0" />
-                <TextBox Text="{Binding ExactSelection, UpdateSourceTrigger=PropertyChanged}"
-                         AutomationProperties.Name="Exact Source Skill path or declared-name alias" />
+                 <TextBox Text="{Binding ExactSelection, UpdateSourceTrigger=PropertyChanged}"
+                          AutomationProperties.Name="Exact Source Skill path or declared-name alias"
+                          AutomationProperties.AutomationId="Skilly.ExactSelection" />
             </DockPanel>
-            <TextBlock Text="{Binding Status}"
+             <TextBlock x:Name="SourceStatus"
+                        Text="{Binding Status}"
                        TextWrapping="Wrap"
-                       AutomationProperties.Name="Source inspection status"
-                       AutomationProperties.LiveSetting="Polite"
+                        AutomationProperties.Name="{Binding Status}"
+                        AutomationProperties.LiveSetting="Polite"
+                        AutomationProperties.AutomationId="Skilly.SourceStatus"
                        Margin="0,0,0,10" />
             <DockPanel>
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
-                    <Button Content="Select _all" Click="OnSelectAll" IsEnabled="{Binding CanSelect}" Margin="0,0,8,0" />
-                    <Button Content="Select _none" Click="OnSelectNone" IsEnabled="{Binding CanSelect}" />
+                    <Button Content="Select _all" Click="OnSelectAll" IsEnabled="{Binding CanSelect}" Margin="0,0,8,0" AutomationProperties.AutomationId="Skilly.SelectAll" />
+                    <Button Content="Select _none" Click="OnSelectNone" IsEnabled="{Binding CanSelect}" AutomationProperties.AutomationId="Skilly.SelectNone" />
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                    <Button Content="_Close" IsCancel="True" IsEnabled="{Binding CanSelect}" MinWidth="90" Margin="0,0,8,0" />
+                    <Button Content="_Close" IsCancel="True" IsEnabled="{Binding CanSelect}" MinWidth="90" Margin="0,0,8,0" AutomationProperties.AutomationId="Skilly.CloseInspector" />
                     <Button Content="_Install selected"
                             Click="OnInstallSelected"
                             IsEnabled="{Binding CanInstall}"
-                            MinWidth="130"
-                            AutomationProperties.Name="Install selected Source Skills" />
+                             MinWidth="130"
+                             AutomationProperties.Name="Install selected Source Skills"
+                             AutomationProperties.AutomationId="Skilly.InstallSelected" />
                 </StackPanel>
             </DockPanel>
         </StackPanel>

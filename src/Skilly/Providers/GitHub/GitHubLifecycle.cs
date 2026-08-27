@@ -13,7 +13,11 @@ public sealed record ManagedReinstallPlan(
     string ContentIdentity,
     int FileCount,
     string ProviderEvidence,
-    GitHubPayload Payload);
+    GitHubPayload Payload,
+    string StartingPayloadHash) : IManagedReinstallPlan
+{
+    public IReadOnlyList<string> AffectedPaths => [ExactPath];
+}
 
 public sealed record LifecycleResult(string ExactPath, string Message);
 
@@ -59,7 +63,7 @@ public sealed class GitHubLifecycle(
     {
         var state = RequireWritableState();
         var record = FindGitHubRecord(state, requestedRecord.InstallationId);
-        RecheckManagedPath(record, allowLocalModification: true, requireHealthyExposure: false);
+        var startingPayloadHash = RecheckManagedPath(record, allowLocalModification: true, requireHealthyExposure: false);
 
         var check = checker.Check(record);
         if (check.Status is UpdateStatus.SourceUnavailable or UpdateStatus.CheckFailed
@@ -86,7 +90,8 @@ public sealed class GitHubLifecycle(
             payload.ContentIdentity,
             payload.Files.Count,
             $"gh api contents/{(repositoryPath.Length == 0 ? "." : repositoryPath)}@{check.AvailableRevision}",
-            payload);
+            payload,
+            startingPayloadHash);
     }
 
     public LifecycleResult Adopt(AdoptionEvidence evidence, CancellationToken cancellationToken = default)
@@ -188,6 +193,10 @@ public sealed class GitHubLifecycle(
         }
 
         var startingHash = RecheckManagedPath(record, allowLocalModification: true, requireHealthyExposure: false);
+        if (!string.Equals(startingHash, plan.StartingPayloadHash, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ProviderFailure("The local Skill content changed after the Managed Reinstall plan was confirmed; prepare a new plan.");
+        }
         var junctionPath = record.IntendedClaudeJunctionPath!;
         var junctionExisted = PathEntryExists(junctionPath);
         if (junctionExisted && !Junction.IsJunctionTo(junctionPath, record.CanonicalPath))

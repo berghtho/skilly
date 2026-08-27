@@ -1,6 +1,8 @@
 ﻿using System.Windows;
 using System.Windows.Controls;
 using System.ComponentModel;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using Skilly.Providers.GitHub;
 using Skilly.Providers.SkillsCli;
 using Skilly.Providers;
@@ -15,6 +17,7 @@ public partial class MainWindow : Window
     private readonly GitHubProvider _githubProvider;
     private readonly SkillsCliProvider _skillsProvider;
     private readonly ApmProvider _apmProvider;
+    private readonly ManagedReinstallDispatcher _managedReinstall;
     private readonly ProviderCheckRunner _checkRunner;
     private readonly Func<IReadOnlyList<AdoptionEvidence>?, InventorySnapshot> _refreshInventory;
     private IReadOnlyList<AdoptionEvidence> _adoptionEvidence = [];
@@ -36,11 +39,27 @@ public partial class MainWindow : Window
         _githubProvider = githubProvider;
         _skillsProvider = skillsProvider;
         _apmProvider = apmProvider;
+        _managedReinstall = new ManagedReinstallDispatcher(githubProvider, skillsProvider, apmProvider);
         _checkRunner = checkRunner;
         _refreshInventory = refreshInventory;
         DataContext = viewModel;
+        viewModel.PropertyChanged += OnViewModelPropertyChanged;
         Loaded += OnLoaded;
-        Closed += (_, _) => _log.Info("Workbench window closed; shutdown proceeding.");
+        Closed += (_, _) =>
+        {
+            viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            _log.Info("Workbench window closed; shutdown proceeding.");
+        };
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(ViewModels.MainViewModel.Status)) return;
+        Dispatcher.BeginInvoke(() =>
+        {
+            var peer = UIElementAutomationPeer.FromElement(StatusMessage) ?? new TextBlockAutomationPeer(StatusMessage);
+            peer.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+        });
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -398,7 +417,7 @@ public partial class MainWindow : Window
         try
         {
             viewModel.Announce("Preparing a verified Managed Reinstall decision. Nothing has changed.");
-            var planned = await Task.Run(() => _githubProvider.PlanManagedReinstall(record));
+            var planned = await Task.Run(() => _managedReinstall.Plan(record));
             if (!planned.Succeeded)
             {
                 viewModel.Announce($"Managed Reinstall preparation failed. {planned.Diagnostics} Nothing changed.");
@@ -406,9 +425,10 @@ public partial class MainWindow : Window
             }
 
             var plan = planned.Value!;
+            var affectedPaths = string.Join(Environment.NewLine, plan.AffectedPaths);
             var decision = MessageBox.Show(
                 this,
-                $"Managed Reinstall will replace this exact path:\n\n{plan.ExactPath}\n\nVerified replacement revision:\n{plan.Revision}\n\nCurrent content will be snapshotted and replaced cleanly. Files will not be merged.",
+                $"Managed Reinstall will replace these exact provider-owned paths:\n\n{affectedPaths}\n\nVerified replacement revision:\n{plan.Revision}\n\nCurrent content and provider state will be snapshotted and replaced cleanly through the owning provider. Files will not be merged.",
                 "Confirm Managed Reinstall",
                 MessageBoxButton.OKCancel,
                 MessageBoxImage.Warning,
@@ -420,7 +440,7 @@ public partial class MainWindow : Window
             }
 
             BeginMutation();
-            var result = await Task.Run(() => _githubProvider.ManagedReinstall(plan, _mutationCancellation!.Token));
+            var result = await Task.Run(() => _managedReinstall.Execute(plan, _mutationCancellation!.Token));
             viewModel.LoadInventory(RefreshInventory());
             if (!result.Succeeded)
             {

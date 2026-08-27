@@ -83,14 +83,14 @@ public sealed class ApmClient(ProcessRunner runner, string executable = "apm.exe
         if (rows.Count == 0 && !output.Contains("All dependencies are up-to-date", StringComparison.Ordinal)
             && !output.Contains("No remote dependencies to check", StringComparison.Ordinal))
         {
-            throw new ProviderFailure("APM outdated returned successful but unrecognized output; Check failed closed.");
+            throw new ProviderFailure($"APM outdated returned successful but unrecognized output; Check failed closed. {SensitiveDataRedactor.Redact(output).Trim()}");
         }
         return rows;
     }
 
     public static void RequireExit(ProcessResult result, string operation)
     {
-        if (!result.Succeeded) throw new ProviderFailure($"{operation} failed with exit code {result.ExitCode}. {result.CombinedOutput.Trim()}");
+        if (!result.Succeeded) throw new ProviderFailure($"{operation} failed with exit code {result.ExitCode}. {SensitiveDataRedactor.Redact(result.CombinedOutput).Trim()}");
     }
 
     private ProcessResult Run(IReadOnlyList<string> arguments, TimeSpan? timeout = null, IReadOnlyDictionary<string, string?>? environment = null)
@@ -108,7 +108,7 @@ public sealed class ApmClient(ProcessRunner runner, string executable = "apm.exe
         var match = Regex.Match(clean, @"^Agent Package Manager \(APM\) CLI version (?<version>\d+\.\d+\.\d+)(?:\s+\([0-9a-fA-F]+\))?$", RegexOptions.CultureInvariant);
         return match.Success && Version.TryParse(match.Groups["version"].Value, out var version)
             ? version
-            : throw new ProviderFailure($"The executable is not recognized as Microsoft microsoft/apm apm-cli; branded version output was '{clean}'.");
+            : throw new ProviderFailure($"The executable is not recognized as Microsoft microsoft/apm apm-cli; branded version output was '{SensitiveDataRedactor.Redact(clean)}'.");
     }
 
     private static void ValidateCredentialFreeReference(string source)

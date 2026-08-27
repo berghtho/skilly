@@ -61,7 +61,7 @@ public sealed class SkillsCliClient
             RequireExit(provider, "Pinned provider compatibility probe");
             if (!string.Equals(provider.StandardOutput.Trim(), Version, StringComparison.Ordinal))
             {
-                return Unavailable($"Pinned {Package} returned unexpected version output '{provider.StandardOutput.Trim()}'.");
+                return Unavailable($"Pinned {Package} returned unexpected version output '{SensitiveDataRedactor.Redact(provider.StandardOutput).Trim()}'.");
             }
 
             return new ProviderReadiness(
@@ -127,8 +127,8 @@ public sealed class SkillsCliClient
             {
                 break;
             }
-            if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("  ", StringComparison.Ordinal)
-                || line.StartsWith("    ", StringComparison.Ordinal))
+            var indentation = LeadingSpaces(line);
+            if (string.IsNullOrWhiteSpace(line) || indentation < 2)
             {
                 continue;
             }
@@ -138,7 +138,7 @@ public sealed class SkillsCliClient
             if (index + 1 < lines.Length)
             {
                 var next = RemoveClackPrefix(lines[index + 1]);
-                if (next.StartsWith("    ", StringComparison.Ordinal))
+                if (!string.IsNullOrWhiteSpace(next) && LeadingSpaces(next) > indentation)
                 {
                     description = next.Trim();
                     index++;
@@ -171,7 +171,7 @@ public sealed class SkillsCliClient
     {
         if (!result.Succeeded)
         {
-            throw new ProviderFailure($"{operation} failed with exit code {result.ExitCode}. {result.CombinedOutput.Trim()}");
+            throw new ProviderFailure($"{operation} failed with exit code {result.ExitCode}. {SensitiveDataRedactor.Redact(result.CombinedOutput).Trim()}");
         }
     }
 
@@ -220,6 +220,9 @@ public sealed class SkillsCliClient
         }
         return trimmedEnd;
     }
+
+    private static int LeadingSpaces(string value)
+        => value.TakeWhile(static character => character == ' ').Count();
 
     private (string Executable, IReadOnlyList<string> Prefix) ResolveNpmTool(string executable, string scriptName)
     {

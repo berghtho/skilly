@@ -1,5 +1,7 @@
 using System.Windows;
 using System.ComponentModel;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using Skilly.Providers.GitHub;
 using Skilly.Providers.SkillsCli;
 using Skilly.ViewModels;
@@ -24,6 +26,7 @@ public partial class SourceInspectionWindow : Window
         _githubProvider = provider;
         _viewModel = new SourceInspectionViewModel(inspection, mutationsAllowed);
         DataContext = _viewModel;
+        AttachLiveStatus(_viewModel);
     }
 
     public SourceInspectionWindow(ApmInspection inspection, ApmProvider provider, bool mutationsAllowed = true)
@@ -32,6 +35,7 @@ public partial class SourceInspectionWindow : Window
         _apmProvider = provider;
         _apmViewModel = new ApmSourceInspectionViewModel(inspection, mutationsAllowed);
         DataContext = _apmViewModel;
+        AttachLiveStatus(_apmViewModel);
     }
 
     public SourceInspectionWindow(SkillsCliInspection inspection, SkillsCliProvider provider, bool mutationsAllowed = true)
@@ -40,6 +44,22 @@ public partial class SourceInspectionWindow : Window
         _skillsProvider = provider;
         _skillsViewModel = new SkillsCliSourceInspectionViewModel(inspection, mutationsAllowed);
         DataContext = _skillsViewModel;
+        AttachLiveStatus(_skillsViewModel);
+    }
+
+    private void AttachLiveStatus(INotifyPropertyChanged viewModel)
+    {
+        PropertyChangedEventHandler handler = (_, e) =>
+        {
+            if (e.PropertyName != "Status") return;
+            Dispatcher.BeginInvoke(() =>
+            {
+                var peer = UIElementAutomationPeer.FromElement(SourceStatus) ?? new TextBlockAutomationPeer(SourceStatus);
+                peer.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+            });
+        };
+        viewModel.PropertyChanged += handler;
+        Closed += (_, _) => viewModel.PropertyChanged -= handler;
     }
 
     public int InstalledCount { get; private set; }

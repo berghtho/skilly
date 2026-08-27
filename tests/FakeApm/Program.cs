@@ -95,6 +95,7 @@ void Install(IReadOnlyList<string> selected, string requestedSource, bool explic
         var destination = Path.Combine(canonicalRoot, name);
         if (Directory.Exists(destination)) Directory.Delete(destination, true);
         CopyDirectory(Path.Combine(sourceRoot, "skills", name), destination);
+        if (Environment.GetEnvironmentVariable("FAKE_APM_EXTRA_FILE") == "1") File.WriteAllText(Path.Combine(destination, "unexpected.txt"), "not recorded by the provider lock");
         if (Environment.GetEnvironmentVariable("FAKE_APM_CLAUDE_COPY") == "1")
             CopyDirectory(Path.Combine(sourceRoot, "skills", name), Path.Combine(home, ".claude", "skills", name));
     }
@@ -123,8 +124,20 @@ void Install(IReadOnlyList<string> selected, string requestedSource, bool explic
         foreach (var name in selected) lockText.Append("      - ").Append(name).Append('\n');
     }
     lockText.Append("    deployed_files:\n");
-    foreach (var name in selected) lockText.Append("      - .agents/skills/").Append(name).Append("/SKILL.md\n");
+    foreach (var name in selected)
+    {
+        lockText.Append("      - .agents/skills/").Append(name).Append('\n');
+        lockText.Append("      - .agents/skills/").Append(name).Append("/SKILL.md\n");
+    }
     if (Environment.GetEnvironmentVariable("FAKE_APM_EXTRA_DEPLOYMENT") == "1") lockText.Append("      - .copilot/agents/unexpected.agent.md\n");
+    if (Environment.GetEnvironmentVariable("FAKE_APM_TRAVERSAL") == "1") lockText.Append("      - .agents/skills/alpha/../../outside.txt\n");
+    lockText.Append("    deployed_file_hashes:\n");
+    foreach (var name in selected)
+    {
+        var hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(canonicalRoot, name, "SKILL.md")))).ToLowerInvariant();
+        if (Environment.GetEnvironmentVariable("FAKE_APM_BAD_HASH") == "1") hash = new string('0', 64);
+        lockText.Append("      .agents/skills/").Append(name).Append("/SKILL.md: ").Append(hash).Append('\n');
+    }
     File.WriteAllText(Path.Combine(apmRoot, "apm.lock.yaml"), lockText.ToString());
 }
 

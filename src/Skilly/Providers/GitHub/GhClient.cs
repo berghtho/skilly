@@ -480,7 +480,7 @@ public sealed class GhClient(
 
     private static string Summarize(string output)
     {
-        var trimmed = output.Trim();
+        var trimmed = SensitiveDataRedactor.Redact(output).Trim();
         if (trimmed.Length <= 400)
         {
             return trimmed.Length == 0 ? "(no output)" : trimmed;

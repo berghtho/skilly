@@ -54,7 +54,7 @@ public sealed class ApmProvider(
                         if (metadata.Status != MetadataReadStatus.Valid)
                             throw new ProviderFailure($"APM inspection produced invalid SKILL.md metadata at '{path}': {metadata.Error}");
                         var evidence = isolatedApm.FindForSkill(Path.GetFileName(path));
-                        VerifyCanonicalOnly(evidence);
+                        VerifyCanonicalOnly(evidence, temporaryRoot);
                         return (Skill: new ApmSourceSkill(Path.GetFileName(path), metadata.Description ?? string.Empty), Evidence: evidence);
                     }).ToList()
                 : [];
@@ -135,6 +135,14 @@ public sealed class ApmProvider(
 
     public ProviderResult<ApmUpdateResult> Update(ManagementRecord record, CancellationToken cancellationToken = default)
         => Wrap(() => UpdateCore(record, cancellationToken), "Updated through APM with affirmative noninteractive consent and reconciled every postcondition.");
+
+    public ProviderResult<ApmManagedReinstallPlan> PlanManagedReinstall(ManagementRecord record)
+        => Wrap(() => PlanManagedReinstallCore(record), "Verified the exact APM replacement paths and revision. Nothing changed.");
+
+    public ProviderResult<LifecycleResult> ManagedReinstall(
+        ApmManagedReinstallPlan plan,
+        CancellationToken cancellationToken = default)
+        => Wrap(() => ManagedReinstallCore(plan, cancellationToken), "Managed Reinstall replaced package content through APM and verified every postcondition.");
 
     public ProviderResult<LifecycleResult> Uninstall(ManagementRecord record, CancellationToken cancellationToken = default)
         => Wrap(() => UninstallCore(record, cancellationToken), "Uninstalled through APM without dry-run and verified provider, filesystem, exposure, and authority absence.");
@@ -217,7 +225,7 @@ public sealed class ApmProvider(
                 var path = PathsFor(skill.FolderName);
                 VerifyCanonicalWithoutClaude(path);
                 var evidence = _apm.FindForSkill(skill.FolderName);
-                VerifyCanonicalOnly(evidence);
+                VerifyCanonicalOnly(evidence, home);
                 VerifyRequestedSource(inspection.NormalizedSource, evidence);
                 Junction.Create(path.Claude, path.Canonical);
                 VerifyTopology(path);
@@ -273,7 +281,7 @@ public sealed class ApmProvider(
             cancellationToken.ThrowIfCancellationRequested();
             foreach (var candidate in state.Records.Where(IsApmRecord)) VerifyTopology(PathsForRecord(candidate));
             var evidence = _apm.FindForSkill(Path.GetFileName(record.CanonicalPath));
-            VerifyCanonicalOnly(evidence);
+            VerifyCanonicalOnly(evidence, home);
             var actualHash = PayloadHasher.HashFolder(record.CanonicalPath);
             if (string.Equals(oldRevision, evidence.Revision, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(oldHash, actualHash, StringComparison.OrdinalIgnoreCase))
@@ -309,6 +317,138 @@ public sealed class ApmProvider(
         catch (Exception exception)
         {
             FailAndRestore(pending, snapshot, exception, "Update", startingRecords);
+            throw;
+        }
+    }
+
+    private ApmManagedReinstallPlan PlanManagedReinstallCore(ManagementRecord requested)
+    {
+        client.RequireSupportedVersion();
+        var state = RequireWritableState();
+        var record = FindRecord(state, requested.InstallationId);
+        var packageRecords = PackageRecords(state, record.Provenance.Repository);
+        VerifyAllManagedApmState(state, packageRecords.Select(static candidate => candidate.InstallationId).ToHashSet(StringComparer.Ordinal));
+        var acquisitions = AcquireReplacements(record.Provenance.OriginalReference, packageRecords);
+        var targets = packageRecords.Select(candidate =>
+        {
+            var acquisition = acquisitions.Single(item => PathsEqual(item.ExactPath, candidate.CanonicalPath));
+            return new ApmManagedReinstallTarget(
+                candidate.InstallationId,
+                candidate.CanonicalPath,
+                acquisition.Evidence.Revision,
+                acquisition.PayloadHash,
+                PayloadHasher.HashFolder(candidate.CanonicalPath),
+                StableTargetEvidence(acquisition.Evidence),
+                Path.GetFileName(candidate.CanonicalPath));
+        }).ToList();
+        var selected = targets.Single(target => target.InstallationId == record.InstallationId);
+        return new ApmManagedReinstallPlan(
+            record.InstallationId,
+            selected.ExactPath,
+            selected.Revision,
+            selected.StartingPayloadHash,
+            record.Provenance.Repository,
+            record.Provenance.OriginalReference,
+            targets);
+    }
+
+    private LifecycleResult ManagedReinstallCore(ApmManagedReinstallPlan plan, CancellationToken cancellationToken)
+    {
+        client.RequireSupportedVersion();
+        var state = RequireWritableState();
+        var record = FindRecord(state, plan.InstallationId);
+        if (!PathsEqual(record.CanonicalPath, plan.ExactPath)
+            || !string.Equals(record.Provenance.Repository, plan.PackageIdentity, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ProviderFailure("The exact APM Managed Reinstall target changed after confirmation.");
+        }
+        var packageRecords = PackageRecords(state, plan.PackageIdentity);
+        VerifyAllManagedApmState(state, packageRecords.Select(static candidate => candidate.InstallationId).ToHashSet(StringComparer.Ordinal));
+        if (packageRecords.Count != plan.Targets.Count)
+        {
+            throw new ProviderFailure("The APM package's affected Skill set changed after confirmation; prepare a new plan.");
+        }
+        foreach (var target in plan.Targets)
+        {
+            var current = packageRecords.SingleOrDefault(candidate => candidate.InstallationId == target.InstallationId)
+                          ?? throw new ProviderFailure("An APM package target changed after confirmation; prepare a new plan.");
+            if (!PathsEqual(current.CanonicalPath, target.ExactPath)
+                || !string.Equals(PayloadHasher.HashFolder(current.CanonicalPath), target.StartingPayloadHash, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ProviderFailure("Local APM Skill content changed after the Managed Reinstall plan was confirmed; prepare a new plan.");
+            }
+        }
+        var acquisitions = AcquireReplacements(plan.Source, packageRecords);
+        VerifyPlannedTargets(plan, acquisitions);
+
+        var startingRecords = CloneRecords(state.Records);
+        var paths = AllApmPaths(state);
+        var pending = CreatePending(MutationType.ManagedReinstall, packageRecords.Select(candidate => candidate.InstallationId).ToList(), paths);
+        pending.TargetRevision = plan.Revision;
+        pending.TargetContentIdentity = string.Join(';', plan.Targets.Select(static target => target.PayloadHash));
+        state.PendingOperation = pending;
+        stateStore.Save(state);
+        var snapshot = ApmSnapshot.Create(pending.RecoveryDirectory!, _apmRoot, paths, CanonicalRoot(), log);
+        try
+        {
+            SavePhase(state, pending, PendingOperationPhase.SnapshotReady);
+            cancellationToken.ThrowIfCancellationRequested();
+            SavePhase(state, pending, PendingOperationPhase.MutationStarted);
+
+            ApmClient.RequireExit(client.Uninstall(plan.PackageIdentity), $"APM Managed Reinstall removal of '{plan.PackageIdentity}'");
+            if (_apm.ManifestDeclaresIdentity(plan.PackageIdentity)
+                || (File.Exists(_apm.LockPath) && (!File.Exists(_apm.ManifestPath) || _apm.ContainsIdentity(plan.PackageIdentity)))
+                || packageRecords.Any(candidate => PathEntryExists(candidate.CanonicalPath)))
+            {
+                throw new ProviderFailure("APM retained manifest, lock, or canonical package ownership after Managed Reinstall removal.");
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            var selections = packageRecords.Select(static candidate => candidate.Provenance.ProviderSkillName)
+                .Where(static name => !string.IsNullOrWhiteSpace(name)).Select(static name => name!).ToList();
+            ApmClient.RequireExit(client.Install(plan.Source, selections), $"APM Managed Reinstall acquisition of '{plan.PackageIdentity}'");
+            cancellationToken.ThrowIfCancellationRequested();
+
+            foreach (var candidate in packageRecords) VerifyTopology(PathsForRecord(candidate));
+            var actual = packageRecords.Select(candidate =>
+            {
+                var evidence = _apm.FindForSkill(Path.GetFileName(candidate.CanonicalPath));
+                VerifyCanonicalOnly(evidence, home);
+                VerifyRequestedSource(ApmGlobalState.NormalizeSource(plan.Source), evidence);
+                return new ReplacementAcquisition(candidate.CanonicalPath, evidence, PayloadHasher.HashFolder(candidate.CanonicalPath));
+            }).ToList();
+            VerifyPlannedTargets(plan, actual);
+            VerifyUnchangedApmRecords(state, startingRecords, packageRecords.Select(static candidate => candidate.InstallationId).ToHashSet(StringComparer.Ordinal));
+
+            SavePhase(state, pending, PendingOperationPhase.Verified);
+            RefreshAllApmEvidence(state);
+            foreach (var candidate in packageRecords)
+            {
+                candidate.LastOperationOutcome = OperationOutcome.Reinstalled;
+                candidate.LatestCheck = new CheckSnapshot
+                {
+                    Status = UpdateStatus.Current,
+                    InstalledRevision = candidate.InstalledRevision,
+                    AvailableRevision = candidate.InstalledRevision,
+                    AvailablePayloadHash = candidate.InstalledPayloadHash,
+                    AvailableContentIdentity = candidate.Provenance.SelectedContentIdentity,
+                    CheckedAt = DateTimeOffset.Now,
+                };
+            }
+            state.PendingOperation = null;
+            state.LastOperationNote = $"reinstalled APM dependency '{plan.PackageIdentity}' without merging files";
+            stateStore.Save(state);
+            VerifyPersisted(packageRecords.Select(candidate => candidate.InstallationId));
+            snapshot.Cleanup();
+            return new LifecycleResult(plan.ExactPath, $"Managed Reinstall replaced {packageRecords.Count} APM-owned Skill Installation(s) without merging files.");
+        }
+        catch (OperationCanceledException)
+        {
+            RetainCancellation(state, pending);
+            throw;
+        }
+        catch (Exception exception)
+        {
+            FailAndRestore(pending, snapshot, exception, "Managed Reinstall", startingRecords);
             throw;
         }
     }
@@ -390,7 +530,7 @@ public sealed class ApmProvider(
                 ResolvedCommit = evidence.Revision,
                 SelectedContentIdentity = hash,
                 ProviderVersion = inspection.ProviderVersion,
-                ProviderSkillName = skill.Name,
+                ProviderSkillName = skill.ProviderSelectionName,
             },
             IntendedClaudeJunctionPath = Path.GetFullPath(paths.Claude),
             InstalledRevision = evidence.Revision,
@@ -406,7 +546,7 @@ public sealed class ApmProvider(
         foreach (var record in state.Records.Where(IsApmRecord))
         {
             var evidence = _apm.FindForSkill(Path.GetFileName(record.CanonicalPath));
-            VerifyCanonicalOnly(evidence);
+            VerifyCanonicalOnly(evidence, home);
             var hash = PayloadHasher.HashFolder(record.CanonicalPath);
             record.ProviderEvidence = evidence.Evidence;
             record.InstalledRevision = evidence.Revision;
@@ -422,15 +562,20 @@ public sealed class ApmProvider(
         }
     }
 
-    private void VerifyAllManagedApmState(SkillyState state)
+    private void VerifyAllManagedApmState(SkillyState state, IReadOnlySet<string>? reinstallableIds = null)
     {
         foreach (var record in state.Records.Where(IsApmRecord))
         {
-            VerifyTopology(PathsForRecord(record));
-            if (!string.Equals(PayloadHasher.HashFolder(record.CanonicalPath), record.InstalledPayloadHash, StringComparison.OrdinalIgnoreCase))
+            var reinstallable = reinstallableIds?.Contains(record.InstallationId) == true;
+            if (reinstallable)
+                VerifyReinstallableTopology(PathsForRecord(record), requireHealthyExposure: false);
+            else
+                VerifyTopology(PathsForRecord(record));
+            if (!reinstallable
+                && !string.Equals(PayloadHasher.HashFolder(record.CanonicalPath), record.InstalledPayloadHash, StringComparison.OrdinalIgnoreCase))
                 throw new ProviderFailure("The APM Skill Installation is Locally Modified; provider mutation and Check are blocked.");
             var evidence = _apm.FindForSkill(Path.GetFileName(record.CanonicalPath));
-            VerifyCanonicalOnly(evidence);
+            VerifyCanonicalOnly(evidence, home, allowUnrecordedFiles: reinstallable);
             if (!string.Equals(record.ProviderEvidence, evidence.Evidence, StringComparison.Ordinal)
                 || !string.Equals(record.InstalledRevision, evidence.Revision, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(record.Provenance.Repository, evidence.Identity, StringComparison.OrdinalIgnoreCase))
@@ -442,16 +587,85 @@ public sealed class ApmProvider(
     {
         var requested = NormalizeIdentity(source);
         var repository = NormalizeIdentity(evidence.RepositoryUrl);
-        if (!requested.Contains(repository, StringComparison.OrdinalIgnoreCase)
-            && !repository.Contains(requested, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(requested, repository, StringComparison.OrdinalIgnoreCase)
+            && !requested.StartsWith(repository + '/', StringComparison.OrdinalIgnoreCase))
             throw new ProviderFailure("APM lock source evidence does not match the requested normalized Skill Library.");
     }
 
-    private static void VerifyCanonicalOnly(ApmDependencyEvidence evidence)
+    private static void VerifyCanonicalOnly(ApmDependencyEvidence evidence, string deploymentRoot, bool allowUnrecordedFiles = false)
     {
         if (evidence.DeployedFiles.Count == 0
             || evidence.DeployedFiles.Any(file => !file.Replace('\\', '/').TrimStart('/').StartsWith(".agents/skills/", StringComparison.OrdinalIgnoreCase)))
             throw new ProviderFailure($"APM dependency '{evidence.Identity}' deployed outside the canonical .agents/skills destination.");
+        var canonicalRoot = Path.GetFullPath(Path.Combine(deploymentRoot, ".agents", "skills")) + Path.DirectorySeparatorChar;
+        foreach (var deployedFile in evidence.DeployedFiles)
+        {
+            var relative = deployedFile.Replace('/', Path.DirectorySeparatorChar).TrimStart(Path.DirectorySeparatorChar);
+            var path = Path.GetFullPath(Path.Combine(deploymentRoot, relative));
+            var relativeToRoot = Path.GetRelativePath(deploymentRoot, path);
+            if (relativeToRoot.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) || relativeToRoot == ".."
+                || !path.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase))
+                throw new ProviderFailure($"APM dependency '{evidence.Identity}' did not deploy a safe regular file at '{deployedFile}'.");
+            if (Directory.Exists(path))
+            {
+                if (File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint))
+                    throw new ProviderFailure($"APM dependency '{evidence.Identity}' deployed a linked directory at '{deployedFile}'.");
+                foreach (var entry in Directory.EnumerateFileSystemEntries(path, "*", SearchOption.AllDirectories))
+                {
+                    if (File.GetAttributes(entry).HasFlag(FileAttributes.ReparsePoint))
+                        throw new ProviderFailure($"APM dependency '{evidence.Identity}' deployed a nested reparse point at '{deployedFile}'.");
+                    if (File.Exists(entry))
+                    {
+                        var entryRelative = Path.GetRelativePath(deploymentRoot, entry).Replace('\\', '/');
+                        if (!allowUnrecordedFiles && !evidence.DeployedFiles.Any(file => PathsEqual(file, entryRelative)))
+                            throw new ProviderFailure($"APM dependency '{evidence.Identity}' deployed an unrecorded file at '{entryRelative}'.");
+                    }
+                }
+                continue;
+            }
+            if (!File.Exists(path) || File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint))
+                throw new ProviderFailure($"APM dependency '{evidence.Identity}' did not deploy a safe regular file at '{deployedFile}'.");
+            var expected = evidence.DeployedFileHashes.SingleOrDefault(pair => PathsEqual(pair.Key, deployedFile)).Value;
+            if (string.IsNullOrWhiteSpace(expected)
+                || !string.Equals(NormalizeSha256(expected), HashApmFile(path), StringComparison.OrdinalIgnoreCase))
+                throw new ProviderFailure($"APM dependency '{evidence.Identity}' deployed file integrity does not match its lock evidence at '{deployedFile}'.");
+        }
+    }
+
+    private static string NormalizeSha256(string value)
+        => value.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) ? value : "sha256:" + value;
+
+    private static string HashApmFile(string path)
+    {
+        var bytes = File.ReadAllBytes(path);
+        if (!bytes.Contains((byte)0))
+        {
+            try
+            {
+                var text = new System.Text.UTF8Encoding(false, true).GetString(bytes);
+                bytes = System.Text.Encoding.UTF8.GetBytes(text.Replace("\r\n", "\n", StringComparison.Ordinal));
+            }
+            catch (System.Text.DecoderFallbackException) { }
+        }
+        return "sha256:" + Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+    }
+
+    private void VerifyUnchangedApmRecords(SkillyState state, IReadOnlyList<ManagementRecord> startingRecords, ISet<string> targetedIds)
+    {
+        foreach (var baseline in startingRecords.Where(record => IsApmRecord(record) && !targetedIds.Contains(record.InstallationId)))
+        {
+            var current = state.Records.SingleOrDefault(record => record.InstallationId == baseline.InstallationId)
+                          ?? throw new ProviderFailure("APM changed ownership of an unrelated managed Skill during Managed Reinstall.");
+            VerifyTopology(PathsForRecord(current));
+            var evidence = _apm.FindForSkill(Path.GetFileName(current.CanonicalPath));
+            VerifyCanonicalOnly(evidence, home);
+            if (!string.Equals(PayloadHasher.HashFolder(current.CanonicalPath), baseline.InstalledPayloadHash, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(evidence.Identity, baseline.Provenance.Repository, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(evidence.Revision, baseline.InstalledRevision, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(evidence.TrackingRule, baseline.Provenance.TrackingRule, StringComparison.Ordinal)
+                || evidence.TrackingRuleKind != baseline.Provenance.TrackingRuleKind)
+                throw new ProviderFailure("APM changed an unrelated managed Skill during Managed Reinstall.");
+        }
     }
 
     private static bool MatchesAvailable(string available, ApmDependencyEvidence evidence)
@@ -514,6 +728,71 @@ public sealed class ApmProvider(
         if (!Junction.IsJunctionTo(paths.Claude, paths.Canonical))
             throw new ProviderFailure("The intended Claude Harness Exposure is not a verified junction.");
     }
+
+    private static void VerifyReinstallableTopology(MutationPaths paths, bool requireHealthyExposure)
+    {
+        if (!Directory.Exists(paths.Canonical) || File.GetAttributes(paths.Canonical).HasFlag(FileAttributes.ReparsePoint))
+            throw new ProviderFailure("The canonical APM Skill Installation is missing or has conflicting topology.");
+        var exposureExists = PathEntryExists(paths.Claude);
+        if ((requireHealthyExposure || exposureExists) && !Junction.IsJunctionTo(paths.Claude, paths.Canonical))
+            throw new ProviderFailure("The intended Claude destination has conflicting topology; Managed Reinstall is blocked as a Collision.");
+    }
+
+    private static List<ManagementRecord> PackageRecords(SkillyState state, string identity)
+        => state.Records.Where(candidate => IsApmRecord(candidate)
+                                            && string.Equals(candidate.Provenance.Repository, identity, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    private IReadOnlyList<ReplacementAcquisition> AcquireReplacements(string source, IReadOnlyList<ManagementRecord> records)
+    {
+        var temporaryRoot = Path.Combine(Path.GetDirectoryName(stateStore.FilePath)!, "apm-reinstall-plan-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryRoot);
+        try
+        {
+            var selections = records.Select(static record => record.Provenance.ProviderSkillName)
+                .Where(static name => !string.IsNullOrWhiteSpace(name)).Select(static name => name!).ToList();
+            ApmClient.RequireExit(client.Install(source, selections, IsolatedEnvironment(temporaryRoot)), "Isolated APM Managed Reinstall acquisition");
+            var isolatedApm = new ApmGlobalState(temporaryRoot);
+            var canonicalRoot = Path.Combine(temporaryRoot, ".agents", "skills");
+            var claudeRoot = Path.Combine(temporaryRoot, ".claude", "skills");
+            if (Directory.Exists(claudeRoot) && Directory.EnumerateFileSystemEntries(claudeRoot).Any())
+                throw new ProviderFailure("Isolated APM replacement acquisition produced a separate Claude copy.");
+            var expected = records.Select(record => Path.GetFileName(record.CanonicalPath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var actual = Directory.Exists(canonicalRoot)
+                ? Directory.EnumerateDirectories(canonicalRoot).Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : [];
+            if (!actual.SetEquals(expected))
+                throw new ProviderFailure("Isolated APM replacement acquisition did not produce exactly the affected canonical Skill set.");
+            return records.Select(record =>
+            {
+                var exactPath = Path.Combine(canonicalRoot, Path.GetFileName(record.CanonicalPath));
+                VerifyCanonicalWithoutClaude(new MutationPaths(exactPath, Path.Combine(claudeRoot, Path.GetFileName(record.CanonicalPath))));
+                var evidence = isolatedApm.FindForSkill(Path.GetFileName(record.CanonicalPath));
+                VerifyCanonicalOnly(evidence, temporaryRoot);
+                VerifyRequestedSource(ApmGlobalState.NormalizeSource(source), evidence);
+                return new ReplacementAcquisition(record.CanonicalPath, evidence, PayloadHasher.HashFolder(exactPath));
+            }).ToList();
+        }
+        finally
+        {
+            DeleteDirectorySafe(temporaryRoot);
+        }
+    }
+
+    private static void VerifyPlannedTargets(ApmManagedReinstallPlan plan, IReadOnlyList<ReplacementAcquisition> acquisitions)
+    {
+        foreach (var target in plan.Targets)
+        {
+            var acquisition = acquisitions.SingleOrDefault(candidate => PathsEqual(candidate.ExactPath, target.ExactPath))
+                              ?? throw new ProviderFailure("APM replacement acquisition omitted a confirmed target.");
+            if (!string.Equals(acquisition.Evidence.Revision, target.Revision, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(acquisition.PayloadHash, target.PayloadHash, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(StableTargetEvidence(acquisition.Evidence), target.ProviderEvidence, StringComparison.Ordinal))
+                throw new ProviderFailure("The APM provider replacement changed after confirmation or did not produce the confirmed revision and payload.");
+        }
+    }
+
+    private static string StableTargetEvidence(ApmDependencyEvidence evidence)
+        => $"{evidence.Identity}:{evidence.Revision}:{evidence.ResolvedRef ?? "default"}";
 
     private void VerifyPersisted(IEnumerable<string> installationIds)
     {
@@ -673,6 +952,12 @@ public sealed class ApmProvider(
         catch (DirectoryNotFoundException) { return false; }
     }
 
+    private static bool PathsEqual(string left, string right)
+        => string.Equals(
+            Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            StringComparison.OrdinalIgnoreCase);
+
     private static void DeleteDirectorySafe(string path)
     {
         if (!Directory.Exists(path)) return;
@@ -685,6 +970,8 @@ public sealed class ApmProvider(
     }
 
     private sealed record MutationPaths(string Canonical, string Claude);
+
+    private sealed record ReplacementAcquisition(string ExactPath, ApmDependencyEvidence Evidence, string PayloadHash);
 
     private sealed class ApmSnapshot(string root, string apmRoot, IReadOnlyList<MutationPaths> paths, IReadOnlyList<PathState> states, RollingLog log)
     {
@@ -707,7 +994,7 @@ public sealed class ApmProvider(
             CopyIfExists(Path.Combine(apmRoot, "apm.lock.yaml"), Path.Combine(root, "apm.lock.yaml"));
             if (File.Exists(Path.Combine(apmRoot, ".gitignore")))
             {
-                File.Copy(Path.Combine(apmRoot, ".gitignore"), Path.Combine(root, ".gitignore"));
+                CopyIfExists(Path.Combine(apmRoot, ".gitignore"), Path.Combine(root, ".gitignore"));
                 File.WriteAllText(Path.Combine(root, ".gitignore.existed"), string.Empty);
             }
             if (states[^1] == PathState.Directory) CopyDirectory(Path.Combine(apmRoot, "apm_modules"), Path.Combine(root, "apm_modules"));
@@ -753,7 +1040,13 @@ public sealed class ApmProvider(
 
         public void Cleanup()
         {
-            try { DeleteDirectorySafe(root); }
+            try
+            {
+                DeleteDirectorySafe(root);
+                var parent = Path.GetDirectoryName(root);
+                if (parent is not null && Directory.Exists(parent) && !Directory.EnumerateFileSystemEntries(parent).Any())
+                    Directory.Delete(parent);
+            }
             catch (Exception exception) { log.Error("Verified APM recovery data could not be removed.", exception); }
         }
 
@@ -788,7 +1081,10 @@ public sealed class ApmProvider(
                 if (states[index * 2 + 1] == PathState.Junction && !Junction.IsJunctionTo(paths[index].Claude, paths[index].Canonical)) return false;
                 if (states[index * 2 + 1] == PathState.Missing && PathEntryExists(paths[index].Claude)) return false;
             }
-            return VerifyFile("apm.yml", states[^3]) && VerifyFile("apm.lock.yaml", states[^2]);
+            return VerifyFile("apm.yml", states[^3])
+                   && VerifyFile("apm.lock.yaml", states[^2])
+                   && VerifyOptionalFile(".gitignore")
+                   && VerifyDirectory("apm_modules", states[^1]);
         }
 
         private bool VerifyFile(string name, PathState state)
@@ -799,13 +1095,36 @@ public sealed class ApmProvider(
                 : !File.Exists(destination);
         }
 
+        private bool VerifyOptionalFile(string name)
+        {
+            var destination = Path.Combine(apmRoot, name);
+            var existed = File.Exists(Path.Combine(root, name + ".existed"));
+            return existed
+                ? File.Exists(destination) && File.ReadAllBytes(destination).SequenceEqual(File.ReadAllBytes(Path.Combine(root, name)))
+                : !File.Exists(destination);
+        }
+
+        private bool VerifyDirectory(string name, PathState state)
+        {
+            var destination = Path.Combine(apmRoot, name);
+            return state == PathState.Directory
+                ? Directory.Exists(destination) && !File.GetAttributes(destination).HasFlag(FileAttributes.ReparsePoint)
+                  && string.Equals(PayloadHasher.HashFolder(destination), PayloadHasher.HashFolder(Path.Combine(root, name)), StringComparison.OrdinalIgnoreCase)
+                : !Directory.Exists(destination);
+        }
+
         private static void CopyIfExists(string source, string destination)
         {
-            if (File.Exists(source)) File.Copy(source, destination);
+            if (File.Exists(source))
+            {
+                if (File.GetAttributes(source).HasFlag(FileAttributes.ReparsePoint)) throw new ProviderFailure($"APM snapshot refused file reparse point '{source}'.");
+                File.Copy(source, destination);
+            }
         }
 
         private static void CopyDirectory(string source, string destination)
         {
+            if (File.GetAttributes(source).HasFlag(FileAttributes.ReparsePoint)) throw new ProviderFailure($"APM snapshot refused directory reparse point '{source}'.");
             Directory.CreateDirectory(destination);
             foreach (var directory in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
             {
@@ -814,6 +1133,7 @@ public sealed class ApmProvider(
             }
             foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
             {
+                if (File.GetAttributes(file).HasFlag(FileAttributes.ReparsePoint)) throw new ProviderFailure($"APM snapshot refused file reparse point '{file}'.");
                 var target = Path.Combine(destination, Path.GetRelativePath(source, file));
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                 File.Copy(file, target);

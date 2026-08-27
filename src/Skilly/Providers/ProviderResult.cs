@@ -2,6 +2,15 @@ namespace Skilly.Providers;
 
 public sealed record ProviderReadiness(bool IsReady, string Provider, string Diagnostic, string? Version = null);
 
+public interface IManagedReinstallPlan
+{
+    string InstallationId { get; }
+    string ExactPath { get; }
+    string Revision { get; }
+    string StartingPayloadHash { get; }
+    IReadOnlyList<string> AffectedPaths { get; }
+}
+
 public sealed class ProviderFailure(string message) : Exception(message);
 
 public enum ProviderResultStatus

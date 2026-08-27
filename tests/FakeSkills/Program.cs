@@ -20,7 +20,7 @@ var command = args[2];
 if (command == "--version")
 {
     if (ShouldFail("readiness")) return 17;
-    Console.WriteLine("1.5.23");
+    Console.WriteLine(Environment.GetEnvironmentVariable("FAKE_SKILLS_PROVIDER_VERSION") ?? "1.5.23");
     return 0;
 }
 
@@ -49,8 +49,8 @@ if (command == "add" && args.Contains("--list", StringComparer.Ordinal))
     foreach (var directory in Directory.EnumerateDirectories(Path.Combine(sourceRoot, "skills")).OrderBy(static path => path, StringComparer.Ordinal))
     {
         var name = Path.GetFileName(directory);
-        Console.WriteLine($"│  {name}");
-        Console.WriteLine($"│    {name} from deterministic provider fixture");
+        Console.WriteLine($"│    {name}");
+        Console.WriteLine($"│      {name} from deterministic provider fixture");
     }
     Console.WriteLine("└ Use --skill <name> to install specific skills");
     return 0;

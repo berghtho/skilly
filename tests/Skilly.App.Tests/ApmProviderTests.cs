@@ -1,9 +1,13 @@
 using System.IO;
 using System.Text.Json;
 using Skilly.Infrastructure;
+using Skilly.Providers;
 using Skilly.Providers.Apm;
+using Skilly.Providers.GitHub;
+using Skilly.Providers.SkillsCli;
 using Skilly.Skills;
 using Skilly.State;
+using Skilly.ViewModels;
 
 namespace Skilly.App.Tests;
 
@@ -21,7 +25,7 @@ public sealed class ApmProviderFixture : IDisposable
         Directory.CreateDirectory(Home);
         WriteSkill("alpha", "Alpha from APM.");
         WriteSkill("beta", "Beta from APM.");
-        var fake = Path.Combine(PackagedAppFixture.FindRepoRoot(), "tests", "FakeApm", "bin", "Debug", "net10.0-windows", "FakeApm.exe");
+        var fake = Path.Combine(PackagedAppFixture.FindRepoRoot(), "tests", "FakeApm", "bin", BuildConfiguration, "net10.0-windows", "FakeApm.exe");
         Assert.True(File.Exists(fake), $"FakeApm was not built at '{fake}'.");
         _environment = new Dictionary<string, string?>
         {
@@ -55,6 +59,8 @@ public sealed class ApmProviderFixture : IDisposable
     public string LockPath => Path.Combine(Home, ".apm", "apm.lock.yaml");
     public string Canonical(string name) => Path.Combine(Home, ".agents", "skills", name);
     public string Claude(string name) => Path.Combine(Home, ".claude", "skills", name);
+
+    private static string BuildConfiguration => new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
 
     public void WriteSkill(string name, string description, string extra = "")
     {
@@ -175,10 +181,74 @@ public sealed class ApmProviderTests
         Assert.Null(fixture.StateStore.Load().PendingOperation);
     }
 
+    [Fact]
+    public void Managed_Reinstall_dispatches_to_APM_replaces_package_content_without_merge_and_reconciles_provider_state()
+    {
+        using var fixture = new ApmProviderFixture();
+        using var github = new GitHubProviderFixture();
+        using var skills = new SkillsCliProviderFixture();
+        var inspection = fixture.Provider.Inspect(ApmProviderFixture.Source).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
+        var record = Assert.Single(fixture.StateStore.Load().Records);
+        File.WriteAllText(Path.Combine(record.CanonicalPath, "local-only.txt"), "must not merge");
+        fixture.WriteSkill("alpha", "Alpha APM replacement.", "\nprovider replacement\n");
+        var dispatcher = new ManagedReinstallDispatcher(github.Provider, skills.Provider, fixture.Provider);
+        Assert.True(new InventoryRow(Assert.Single(new InventoryScanner().Scan(fixture.Home, fixture.StateStore.Load()).Entries)).CanManagedReinstall);
+
+        var plan = Assert.IsType<ApmManagedReinstallPlan>(dispatcher.Plan(record).ValueOrThrow());
+
+        Assert.Equal(record.CanonicalPath, plan.ExactPath);
+        Assert.Equal([record.CanonicalPath], plan.AffectedPaths);
+        Assert.Equal(PayloadHasher.HashFolder(record.CanonicalPath), plan.StartingPayloadHash);
+        Assert.NotEqual(record.InstalledRevision, plan.Revision);
+        dispatcher.Execute(plan).ValueOrThrow();
+
+        Assert.False(File.Exists(Path.Combine(record.CanonicalPath, "local-only.txt")));
+        Assert.Contains("provider replacement", File.ReadAllText(Path.Combine(record.CanonicalPath, "SKILL.md")));
+        Assert.True(Junction.IsJunctionTo(record.IntendedClaudeJunctionPath!, record.CanonicalPath));
+        var persisted = Assert.Single(fixture.StateStore.Load().Records);
+        Assert.Equal(OperationOutcome.Reinstalled, persisted.LastOperationOutcome);
+        Assert.Equal(plan.Revision, persisted.InstalledRevision);
+        Assert.Null(fixture.StateStore.Load().PendingOperation);
+        Assert.False(Directory.Exists(Path.Combine(Path.GetDirectoryName(fixture.StatePath)!, "recovery")));
+        Assert.Contains(fixture.Invocations(), args => args.SequenceEqual(["uninstall", "--global", "acme/apm-library"]));
+        Assert.True(fixture.Invocations().Count(args => args.Length > 0 && args[0] == "install") >= 4);
+    }
+
+    [Fact]
+    public void APM_Managed_Reinstall_false_success_restores_local_content_manifest_lock_exposure_and_authority()
+    {
+        using var fixture = new ApmProviderFixture();
+        var inspection = fixture.Provider.Inspect(ApmProviderFixture.Source).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
+        var record = Assert.Single(fixture.StateStore.Load().Records);
+        var localFile = Path.Combine(record.CanonicalPath, "local-only.txt");
+        File.WriteAllText(localFile, "preserve on failure");
+        var startingHash = PayloadHasher.HashFolder(record.CanonicalPath);
+        var startingManifest = File.ReadAllBytes(fixture.ManifestPath);
+        var startingLock = File.ReadAllBytes(fixture.LockPath);
+        var plan = fixture.Provider.PlanManagedReinstall(record).ValueOrThrow();
+        fixture.Set("FAKE_APM_FALSE_SUCCESS_OPERATION", "install");
+
+        var result = fixture.Provider.ManagedReinstall(plan);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("preserve on failure", File.ReadAllText(localFile));
+        Assert.Equal(startingHash, PayloadHasher.HashFolder(record.CanonicalPath));
+        Assert.Equal(startingManifest, File.ReadAllBytes(fixture.ManifestPath));
+        Assert.Equal(startingLock, File.ReadAllBytes(fixture.LockPath));
+        Assert.True(Junction.IsJunctionTo(record.IntendedClaudeJunctionPath!, record.CanonicalPath));
+        Assert.Single(fixture.StateStore.Load().Records);
+        Assert.Null(fixture.StateStore.Load().PendingOperation);
+    }
+
     [Theory]
     [InlineData("copy")]
     [InlineData("lock")]
     [InlineData("destination")]
+    [InlineData("hash")]
+    [InlineData("file")]
+    [InlineData("traversal")]
     public void Wrong_topology_or_lock_output_is_rejected_and_restored(string mode)
     {
         using var fixture = new ApmProviderFixture();
@@ -186,6 +256,9 @@ public sealed class ApmProviderTests
         fixture.Set("FAKE_APM_CLAUDE_COPY", mode == "copy" ? "1" : null);
         fixture.Set("FAKE_APM_BAD_LOCK", mode == "lock" ? "1" : null);
         fixture.Set("FAKE_APM_EXTRA_DEPLOYMENT", mode == "destination" ? "1" : null);
+        fixture.Set("FAKE_APM_BAD_HASH", mode == "hash" ? "1" : null);
+        fixture.Set("FAKE_APM_EXTRA_FILE", mode == "file" ? "1" : null);
+        fixture.Set("FAKE_APM_TRAVERSAL", mode == "traversal" ? "1" : null);
         var result = fixture.Provider.Install(inspection, [inspection.Skills[0]]);
         Assert.False(result.Succeeded);
         Assert.False(Directory.Exists(fixture.Canonical("alpha")));
@@ -231,6 +304,19 @@ public sealed class ApmProviderTests
         Assert.Equal(ready, fixture.Provider.GetReadiness().IsReady);
         fixture.Set("FAKE_APM_WRONG_BRAND", "1");
         Assert.False(fixture.Provider.GetReadiness().IsReady);
+    }
+
+    [Fact]
+    public void Readiness_redacts_malformed_APM_version_output()
+    {
+        using var fixture = new ApmProviderFixture();
+        fixture.Set("FAKE_APM_VERSION", "token=plain-secret-canary");
+
+        var readiness = fixture.Provider.GetReadiness();
+
+        Assert.False(readiness.IsReady);
+        Assert.Contains("<redacted>", readiness.Diagnostic);
+        Assert.DoesNotContain("plain-secret-canary", readiness.Diagnostic, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -300,7 +386,7 @@ public sealed class ApmProviderTests
         fixture.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
         var record = fixture.StateStore.Load().Records.Single();
         var before = PayloadHasher.HashFolder(record.CanonicalPath);
-        File.WriteAllText(fixture.ManifestPath, File.ReadAllText(fixture.ManifestPath).Replace("github.com/acme/apm-library", "github.com/evil/other", StringComparison.Ordinal));
+        File.WriteAllText(fixture.ManifestPath, File.ReadAllText(fixture.ManifestPath).Replace("github.com/acme/apm-library", "github.com/evil/acme/apm-library", StringComparison.Ordinal));
         Assert.False(fixture.Provider.Check(record).Succeeded);
         Assert.False(fixture.Provider.Uninstall(record).Succeeded);
         Assert.Equal(before, PayloadHasher.HashFolder(record.CanonicalPath));

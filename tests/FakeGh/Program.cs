@@ -303,6 +303,20 @@ static void RecordInvocation(string[] arguments)
     var path = Environment.GetEnvironmentVariable("FAKE_GH_INVOCATIONS");
     if (!string.IsNullOrWhiteSpace(path))
     {
-        File.AppendAllText(path, JsonSerializer.Serialize(arguments) + Environment.NewLine);
+        var line = JsonSerializer.Serialize(arguments) + Environment.NewLine;
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+                using var writer = new StreamWriter(stream);
+                writer.Write(line);
+                break;
+            }
+            catch (IOException) when (attempt < 10)
+            {
+                Thread.Sleep(20 * (attempt + 1));
+            }
+        }
     }
 }
