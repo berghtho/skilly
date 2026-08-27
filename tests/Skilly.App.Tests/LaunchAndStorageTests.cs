@@ -7,7 +7,7 @@ public sealed class LaunchAndStorageTests(PackagedAppFixture fixture)
 {
     public PackagedAppFixture Fixture { get; } = fixture;
 
-    [Fact]
+    [InteractiveUiFact]
     public void Launch_creates_state_and_logs_under_isolated_LocalAppData()
     {
         using var profile = new IsolatedProfile();

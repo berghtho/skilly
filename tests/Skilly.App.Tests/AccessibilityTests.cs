@@ -8,7 +8,7 @@ public sealed class AccessibilityTests(PackagedAppFixture fixture)
 {
     public PackagedAppFixture Fixture { get; } = fixture;
 
-    [Fact]
+    [InteractiveUiFact]
     public void Workbench_exposes_named_panes_and_keyboard_focusable_controls()
     {
         using var profile = new IsolatedProfile();
@@ -40,7 +40,7 @@ public sealed class AccessibilityTests(PackagedAppFixture fixture)
         }
     }
 
-    [Fact]
+    [InteractiveUiFact]
     public void Workbench_supports_keyboard_focus_destinations_source_selection_and_announced_status_changes()
     {
         using var profile = new IsolatedProfile();

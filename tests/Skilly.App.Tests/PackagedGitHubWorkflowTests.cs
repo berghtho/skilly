@@ -15,7 +15,7 @@ public sealed class PackagedGitHubWorkflowTests(PackagedAppFixture fixture)
 {
     public PackagedAppFixture Fixture { get; } = fixture;
 
-    [Fact]
+    [InteractiveUiFact]
     public void Workbench_installs_selected_GitHub_Skill_and_exposes_observable_postconditions()
     {
         using var source = new GitHubProviderFixture();
@@ -106,7 +106,7 @@ public sealed class PackagedGitHubWorkflowTests(PackagedAppFixture fixture)
         }
     }
 
-    [Fact]
+    [InteractiveUiFact]
     public async Task Workbench_Managed_Reinstall_confirmation_shows_exact_path_and_revision_and_cancel_preserves_local_content()
     {
         using var source = new GitHubProviderFixture();
@@ -183,7 +183,7 @@ public sealed class PackagedGitHubWorkflowTests(PackagedAppFixture fixture)
         }
     }
 
-    [Fact]
+    [InteractiveUiFact]
     public async Task Workbench_routes_skills_provider_Managed_Reinstall_to_exact_confirmation_without_mutating_on_cancel()
     {
         using var source = new SkillsCliProviderFixture();
@@ -217,7 +217,7 @@ public sealed class PackagedGitHubWorkflowTests(PackagedAppFixture fixture)
             "skills content preserved after cancel");
     }
 
-    [Fact]
+    [InteractiveUiFact]
     public async Task Workbench_routes_APM_Managed_Reinstall_to_exact_confirmation_without_mutating_on_cancel()
     {
         using var source = new ApmProviderFixture();
