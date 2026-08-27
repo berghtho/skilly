@@ -108,7 +108,7 @@ public sealed class ApmClient(ProcessRunner runner, string executable = "apm.exe
         var match = Regex.Match(clean, @"^Agent Package Manager \(APM\) CLI version (?<version>\d+\.\d+\.\d+)(?:\s+\([0-9a-fA-F]+\))?$", RegexOptions.CultureInvariant);
         return match.Success && Version.TryParse(match.Groups["version"].Value, out var version)
             ? version
-            : throw new ProviderFailure($"The executable is not recognized as Microsoft microsoft/apm apm-cli; branded version output was '{clean}'.");
+            : throw new ProviderFailure($"The executable is not recognized as Microsoft microsoft/apm apm-cli; branded version output was '{SensitiveDataRedactor.Redact(clean)}'.");
     }
 
     private static void ValidateCredentialFreeReference(string source)

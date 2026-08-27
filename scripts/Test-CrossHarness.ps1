@@ -37,12 +37,17 @@ function Invoke-Harness([string]$Name, [string]$Executable, [string[]]$Arguments
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
     if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-        try { $process.Kill() } catch {}
+        try {
+            $process.Kill($true)
+            $process.WaitForExit(5000) | Out-Null
+        } catch {} finally { $process.Dispose() }
         return [pscustomobject]@{ harness = $Name; status = "FAILED"; detail = "Timed out after $TimeoutSeconds seconds." }
     }
     $output = $stdout.Result + "`n" + $stderr.Result
-    if ($process.ExitCode -ne 0) {
-        return [pscustomobject]@{ harness = $Name; status = "FAILED"; detail = "Exited with code $($process.ExitCode)." }
+    $exitCode = $process.ExitCode
+    $process.Dispose()
+    if ($exitCode -ne 0) {
+        return [pscustomobject]@{ harness = $Name; status = "FAILED"; detail = "Exited with code $exitCode." }
     }
     if ($output.IndexOf($ExpectedToken, [StringComparison]::Ordinal) -lt 0) {
         return [pscustomobject]@{ harness = $Name; status = "FAILED"; detail = "Session did not return the token stored only in the fixture Skill." }

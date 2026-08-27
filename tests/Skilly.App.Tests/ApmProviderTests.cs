@@ -248,6 +248,7 @@ public sealed class ApmProviderTests
     [InlineData("destination")]
     [InlineData("hash")]
     [InlineData("file")]
+    [InlineData("traversal")]
     public void Wrong_topology_or_lock_output_is_rejected_and_restored(string mode)
     {
         using var fixture = new ApmProviderFixture();
@@ -257,6 +258,7 @@ public sealed class ApmProviderTests
         fixture.Set("FAKE_APM_EXTRA_DEPLOYMENT", mode == "destination" ? "1" : null);
         fixture.Set("FAKE_APM_BAD_HASH", mode == "hash" ? "1" : null);
         fixture.Set("FAKE_APM_EXTRA_FILE", mode == "file" ? "1" : null);
+        fixture.Set("FAKE_APM_TRAVERSAL", mode == "traversal" ? "1" : null);
         var result = fixture.Provider.Install(inspection, [inspection.Skills[0]]);
         Assert.False(result.Succeeded);
         Assert.False(Directory.Exists(fixture.Canonical("alpha")));
@@ -302,6 +304,19 @@ public sealed class ApmProviderTests
         Assert.Equal(ready, fixture.Provider.GetReadiness().IsReady);
         fixture.Set("FAKE_APM_WRONG_BRAND", "1");
         Assert.False(fixture.Provider.GetReadiness().IsReady);
+    }
+
+    [Fact]
+    public void Readiness_redacts_malformed_APM_version_output()
+    {
+        using var fixture = new ApmProviderFixture();
+        fixture.Set("FAKE_APM_VERSION", "token=plain-secret-canary");
+
+        var readiness = fixture.Provider.GetReadiness();
+
+        Assert.False(readiness.IsReady);
+        Assert.Contains("<redacted>", readiness.Diagnostic);
+        Assert.DoesNotContain("plain-secret-canary", readiness.Diagnostic, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -1149,6 +1149,10 @@ public sealed class SkillsCliProvider(
             }
             foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
             {
+                if (File.GetAttributes(file).HasFlag(FileAttributes.ReparsePoint))
+                {
+                    throw new ProviderFailure($"Provider snapshot refused file reparse point '{file}'.");
+                }
                 var target = Path.Combine(destination, Path.GetRelativePath(source, file));
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                 File.Copy(file, target, overwrite: false);

@@ -61,7 +61,7 @@ public sealed class SkillsCliClient
             RequireExit(provider, "Pinned provider compatibility probe");
             if (!string.Equals(provider.StandardOutput.Trim(), Version, StringComparison.Ordinal))
             {
-                return Unavailable($"Pinned {Package} returned unexpected version output '{provider.StandardOutput.Trim()}'.");
+                return Unavailable($"Pinned {Package} returned unexpected version output '{SensitiveDataRedactor.Redact(provider.StandardOutput).Trim()}'.");
             }
 
             return new ProviderReadiness(

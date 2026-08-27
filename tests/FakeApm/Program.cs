@@ -130,6 +130,7 @@ void Install(IReadOnlyList<string> selected, string requestedSource, bool explic
         lockText.Append("      - .agents/skills/").Append(name).Append("/SKILL.md\n");
     }
     if (Environment.GetEnvironmentVariable("FAKE_APM_EXTRA_DEPLOYMENT") == "1") lockText.Append("      - .copilot/agents/unexpected.agent.md\n");
+    if (Environment.GetEnvironmentVariable("FAKE_APM_TRAVERSAL") == "1") lockText.Append("      - .agents/skills/alpha/../../outside.txt\n");
     lockText.Append("    deployed_file_hashes:\n");
     foreach (var name in selected)
     {

@@ -597,12 +597,14 @@ public sealed class ApmProvider(
         if (evidence.DeployedFiles.Count == 0
             || evidence.DeployedFiles.Any(file => !file.Replace('\\', '/').TrimStart('/').StartsWith(".agents/skills/", StringComparison.OrdinalIgnoreCase)))
             throw new ProviderFailure($"APM dependency '{evidence.Identity}' deployed outside the canonical .agents/skills destination.");
+        var canonicalRoot = Path.GetFullPath(Path.Combine(deploymentRoot, ".agents", "skills")) + Path.DirectorySeparatorChar;
         foreach (var deployedFile in evidence.DeployedFiles)
         {
             var relative = deployedFile.Replace('/', Path.DirectorySeparatorChar).TrimStart(Path.DirectorySeparatorChar);
             var path = Path.GetFullPath(Path.Combine(deploymentRoot, relative));
             var relativeToRoot = Path.GetRelativePath(deploymentRoot, path);
-            if (relativeToRoot.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) || relativeToRoot == "..")
+            if (relativeToRoot.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) || relativeToRoot == ".."
+                || !path.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase))
                 throw new ProviderFailure($"APM dependency '{evidence.Identity}' did not deploy a safe regular file at '{deployedFile}'.");
             if (Directory.Exists(path))
             {
@@ -659,7 +661,9 @@ public sealed class ApmProvider(
             VerifyCanonicalOnly(evidence, home);
             if (!string.Equals(PayloadHasher.HashFolder(current.CanonicalPath), baseline.InstalledPayloadHash, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(evidence.Identity, baseline.Provenance.Repository, StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(evidence.Revision, baseline.InstalledRevision, StringComparison.OrdinalIgnoreCase))
+                || !string.Equals(evidence.Revision, baseline.InstalledRevision, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(evidence.TrackingRule, baseline.Provenance.TrackingRule, StringComparison.Ordinal)
+                || evidence.TrackingRuleKind != baseline.Provenance.TrackingRuleKind)
                 throw new ProviderFailure("APM changed an unrelated managed Skill during Managed Reinstall.");
         }
     }
@@ -1077,7 +1081,10 @@ public sealed class ApmProvider(
                 if (states[index * 2 + 1] == PathState.Junction && !Junction.IsJunctionTo(paths[index].Claude, paths[index].Canonical)) return false;
                 if (states[index * 2 + 1] == PathState.Missing && PathEntryExists(paths[index].Claude)) return false;
             }
-            return VerifyFile("apm.yml", states[^3]) && VerifyFile("apm.lock.yaml", states[^2]);
+            return VerifyFile("apm.yml", states[^3])
+                   && VerifyFile("apm.lock.yaml", states[^2])
+                   && VerifyOptionalFile(".gitignore")
+                   && VerifyDirectory("apm_modules", states[^1]);
         }
 
         private bool VerifyFile(string name, PathState state)
@@ -1086,6 +1093,24 @@ public sealed class ApmProvider(
             return state == PathState.File
                 ? File.Exists(destination) && File.ReadAllBytes(destination).SequenceEqual(File.ReadAllBytes(Path.Combine(root, name)))
                 : !File.Exists(destination);
+        }
+
+        private bool VerifyOptionalFile(string name)
+        {
+            var destination = Path.Combine(apmRoot, name);
+            var existed = File.Exists(Path.Combine(root, name + ".existed"));
+            return existed
+                ? File.Exists(destination) && File.ReadAllBytes(destination).SequenceEqual(File.ReadAllBytes(Path.Combine(root, name)))
+                : !File.Exists(destination);
+        }
+
+        private bool VerifyDirectory(string name, PathState state)
+        {
+            var destination = Path.Combine(apmRoot, name);
+            return state == PathState.Directory
+                ? Directory.Exists(destination) && !File.GetAttributes(destination).HasFlag(FileAttributes.ReparsePoint)
+                  && string.Equals(PayloadHasher.HashFolder(destination), PayloadHasher.HashFolder(Path.Combine(root, name)), StringComparison.OrdinalIgnoreCase)
+                : !Directory.Exists(destination);
         }
 
         private static void CopyIfExists(string source, string destination)
@@ -1099,6 +1124,7 @@ public sealed class ApmProvider(
 
         private static void CopyDirectory(string source, string destination)
         {
+            if (File.GetAttributes(source).HasFlag(FileAttributes.ReparsePoint)) throw new ProviderFailure($"APM snapshot refused directory reparse point '{source}'.");
             Directory.CreateDirectory(destination);
             foreach (var directory in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
             {

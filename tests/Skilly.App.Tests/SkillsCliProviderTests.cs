@@ -313,6 +313,19 @@ public sealed class SkillsCliProviderTests
     }
 
     [Fact]
+    public void Readiness_redacts_malformed_provider_version_output()
+    {
+        using var fixture = new SkillsCliProviderFixture();
+        fixture.Set("FAKE_SKILLS_PROVIDER_VERSION", "password: plain-secret-canary");
+
+        var readiness = fixture.Provider.GetReadiness();
+
+        Assert.False(readiness.IsReady);
+        Assert.Contains("<redacted>", readiness.Diagnostic);
+        Assert.DoesNotContain("plain-secret-canary", readiness.Diagnostic, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Provider_lock_write_and_authority_commit_failures_never_report_success()
     {
         var armed = false;

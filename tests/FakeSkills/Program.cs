@@ -20,7 +20,7 @@ var command = args[2];
 if (command == "--version")
 {
     if (ShouldFail("readiness")) return 17;
-    Console.WriteLine("1.5.23");
+    Console.WriteLine(Environment.GetEnvironmentVariable("FAKE_SKILLS_PROVIDER_VERSION") ?? "1.5.23");
     return 0;
 }
 
