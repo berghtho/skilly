@@ -575,7 +575,7 @@ public sealed class ApmProvider(
                 && !string.Equals(PayloadHasher.HashFolder(record.CanonicalPath), record.InstalledPayloadHash, StringComparison.OrdinalIgnoreCase))
                 throw new ProviderFailure("The APM Skill Installation is Locally Modified; provider mutation and Check are blocked.");
             var evidence = _apm.FindForSkill(Path.GetFileName(record.CanonicalPath));
-            VerifyCanonicalOnly(evidence, home);
+            VerifyCanonicalOnly(evidence, home, allowUnrecordedFiles: reinstallable);
             if (!string.Equals(record.ProviderEvidence, evidence.Evidence, StringComparison.Ordinal)
                 || !string.Equals(record.InstalledRevision, evidence.Revision, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(record.Provenance.Repository, evidence.Identity, StringComparison.OrdinalIgnoreCase))
@@ -592,7 +592,7 @@ public sealed class ApmProvider(
             throw new ProviderFailure("APM lock source evidence does not match the requested normalized Skill Library.");
     }
 
-    private static void VerifyCanonicalOnly(ApmDependencyEvidence evidence, string deploymentRoot)
+    private static void VerifyCanonicalOnly(ApmDependencyEvidence evidence, string deploymentRoot, bool allowUnrecordedFiles = false)
     {
         if (evidence.DeployedFiles.Count == 0
             || evidence.DeployedFiles.Any(file => !file.Replace('\\', '/').TrimStart('/').StartsWith(".agents/skills/", StringComparison.OrdinalIgnoreCase)))
@@ -602,8 +602,26 @@ public sealed class ApmProvider(
             var relative = deployedFile.Replace('/', Path.DirectorySeparatorChar).TrimStart(Path.DirectorySeparatorChar);
             var path = Path.GetFullPath(Path.Combine(deploymentRoot, relative));
             var relativeToRoot = Path.GetRelativePath(deploymentRoot, path);
-            if (relativeToRoot.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) || relativeToRoot == ".."
-                || !File.Exists(path) || File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint))
+            if (relativeToRoot.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) || relativeToRoot == "..")
+                throw new ProviderFailure($"APM dependency '{evidence.Identity}' did not deploy a safe regular file at '{deployedFile}'.");
+            if (Directory.Exists(path))
+            {
+                if (File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint))
+                    throw new ProviderFailure($"APM dependency '{evidence.Identity}' deployed a linked directory at '{deployedFile}'.");
+                foreach (var entry in Directory.EnumerateFileSystemEntries(path, "*", SearchOption.AllDirectories))
+                {
+                    if (File.GetAttributes(entry).HasFlag(FileAttributes.ReparsePoint))
+                        throw new ProviderFailure($"APM dependency '{evidence.Identity}' deployed a nested reparse point at '{deployedFile}'.");
+                    if (File.Exists(entry))
+                    {
+                        var entryRelative = Path.GetRelativePath(deploymentRoot, entry).Replace('\\', '/');
+                        if (!allowUnrecordedFiles && !evidence.DeployedFiles.Any(file => PathsEqual(file, entryRelative)))
+                            throw new ProviderFailure($"APM dependency '{evidence.Identity}' deployed an unrecorded file at '{entryRelative}'.");
+                    }
+                }
+                continue;
+            }
+            if (!File.Exists(path) || File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint))
                 throw new ProviderFailure($"APM dependency '{evidence.Identity}' did not deploy a safe regular file at '{deployedFile}'.");
             var expected = evidence.DeployedFileHashes.SingleOrDefault(pair => PathsEqual(pair.Key, deployedFile)).Value;
             if (string.IsNullOrWhiteSpace(expected)

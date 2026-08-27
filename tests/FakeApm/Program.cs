@@ -95,6 +95,7 @@ void Install(IReadOnlyList<string> selected, string requestedSource, bool explic
         var destination = Path.Combine(canonicalRoot, name);
         if (Directory.Exists(destination)) Directory.Delete(destination, true);
         CopyDirectory(Path.Combine(sourceRoot, "skills", name), destination);
+        if (Environment.GetEnvironmentVariable("FAKE_APM_EXTRA_FILE") == "1") File.WriteAllText(Path.Combine(destination, "unexpected.txt"), "not recorded by the provider lock");
         if (Environment.GetEnvironmentVariable("FAKE_APM_CLAUDE_COPY") == "1")
             CopyDirectory(Path.Combine(sourceRoot, "skills", name), Path.Combine(home, ".claude", "skills", name));
     }
@@ -123,7 +124,11 @@ void Install(IReadOnlyList<string> selected, string requestedSource, bool explic
         foreach (var name in selected) lockText.Append("      - ").Append(name).Append('\n');
     }
     lockText.Append("    deployed_files:\n");
-    foreach (var name in selected) lockText.Append("      - .agents/skills/").Append(name).Append("/SKILL.md\n");
+    foreach (var name in selected)
+    {
+        lockText.Append("      - .agents/skills/").Append(name).Append('\n');
+        lockText.Append("      - .agents/skills/").Append(name).Append("/SKILL.md\n");
+    }
     if (Environment.GetEnvironmentVariable("FAKE_APM_EXTRA_DEPLOYMENT") == "1") lockText.Append("      - .copilot/agents/unexpected.agent.md\n");
     lockText.Append("    deployed_file_hashes:\n");
     foreach (var name in selected)
