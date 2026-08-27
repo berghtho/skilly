@@ -49,6 +49,39 @@ public sealed class AdoptionStateRecoveryTests
     }
 
     [Fact]
+    public void Existing_skills_lock_offers_and_executes_provider_Adoption_without_rewriting_content()
+    {
+        using var fixture = new GitHubProviderFixture();
+        var canonical = fixture.CanonicalPath("alpha");
+        Directory.CreateDirectory(canonical);
+        File.WriteAllText(Path.Combine(canonical, "SKILL.md"), "---\nname: alpha\ndescription: Alpha skill.\n---\n\n# alpha\n");
+        var lockPath = Path.Combine(fixture.Home, ".agents", ".skill-lock.json");
+        File.WriteAllText(lockPath, JsonSerializer.Serialize(new
+        {
+            version = 3,
+            skills = new Dictionary<string, object>
+            {
+                ["alpha"] = new
+                {
+                    source = "acme/library", sourceType = "github", sourceUrl = "https://github.com/acme/library.git",
+                    skillPath = "skills/alpha/SKILL.md", skillFolderHash = "f8608cc25b81e3855fdf8e94605e6f2570af916a",
+                },
+            },
+        }));
+        var before = File.ReadAllBytes(Path.Combine(canonical, "SKILL.md"));
+        var entry = Assert.Single(new InventoryScanner().Scan(fixture.Home, fixture.StateStore.Load()).Entries);
+        Assert.Equal(ManagementStatus.VerifiedAdoptionAvailable, entry.ManagementStatus);
+
+        fixture.Provider.AdoptVerifiedProviderEvidence(entry.AdoptionEvidence!).ValueOrThrow();
+
+        Assert.Equal(before, File.ReadAllBytes(Path.Combine(canonical, "SKILL.md")));
+        Assert.True(Junction.IsJunctionTo(fixture.ClaudePath("alpha"), canonical));
+        var record = Assert.Single(fixture.StateStore.Load().Records);
+        Assert.Equal("skills", record.Provenance.SourceProvider);
+        Assert.Equal(OperationOutcome.Adopted, record.LastOperationOutcome);
+    }
+
+    [Fact]
     public void Adoption_rechecks_evidence_and_local_drift_fails_without_authority_or_content_rewrite()
     {
         using var fixture = new GitHubProviderFixture();

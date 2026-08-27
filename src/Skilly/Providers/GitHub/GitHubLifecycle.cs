@@ -109,6 +109,19 @@ public sealed class GitHubLifecycle(
             throw new ProviderFailure("The immutable provider payload no longer matches the verified Adoption evidence.");
         }
 
+        return AdoptVerifiedEvidence(state, evidence, cancellationToken);
+    }
+
+    public LifecycleResult AdoptVerifiedProviderEvidence(AdoptionEvidence evidence, CancellationToken cancellationToken = default)
+    {
+        var state = RequireWritableState();
+        ValidateCommonAdoptionEvidence(state, evidence);
+        return AdoptVerifiedEvidence(state, evidence, cancellationToken);
+    }
+
+    private LifecycleResult AdoptVerifiedEvidence(SkillyState state, AdoptionEvidence evidence, CancellationToken cancellationToken)
+    {
+        var record = evidence.ProposedRecord;
         var startingHash = PayloadHasher.HashFolder(record.CanonicalPath);
         if (!string.Equals(startingHash, evidence.ExpectedPayloadHash, StringComparison.OrdinalIgnoreCase)
             || Directory.EnumerateFiles(record.CanonicalPath, "*", SearchOption.AllDirectories).Count() != evidence.ExpectedFileCount)
@@ -155,7 +168,7 @@ public sealed class GitHubLifecycle(
             state.Records.Add(record);
             authorityAdded = true;
             state.PendingOperation = null;
-            state.LastOperationNote = $"adopted GitHub Skill '{record.Provenance.SourceSkillPath}' without rewriting content";
+            state.LastOperationNote = $"adopted {record.Provenance.SourceProvider} Skill '{record.Provenance.SourceSkillPath}' without rewriting content";
             stateStore.Save(state);
             return new LifecycleResult(record.CanonicalPath, "Adoption recorded exact verified Provenance; Skill content was preserved.");
         }
@@ -171,7 +184,7 @@ public sealed class GitHubLifecycle(
                 state.Records.Remove(record);
             }
             var restored = !createdJunction || RemoveCreatedAdoptionJunction(junctionPath, record.CanonicalPath);
-            FinishFailedMutation(state, pending, restored, $"GitHub Adoption failed: {exception.Message}");
+            FinishFailedMutation(state, pending, restored, $"{record.Provenance.SourceProvider} Adoption failed: {exception.Message}");
             throw Failure("Adoption", restored, exception);
         }
     }
@@ -676,6 +689,12 @@ public sealed class GitHubLifecycle(
         {
             throw new ProviderFailure("Adoption evidence does not contain exact normalized source, path, revision, content, and provider identity.");
         }
+        ValidateCommonAdoptionEvidence(state, evidence);
+    }
+
+    private static void ValidateCommonAdoptionEvidence(SkillyState state, AdoptionEvidence evidence)
+    {
+        var record = evidence.ProposedRecord;
         if (state.Records.Any(candidate =>
                 candidate.InstallationId == record.InstallationId
                 || string.Equals(candidate.CanonicalPath, record.CanonicalPath, StringComparison.OrdinalIgnoreCase)))

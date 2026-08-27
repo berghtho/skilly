@@ -29,10 +29,15 @@ public sealed class InventoryScanner
             .GroupBy(evidence => NormalizePath(evidence.ProposedRecord.CanonicalPath), StringComparer.OrdinalIgnoreCase)
             .Where(static group => group.Count() == 1)
             .ToDictionary(static group => group.Key, static group => group.Single(), StringComparer.OrdinalIgnoreCase);
-        var attributionByPath = DiscoverProviderAttributions(home)
+        var observations = DiscoverProviderAttributions(home).ToList();
+        var attributionByPath = observations
             .GroupBy(static item => NormalizePath(item.Path), StringComparer.OrdinalIgnoreCase)
             .Where(static group => group.Count() == 1)
             .ToDictionary(static group => group.Key, static group => group.Single().Attribution, StringComparer.OrdinalIgnoreCase);
+        var automaticAdoptionByPath = observations.Where(static item => item.AdoptionEvidence is not null)
+            .GroupBy(static item => NormalizePath(item.Path), StringComparer.OrdinalIgnoreCase)
+            .Where(static group => group.Count() == 1)
+            .ToDictionary(static group => group.Key, static group => group.Single().AdoptionEvidence!, StringComparer.OrdinalIgnoreCase);
 
         var roots = new[]
         {
@@ -75,7 +80,9 @@ public sealed class InventoryScanner
                 : null;
             var evidence = adoptionByPath.TryGetValue(NormalizePath(candidate.FileSystemInfo.FullName), out var verified)
                 ? verified
-                : null;
+                : automaticAdoptionByPath.TryGetValue(NormalizePath(candidate.FileSystemInfo.FullName), out var automatic)
+                    ? automatic
+                    : null;
             var attribution = attributionByPath.TryGetValue(NormalizePath(candidate.FileSystemInfo.FullName), out var observed)
                 ? observed
                 : null;
@@ -237,7 +244,7 @@ public sealed class InventoryScanner
         };
     }
 
-    private static IEnumerable<(string Path, ProviderAttribution Attribution)> DiscoverProviderAttributions(string home)
+    private static IEnumerable<ProviderObservation> DiscoverProviderAttributions(string home)
     {
         var canonicalRoot = Path.Combine(home, ".agents", "skills");
         var skillsLockPath = Path.Combine(home, ".agents", ".skill-lock.json");
@@ -248,16 +255,19 @@ public sealed class InventoryScanner
             catch (ProviderFailure) { entries = new Dictionary<string, SkillsCliLockEntry>(); }
             foreach (var entry in entries.Values.Where(entry => IsSafeFolderName(entry.Name)))
             {
-                yield return (
-                    Path.Combine(canonicalRoot, entry.Name),
-                    new ProviderAttribution(
+                var path = Path.Combine(canonicalRoot, entry.Name);
+                var attribution = new ProviderAttribution(
                         "skills",
                         SkillsCliClient.Version,
                         SensitiveDataRedactor.Redact(entry.SourceUrl ?? entry.Source),
                         SensitiveDataRedactor.Redact(entry.Source),
                         entry.SourceSkillPath,
                         entry.TrackingRule,
-                        entry.TrackingRuleKind));
+                        entry.TrackingRuleKind);
+                AdoptionEvidence? adoption = null;
+                try { adoption = CreateSkillsAdoptionEvidence(home, path, entry); }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+                yield return new ProviderObservation(path, attribution, adoption);
             }
         }
 
@@ -270,19 +280,111 @@ public sealed class InventoryScanner
         {
             foreach (var folderName in dependency.DeployedFiles.Select(DeployedSkillFolder).Where(static name => name is not null).Distinct(StringComparer.OrdinalIgnoreCase))
             {
-                yield return (
-                    Path.Combine(canonicalRoot, folderName!),
-                    new ProviderAttribution(
+                var path = Path.Combine(canonicalRoot, folderName!);
+                var attribution = new ProviderAttribution(
                         ApmClient.ProviderId,
-                        string.Empty,
+                        dependency.ProviderVersion,
                         SensitiveDataRedactor.Redact(dependency.RepositoryUrl),
                         SensitiveDataRedactor.Redact(dependency.Identity),
                         folderName!,
                         dependency.TrackingRule,
-                        dependency.TrackingRuleKind));
+                        dependency.TrackingRuleKind);
+                AdoptionEvidence? adoption = null;
+                try { adoption = CreateApmAdoptionEvidence(home, path, folderName!, dependency); }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+                yield return new ProviderObservation(path, attribution, adoption);
             }
         }
     }
+
+    private static AdoptionEvidence? CreateSkillsAdoptionEvidence(string home, string path, SkillsCliLockEntry entry)
+    {
+        if (!Directory.Exists(path) || File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint)
+            || !IsCredentialFreeSource(entry.SourceUrl ?? entry.Source)
+            || entry.SkillFolderHash.Length != 40 || !entry.SkillFolderHash.All(Uri.IsHexDigit)
+            || !string.Equals(GitTreeHasher.HashFolder(path), entry.SkillFolderHash, StringComparison.OrdinalIgnoreCase)) return null;
+        var payloadHash = PayloadHasher.HashFolder(path);
+        var fileCount = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Count();
+        var record = new State.ManagementRecord
+        {
+            InstallationId = Guid.NewGuid().ToString("N"),
+            CanonicalPath = Path.GetFullPath(path),
+            Provenance = new State.ProvenanceInfo
+            {
+                SourceProvider = "skills",
+                OriginalReference = entry.SourceUrl ?? entry.Source,
+                NormalizedSource = entry.NormalizedSource,
+                Host = Uri.TryCreate(entry.SourceUrl, UriKind.Absolute, out var uri) ? uri.Host : string.Empty,
+                Owner = string.Empty,
+                Repository = entry.Source,
+                SourceSkillPath = entry.SourceSkillPath,
+                TrackingRule = entry.TrackingRule,
+                TrackingRuleKind = entry.TrackingRuleKind,
+                ResolvedCommit = entry.SkillFolderHash,
+                SelectedContentIdentity = entry.SkillFolderHash,
+                ProviderVersion = SkillsCliClient.Version,
+                ProviderSkillName = entry.Name,
+            },
+            IntendedClaudeJunctionPath = Path.Combine(HarnessRoot.Create(RootKind.ClaudeSkills, home).FullPath, entry.Name),
+            InstalledRevision = entry.SkillFolderHash,
+            InstalledPayloadHash = payloadHash,
+            InstalledFileCount = fileCount,
+            ProviderEvidence = entry.Evidence,
+        };
+        return new AdoptionEvidence(record, payloadHash, fileCount, entry.SkillFolderHash);
+    }
+
+    private static AdoptionEvidence? CreateApmAdoptionEvidence(string home, string path, string folderName, ApmDependencyEvidence dependency)
+    {
+        if (!Directory.Exists(path) || File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint) || !IsCredentialFreeSource(dependency.RepositoryUrl)) return null;
+        var deployedFiles = dependency.DeployedFiles.Select(file => (Relative: file, FullPath: ResolveDeployedFile(home, path, file)))
+            .Where(item => item.FullPath is not null).ToList();
+        var actualFiles = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Select(Path.GetFullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (deployedFiles.Count == 0 || !actualFiles.SetEquals(deployedFiles.Select(item => item.FullPath!))
+            || deployedFiles.Any(item => !dependency.DeployedFileHashes.TryGetValue(item.Relative, out var expected) || !ApmFileHashMatches(item.FullPath!, expected))) return null;
+        var payloadHash = PayloadHasher.HashFolder(path);
+        var fileCount = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Count();
+        var record = new State.ManagementRecord
+        {
+            InstallationId = Guid.NewGuid().ToString("N"), CanonicalPath = Path.GetFullPath(path),
+            Provenance = new State.ProvenanceInfo
+            {
+                SourceProvider = ApmClient.ProviderId, OriginalReference = dependency.RepositoryUrl,
+                NormalizedSource = dependency.RepositoryUrl, Host = string.Empty, Owner = string.Empty,
+                Repository = dependency.Identity, SourceSkillPath = folderName, TrackingRule = dependency.TrackingRule,
+                TrackingRuleKind = dependency.TrackingRuleKind, ResolvedCommit = dependency.Revision,
+                SelectedContentIdentity = payloadHash, ProviderVersion = dependency.ProviderVersion,
+                ProviderSkillName = dependency.SkillSubset.Contains(folderName, StringComparer.Ordinal) ? folderName : null,
+            },
+            IntendedClaudeJunctionPath = Path.Combine(HarnessRoot.Create(RootKind.ClaudeSkills, home).FullPath, folderName),
+            InstalledRevision = dependency.Revision, InstalledPayloadHash = payloadHash, InstalledFileCount = fileCount,
+            ProviderEvidence = dependency.Evidence,
+        };
+        return new AdoptionEvidence(record, payloadHash, fileCount, payloadHash);
+    }
+
+    private static bool ApmFileHashMatches(string path, string expected)
+    {
+        var bytes = File.ReadAllBytes(path);
+        if (!bytes.Contains((byte)0))
+        {
+            try { bytes = System.Text.Encoding.UTF8.GetBytes(new System.Text.UTF8Encoding(false, true).GetString(bytes).Replace("\r\n", "\n", StringComparison.Ordinal)); }
+            catch (System.Text.DecoderFallbackException) { }
+        }
+        var actual = "sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant();
+        return string.Equals(actual, expected.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) ? expected : "sha256:" + expected, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? ResolveDeployedFile(string home, string skillPath, string relative)
+    {
+        var path = Path.GetFullPath(Path.Combine(home, relative.Replace('/', Path.DirectorySeparatorChar)));
+        var root = Path.GetFullPath(skillPath) + Path.DirectorySeparatorChar;
+        return path.StartsWith(root, StringComparison.OrdinalIgnoreCase) && File.Exists(path)
+               && !File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint) ? path : null;
+    }
+
+    private static bool IsCredentialFreeSource(string source)
+        => !Uri.TryCreate(source, UriKind.Absolute, out var uri) || string.IsNullOrEmpty(uri.UserInfo) && string.IsNullOrEmpty(uri.Query);
 
     private static string? DeployedSkillFolder(string path)
     {
@@ -300,6 +402,8 @@ public sealed class InventoryScanner
            && name is not "." and not ".."
            && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0
            && !name.Contains('/') && !name.Contains('\\');
+
+    private sealed record ProviderObservation(string Path, ProviderAttribution Attribution, AdoptionEvidence? AdoptionEvidence);
 
     private InventoryEntry BuildLinkEntry(Candidate link)
     {
@@ -381,6 +485,18 @@ public sealed class InventoryScanner
     {
         var record = evidence.ProposedRecord;
         var provenance = record.Provenance;
+        var common = !string.IsNullOrWhiteSpace(provenance.SourceSkillPath)
+                     && string.Equals(provenance.ResolvedCommit, record.InstalledRevision, StringComparison.OrdinalIgnoreCase)
+                     && string.Equals(provenance.SelectedContentIdentity, evidence.ExpectedContentIdentity, StringComparison.Ordinal)
+                     && string.Equals(record.InstalledPayloadHash, evidence.ExpectedPayloadHash, StringComparison.OrdinalIgnoreCase)
+                     && record.InstalledFileCount == evidence.ExpectedFileCount
+                     && string.Equals(NormalizePath(record.CanonicalPath), NormalizePath(candidate.FileSystemInfo.FullName), StringComparison.OrdinalIgnoreCase);
+        if (!common) return false;
+        if (string.Equals(provenance.SourceProvider, "skills", StringComparison.Ordinal))
+            return string.Equals(record.ProviderEvidence, $"skills@{SkillsCliClient.Version}:{provenance.ProviderSkillName}:{record.InstalledRevision}", StringComparison.Ordinal);
+        if (string.Equals(provenance.SourceProvider, ApmClient.ProviderId, StringComparison.Ordinal))
+            return record.ProviderEvidence.StartsWith($"microsoft/apm:{provenance.Repository}:{record.InstalledRevision}:", StringComparison.Ordinal);
+
         var normalizedSource = $"{provenance.Host}/{provenance.Owner}/{provenance.Repository}".ToLowerInvariant();
         var requestedPath = provenance.RequestedPath?.Trim('/') ?? string.Empty;
         var repositoryPath = provenance.SourceSkillPath == "."
@@ -391,13 +507,8 @@ public sealed class InventoryScanner
         var expectedProviderEvidence = $"gh api contents/{(repositoryPath.Length == 0 ? "." : repositoryPath)}@{record.InstalledRevision}";
         return string.Equals(provenance.SourceProvider, "github", StringComparison.Ordinal)
                && string.Equals(provenance.NormalizedSource, normalizedSource, StringComparison.Ordinal)
-               && !string.IsNullOrWhiteSpace(provenance.SourceSkillPath)
-               && string.Equals(provenance.ResolvedCommit, record.InstalledRevision, StringComparison.OrdinalIgnoreCase)
-               && string.Equals(provenance.SelectedContentIdentity, evidence.ExpectedContentIdentity, StringComparison.Ordinal)
                && string.Equals(record.ProviderEvidence, expectedProviderEvidence, StringComparison.Ordinal)
-               && string.Equals(record.InstalledPayloadHash, evidence.ExpectedPayloadHash, StringComparison.OrdinalIgnoreCase)
-               && record.InstalledFileCount == evidence.ExpectedFileCount
-               && string.Equals(NormalizePath(record.CanonicalPath), NormalizePath(candidate.FileSystemInfo.FullName), StringComparison.OrdinalIgnoreCase);
+               && common;
     }
 
     private sealed class Candidate(HarnessRoot root, string folderName, FileSystemInfo fileSystemInfo, EntryKind kind)

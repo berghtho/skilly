@@ -367,7 +367,23 @@ public partial class MainWindow : Window
         viewModel.Announce("Adopting the selected exact verified Skill. Existing Skill content will be preserved.");
         try
         {
-            var result = await Task.Run(() => _githubProvider.Adopt(evidence, _mutationCancellation!.Token));
+            var provider = evidence.ProposedRecord.Provenance.SourceProvider;
+            var adoptionEvidence = evidence;
+            if (!string.Equals(provider, "github", StringComparison.Ordinal))
+            {
+                adoptionEvidence = _refreshInventory(null).Entries.SingleOrDefault(entry =>
+                    string.Equals(entry.LocalPath, evidence.ProposedRecord.CanonicalPath, StringComparison.OrdinalIgnoreCase))?.AdoptionEvidence;
+                if (adoptionEvidence is null
+                    || !string.Equals(adoptionEvidence.ProposedRecord.ProviderEvidence, evidence.ProposedRecord.ProviderEvidence, StringComparison.Ordinal))
+                {
+                    viewModel.LoadInventory(RefreshInventory());
+                    viewModel.Announce("Provider lock or installed content changed after verification. The installation remains Unmanaged.");
+                    return;
+                }
+            }
+            var result = string.Equals(provider, "github", StringComparison.Ordinal)
+                ? await Task.Run(() => _githubProvider.Adopt(adoptionEvidence, _mutationCancellation!.Token))
+                : await Task.Run(() => _githubProvider.AdoptVerifiedProviderEvidence(adoptionEvidence, _mutationCancellation!.Token));
             _adoptionEvidence = _adoptionEvidence.Where(candidate =>
                 !string.Equals(
                     candidate.ProposedRecord.CanonicalPath,
