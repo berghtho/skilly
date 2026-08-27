@@ -936,12 +936,7 @@ public sealed class SkillsCliProvider(
     }
 
     private static string ResolveLockPath(string userHome)
-    {
-        var stateHome = Environment.GetEnvironmentVariable("XDG_STATE_HOME");
-        return string.IsNullOrWhiteSpace(stateHome)
-            ? Path.Combine(userHome, ".agents", ".skill-lock.json")
-            : Path.Combine(stateHome, "skills", ".skill-lock.json");
-    }
+        => SkillsCliLock.ResolvePath(userHome);
 
     private static bool PathsEqual(string left, string right)
         => string.Equals(

@@ -315,5 +315,73 @@ public sealed class InventoryScannerTests : IDisposable
         Assert.Equal("alpha", row.SourceSkillPath);
     }
 
+    [Fact]
+    public void APM_lock_with_a_deployed_path_outside_the_skill_never_offers_Adoption()
+    {
+        var skillPath = _fixture.WriteSkill(".agents/skills", "alpha", "alpha", "Alpha skill.");
+        var fileHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Path.Combine(skillPath, "SKILL.md")))).ToLowerInvariant();
+        _fixture.WriteRawFile(".agents", "unrelated.txt", "not part of alpha");
+        var apmRoot = _fixture.Root(".apm");
+        Directory.CreateDirectory(apmRoot);
+        File.WriteAllText(Path.Combine(apmRoot, "apm.yml"), "name: global\ndependencies:\n  apm:\n    - git: acme/library\n");
+        File.WriteAllText(Path.Combine(apmRoot, "apm.lock.yaml"), $$"""
+            lockfile_version: '1'
+            apm_version: 0.28.0
+            dependencies:
+              - repo_url: acme/library
+                resolved_ref: main
+                resolved_commit: 0123456789abcdef0123456789abcdef01234567
+                package_type: skill_bundle
+                deployed_files:
+                  - .agents/skills/alpha
+                  - .agents/skills/alpha/SKILL.md
+                  - .agents/unrelated.txt
+                deployed_file_hashes:
+                  .agents/skills/alpha/SKILL.md: sha256:{{fileHash}}
+                  .agents/unrelated.txt: sha256:00
+            """);
+
+        var row = new InventoryRow(Assert.Single(new InventoryScanner().Scan(_fixture.Home, new State.SkillyState()).Entries));
+
+        Assert.Equal("Unmanaged", row.Management);
+        Assert.False(row.CanAdopt);
+        Assert.Equal("Microsoft APM - acme/library", row.Provenance);
+    }
+
+    [Fact]
+    public void APM_bundle_offers_independent_Adoption_for_each_exact_deployed_skill()
+    {
+        var alpha = _fixture.WriteSkill(".agents/skills", "alpha", "alpha", "Alpha skill.");
+        var beta = _fixture.WriteSkill(".agents/skills", "beta", "beta", "Beta skill.");
+        var alphaHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Path.Combine(alpha, "SKILL.md")))).ToLowerInvariant();
+        var betaHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Path.Combine(beta, "SKILL.md")))).ToLowerInvariant();
+        var apmRoot = _fixture.Root(".apm");
+        Directory.CreateDirectory(apmRoot);
+        File.WriteAllText(Path.Combine(apmRoot, "apm.yml"), "name: global\ndependencies:\n  apm:\n    - git: acme/library\n");
+        File.WriteAllText(Path.Combine(apmRoot, "apm.lock.yaml"), $$"""
+            lockfile_version: '1'
+            apm_version: 0.28.0
+            dependencies:
+              - repo_url: acme/library
+                resolved_ref: main
+                resolved_commit: 0123456789abcdef0123456789abcdef01234567
+                package_type: skill_bundle
+                deployed_files:
+                  - .agents/skills/alpha
+                  - .agents/skills/alpha/SKILL.md
+                  - .agents/skills/beta
+                  - .agents/skills/beta/SKILL.md
+                deployed_file_hashes:
+                  .agents/skills/alpha/SKILL.md: sha256:{{alphaHash}}
+                  .agents/skills/beta/SKILL.md: sha256:{{betaHash}}
+            """);
+
+        var rows = new InventoryScanner().Scan(_fixture.Home, new State.SkillyState()).Entries.Select(entry => new InventoryRow(entry)).ToList();
+
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, row => Assert.Equal("Verified Adoption Available", row.Management));
+        Assert.All(rows, row => Assert.True(row.CanAdopt));
+    }
+
     public void Dispose() => _fixture.Dispose();
 }

@@ -112,11 +112,45 @@ public sealed class GitHubLifecycle(
         return AdoptVerifiedEvidence(state, evidence, cancellationToken);
     }
 
-    public LifecycleResult AdoptVerifiedProviderEvidence(AdoptionEvidence evidence, CancellationToken cancellationToken = default)
+    public LifecycleResult AdoptVerifiedProviderEvidence(
+        AdoptionEvidence evidence,
+        Func<AdoptionEvidence?> reverify,
+        CancellationToken cancellationToken = default)
     {
         var state = RequireWritableState();
         ValidateCommonAdoptionEvidence(state, evidence);
+        var refreshed = reverify();
+        if (refreshed is null || !MatchesProviderEvidence(evidence, refreshed))
+        {
+            throw new ProviderFailure("The provider lock or installed content changed after verification and remains Unmanaged.");
+        }
         return AdoptVerifiedEvidence(state, evidence, cancellationToken);
+    }
+
+    private static bool MatchesProviderEvidence(AdoptionEvidence expected, AdoptionEvidence actual)
+    {
+        var expectedRecord = expected.ProposedRecord;
+        var actualRecord = actual.ProposedRecord;
+        var expectedProvenance = expectedRecord.Provenance;
+        var actualProvenance = actualRecord.Provenance;
+        return string.Equals(expected.ExpectedPayloadHash, actual.ExpectedPayloadHash, StringComparison.OrdinalIgnoreCase)
+               && expected.ExpectedFileCount == actual.ExpectedFileCount
+               && string.Equals(expected.ExpectedContentIdentity, actual.ExpectedContentIdentity, StringComparison.Ordinal)
+               && string.Equals(expectedRecord.CanonicalPath, actualRecord.CanonicalPath, StringComparison.OrdinalIgnoreCase)
+               && string.Equals(expectedRecord.IntendedClaudeJunctionPath, actualRecord.IntendedClaudeJunctionPath, StringComparison.OrdinalIgnoreCase)
+               && string.Equals(expectedRecord.InstalledRevision, actualRecord.InstalledRevision, StringComparison.Ordinal)
+               && string.Equals(expectedRecord.ProviderEvidence, actualRecord.ProviderEvidence, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.SourceProvider, actualProvenance.SourceProvider, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.OriginalReference, actualProvenance.OriginalReference, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.NormalizedSource, actualProvenance.NormalizedSource, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.Repository, actualProvenance.Repository, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.SourceSkillPath, actualProvenance.SourceSkillPath, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.TrackingRule, actualProvenance.TrackingRule, StringComparison.Ordinal)
+               && expectedProvenance.TrackingRuleKind == actualProvenance.TrackingRuleKind
+               && string.Equals(expectedProvenance.ResolvedCommit, actualProvenance.ResolvedCommit, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.SelectedContentIdentity, actualProvenance.SelectedContentIdentity, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.ProviderVersion, actualProvenance.ProviderVersion, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.ProviderSkillName, actualProvenance.ProviderSkillName, StringComparison.Ordinal);
     }
 
     private LifecycleResult AdoptVerifiedEvidence(SkillyState state, AdoptionEvidence evidence, CancellationToken cancellationToken)

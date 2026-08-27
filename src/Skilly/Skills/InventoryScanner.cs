@@ -247,7 +247,7 @@ public sealed class InventoryScanner
     private static IEnumerable<ProviderObservation> DiscoverProviderAttributions(string home)
     {
         var canonicalRoot = Path.Combine(home, ".agents", "skills");
-        var skillsLockPath = Path.Combine(home, ".agents", ".skill-lock.json");
+        var skillsLockPath = SkillsCliLock.ResolvePath(home);
         if (File.Exists(skillsLockPath))
         {
             IReadOnlyDictionary<string, SkillsCliLockEntry> entries;
@@ -266,7 +266,7 @@ public sealed class InventoryScanner
                         entry.TrackingRuleKind);
                 AdoptionEvidence? adoption = null;
                 try { adoption = CreateSkillsAdoptionEvidence(home, path, entry); }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException or NotSupportedException) { }
                 yield return new ProviderObservation(path, attribution, adoption);
             }
         }
@@ -291,7 +291,7 @@ public sealed class InventoryScanner
                         dependency.TrackingRuleKind);
                 AdoptionEvidence? adoption = null;
                 try { adoption = CreateApmAdoptionEvidence(home, path, folderName!, dependency); }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException or NotSupportedException) { }
                 yield return new ProviderObservation(path, attribution, adoption);
             }
         }
@@ -302,7 +302,7 @@ public sealed class InventoryScanner
         if (!Directory.Exists(path) || File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint)
             || !IsCredentialFreeSource(entry.SourceUrl ?? entry.Source)
             || entry.SkillFolderHash.Length != 40 || !entry.SkillFolderHash.All(Uri.IsHexDigit)
-            || !string.Equals(GitTreeHasher.HashFolder(path), entry.SkillFolderHash, StringComparison.OrdinalIgnoreCase)) return null;
+            || !GitTreeHasher.MatchesFolder(path, entry.SkillFolderHash)) return null;
         var payloadHash = PayloadHasher.HashFolder(path);
         var fileCount = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Count();
         var record = new State.ManagementRecord
@@ -337,11 +337,20 @@ public sealed class InventoryScanner
     private static AdoptionEvidence? CreateApmAdoptionEvidence(string home, string path, string folderName, ApmDependencyEvidence dependency)
     {
         if (!Directory.Exists(path) || File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint) || !IsCredentialFreeSource(dependency.RepositoryUrl)) return null;
-        var deployedFiles = dependency.DeployedFiles.Select(file => (Relative: file, FullPath: ResolveDeployedFile(home, path, file)))
-            .Where(item => item.FullPath is not null).ToList();
+        var classifiedFiles = dependency.DeployedFiles
+            .Select(file => (Path: file, Folder: DeployedSkillFolder(file)))
+            .ToList();
+        if (classifiedFiles.Any(static file => file.Folder is null)) return null;
+        var deployedFiles = ResolveDeployedFiles(
+            home,
+            path,
+            classifiedFiles.Where(file => string.Equals(file.Folder, folderName, StringComparison.OrdinalIgnoreCase))
+                .Select(static file => file.Path)
+                .ToList());
+        if (deployedFiles is null) return null;
         var actualFiles = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Select(Path.GetFullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (deployedFiles.Count == 0 || !actualFiles.SetEquals(deployedFiles.Select(item => item.FullPath!))
-            || deployedFiles.Any(item => !dependency.DeployedFileHashes.TryGetValue(item.Relative, out var expected) || !ApmFileHashMatches(item.FullPath!, expected))) return null;
+        if (deployedFiles.Count == 0 || !actualFiles.SetEquals(deployedFiles.Select(item => item.FullPath))
+            || deployedFiles.Any(item => !dependency.DeployedFileHashes.TryGetValue(item.Relative, out var expected) || !ApmFileHashMatches(item.FullPath, expected))) return null;
         var payloadHash = PayloadHasher.HashFolder(path);
         var fileCount = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Count();
         var record = new State.ManagementRecord
@@ -375,12 +384,38 @@ public sealed class InventoryScanner
         return string.Equals(actual, expected.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) ? expected : "sha256:" + expected, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string? ResolveDeployedFile(string home, string skillPath, string relative)
+    private static List<(string Relative, string FullPath)>? ResolveDeployedFiles(
+        string home,
+        string skillPath,
+        IReadOnlyList<string> relativePaths)
     {
-        var path = Path.GetFullPath(Path.Combine(home, relative.Replace('/', Path.DirectorySeparatorChar)));
-        var root = Path.GetFullPath(skillPath) + Path.DirectorySeparatorChar;
-        return path.StartsWith(root, StringComparison.OrdinalIgnoreCase) && File.Exists(path)
-               && !File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint) ? path : null;
+        var files = new List<(string Relative, string FullPath)>();
+        var root = Path.GetFullPath(skillPath);
+        var rootPrefix = root + Path.DirectorySeparatorChar;
+        foreach (var relative in relativePaths)
+        {
+            var path = Path.GetFullPath(Path.Combine(home, relative.Replace('/', Path.DirectorySeparatorChar)));
+            if (!string.Equals(path, root, StringComparison.OrdinalIgnoreCase)
+                && !path.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)) return null;
+            if (!File.Exists(path) && !Directory.Exists(path)) return null;
+            if (HasReparsePoint(root, path)) return null;
+            if (File.Exists(path)) files.Add((relative, path));
+        }
+        return files;
+    }
+
+    private static bool HasReparsePoint(string root, string path)
+    {
+        if (File.GetAttributes(root).HasFlag(FileAttributes.ReparsePoint)) return true;
+        var relative = Path.GetRelativePath(root, path);
+        var current = root;
+        foreach (var segment in relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+        {
+            if (segment is "." or "") continue;
+            current = Path.Combine(current, segment);
+            if (File.GetAttributes(current).HasFlag(FileAttributes.ReparsePoint)) return true;
+        }
+        return false;
     }
 
     private static bool IsCredentialFreeSource(string source)
@@ -493,7 +528,13 @@ public sealed class InventoryScanner
                      && string.Equals(NormalizePath(record.CanonicalPath), NormalizePath(candidate.FileSystemInfo.FullName), StringComparison.OrdinalIgnoreCase);
         if (!common) return false;
         if (string.Equals(provenance.SourceProvider, "skills", StringComparison.Ordinal))
-            return string.Equals(record.ProviderEvidence, $"skills@{SkillsCliClient.Version}:{provenance.ProviderSkillName}:{record.InstalledRevision}", StringComparison.Ordinal);
+        {
+            var prefix = $"skills@{SkillsCliClient.Version}:{provenance.ProviderSkillName}:{record.InstalledRevision}:";
+            var digest = record.ProviderEvidence.StartsWith(prefix, StringComparison.Ordinal)
+                ? record.ProviderEvidence[prefix.Length..]
+                : string.Empty;
+            return digest.Length == 64 && digest.All(Uri.IsHexDigit);
+        }
         if (string.Equals(provenance.SourceProvider, ApmClient.ProviderId, StringComparison.Ordinal))
             return record.ProviderEvidence.StartsWith($"microsoft/apm:{provenance.Repository}:{record.InstalledRevision}:", StringComparison.Ordinal);
 

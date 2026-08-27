@@ -6,9 +6,16 @@ namespace Skilly.Skills;
 
 public static class GitTreeHasher
 {
-    public static string HashFolder(string path) => Convert.ToHexString(HashDirectory(path)).ToLowerInvariant();
+    public static string HashFolder(string path) => HashFolder(path, normalizeTextLineEndings: false);
 
-    private static byte[] HashDirectory(string path)
+    public static bool MatchesFolder(string path, string expected)
+        => string.Equals(HashFolder(path, normalizeTextLineEndings: false), expected, StringComparison.OrdinalIgnoreCase)
+           || string.Equals(HashFolder(path, normalizeTextLineEndings: true), expected, StringComparison.OrdinalIgnoreCase);
+
+    private static string HashFolder(string path, bool normalizeTextLineEndings)
+        => Convert.ToHexString(HashDirectory(path, normalizeTextLineEndings)).ToLowerInvariant();
+
+    private static byte[] HashDirectory(string path, bool normalizeTextLineEndings)
     {
         var entries = new DirectoryInfo(path).EnumerateFileSystemInfos()
             .OrderBy(static entry => entry.Name + (entry is DirectoryInfo ? "/" : string.Empty), StringComparer.Ordinal)
@@ -19,7 +26,9 @@ public static class GitTreeHasher
             if (entry.Attributes.HasFlag(FileAttributes.ReparsePoint)) throw new InvalidDataException("Git tree hashing refuses reparse points.");
             var isDirectory = entry is DirectoryInfo;
             var mode = isDirectory ? "40000" : "100644";
-            var hash = isDirectory ? HashDirectory(entry.FullName) : HashObject("blob", CanonicalFileBytes(entry.FullName));
+            var hash = isDirectory
+                ? HashDirectory(entry.FullName, normalizeTextLineEndings)
+                : HashObject("blob", FileBytes(entry.FullName, normalizeTextLineEndings));
             content.Write(Encoding.ASCII.GetBytes(mode + " "));
             content.Write(Encoding.UTF8.GetBytes(entry.Name));
             content.WriteByte(0);
@@ -34,10 +43,10 @@ public static class GitTreeHasher
         return SHA1.HashData([.. header, .. content]);
     }
 
-    private static byte[] CanonicalFileBytes(string path)
+    private static byte[] FileBytes(string path, bool normalizeTextLineEndings)
     {
         var bytes = File.ReadAllBytes(path);
-        if (bytes.Contains((byte)0)) return bytes;
+        if (!normalizeTextLineEndings || bytes.Contains((byte)0)) return bytes;
         try
         {
             var text = new UTF8Encoding(false, true).GetString(bytes);

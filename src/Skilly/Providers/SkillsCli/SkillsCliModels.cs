@@ -1,4 +1,6 @@
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Skilly.Providers.GitHub;
 
@@ -57,7 +59,15 @@ public sealed record SkillsCliLockEntry(
             ? SkillPath.Replace('\\', '/')[..^"/SKILL.md".Length]
             : SkillPath.Replace('\\', '/');
 
-    public string Evidence => $"skills@{SkillsCliClient.Version}:{Name}:{SkillFolderHash}";
+    public string Evidence
+    {
+        get
+        {
+            var fields = string.Join('\n', Name, Source, SourceUrl, SourceType, Ref, SkillPath, SkillFolderHash);
+            var digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(fields))).ToLowerInvariant();
+            return $"skills@{SkillsCliClient.Version}:{Name}:{SkillFolderHash}:{digest}";
+        }
+    }
 
     private static bool IsCommit(string value)
         => value.Length == 40 && value.All(static character => Uri.IsHexDigit(character));
@@ -66,6 +76,15 @@ public sealed record SkillsCliLockEntry(
 public sealed class SkillsCliLock(string path)
 {
     public string Path { get; } = path;
+
+    public static string ResolvePath(string userHome)
+    {
+        var homePath = System.IO.Path.Combine(userHome, ".agents", ".skill-lock.json");
+        var stateHome = Environment.GetEnvironmentVariable("XDG_STATE_HOME");
+        if (string.IsNullOrWhiteSpace(stateHome)) return homePath;
+        var statePath = System.IO.Path.Combine(stateHome, "skills", ".skill-lock.json");
+        return File.Exists(statePath) || !File.Exists(homePath) ? statePath : homePath;
+    }
 
     public IReadOnlyDictionary<string, SkillsCliLockEntry> Read()
     {

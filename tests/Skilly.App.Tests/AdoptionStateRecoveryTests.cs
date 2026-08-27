@@ -72,12 +72,63 @@ public sealed class AdoptionStateRecoveryTests
         var entry = Assert.Single(new InventoryScanner().Scan(fixture.Home, fixture.StateStore.Load()).Entries);
         Assert.Equal(ManagementStatus.VerifiedAdoptionAvailable, entry.ManagementStatus);
 
-        fixture.Provider.AdoptVerifiedProviderEvidence(entry.AdoptionEvidence!).ValueOrThrow();
+        fixture.Provider.AdoptVerifiedProviderEvidence(
+            entry.AdoptionEvidence!,
+            () => Assert.Single(new InventoryScanner().Scan(fixture.Home, fixture.StateStore.Load()).Entries).AdoptionEvidence).ValueOrThrow();
 
         Assert.Equal(before, File.ReadAllBytes(Path.Combine(canonical, "SKILL.md")));
         Assert.True(Junction.IsJunctionTo(fixture.ClaudePath("alpha"), canonical));
         var record = Assert.Single(fixture.StateStore.Load().Records);
         Assert.Equal("skills", record.Provenance.SourceProvider);
+        Assert.Equal(OperationOutcome.Adopted, record.LastOperationOutcome);
+    }
+
+    [Fact]
+    public void Provider_Adoption_rejects_a_changed_skills_lock_at_the_mutation_boundary()
+    {
+        using var fixture = new GitHubProviderFixture();
+        var canonical = fixture.CanonicalPath("alpha");
+        Directory.CreateDirectory(canonical);
+        File.WriteAllText(Path.Combine(canonical, "SKILL.md"), "---\nname: alpha\ndescription: Alpha skill.\n---\n\n# alpha\n");
+        var lockPath = Path.Combine(fixture.Home, ".agents", ".skill-lock.json");
+        File.WriteAllText(lockPath, SkillsLock("https://github.com/acme/library.git"));
+        var evidence = Assert.Single(new InventoryScanner().Scan(fixture.Home, fixture.StateStore.Load()).Entries).AdoptionEvidence!;
+        File.WriteAllText(lockPath, SkillsLock("https://github.com/other/library.git"));
+
+        var result = fixture.Provider.AdoptVerifiedProviderEvidence(
+            evidence,
+            () => Assert.Single(new InventoryScanner().Scan(fixture.Home, fixture.StateStore.Load()).Entries).AdoptionEvidence);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("provider lock", result.Diagnostics, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(fixture.StateStore.Load().Records);
+        Assert.False(Directory.Exists(fixture.ClaudePath("alpha")));
+    }
+
+    [Fact]
+    public void Existing_APM_lock_executes_provider_Adoption_without_rewriting_content()
+    {
+        using var fixture = new GitHubProviderFixture();
+        var canonical = fixture.CanonicalPath("alpha");
+        Directory.CreateDirectory(canonical);
+        var skillMd = Path.Combine(canonical, "SKILL.md");
+        File.WriteAllText(skillMd, "---\nname: alpha\ndescription: Alpha skill.\n---\n\n# alpha\n");
+        var before = File.ReadAllBytes(skillMd);
+        var fileHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(before)).ToLowerInvariant();
+        var apmRoot = Path.Combine(fixture.Home, ".apm");
+        Directory.CreateDirectory(apmRoot);
+        File.WriteAllText(Path.Combine(apmRoot, "apm.yml"), "name: global\ndependencies:\n  apm:\n    - git: acme/library\n");
+        File.WriteAllText(Path.Combine(apmRoot, "apm.lock.yaml"), ApmLock(fileHash));
+        var evidence = Assert.Single(new InventoryScanner().Scan(fixture.Home, fixture.StateStore.Load()).Entries).AdoptionEvidence!;
+
+        fixture.Provider.AdoptVerifiedProviderEvidence(
+            evidence,
+            () => Assert.Single(new InventoryScanner().Scan(fixture.Home, fixture.StateStore.Load()).Entries).AdoptionEvidence).ValueOrThrow();
+
+        Assert.Equal(before, File.ReadAllBytes(skillMd));
+        Assert.True(Junction.IsJunctionTo(fixture.ClaudePath("alpha"), canonical));
+        var record = Assert.Single(fixture.StateStore.Load().Records);
+        Assert.Equal("apm", record.Provenance.SourceProvider);
         Assert.Equal(OperationOutcome.Adopted, record.LastOperationOutcome);
     }
 
@@ -318,6 +369,34 @@ public sealed class AdoptionStateRecoveryTests
         var json = JsonSerializer.Serialize(record);
         return JsonSerializer.Deserialize<ManagementRecord>(json)!;
     }
+
+    private static string SkillsLock(string sourceUrl) => JsonSerializer.Serialize(new
+    {
+        version = 3,
+        skills = new Dictionary<string, object>
+        {
+            ["alpha"] = new
+            {
+                source = "acme/library", sourceType = "github", sourceUrl,
+                skillPath = "skills/alpha/SKILL.md", skillFolderHash = "f8608cc25b81e3855fdf8e94605e6f2570af916a",
+            },
+        },
+    });
+
+    private static string ApmLock(string fileHash) => $$"""
+        lockfile_version: '1'
+        apm_version: 0.28.0
+        dependencies:
+          - repo_url: acme/library
+            resolved_ref: main
+            resolved_commit: 0123456789abcdef0123456789abcdef01234567
+            package_type: skill_bundle
+            deployed_files:
+              - .agents/skills/alpha
+              - .agents/skills/alpha/SKILL.md
+            deployed_file_hashes:
+              .agents/skills/alpha/SKILL.md: sha256:{{fileHash}}
+        """;
 
     private sealed class TemporaryStateStore : IDisposable
     {
