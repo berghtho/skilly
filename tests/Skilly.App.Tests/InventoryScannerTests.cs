@@ -283,6 +283,49 @@ public sealed class InventoryScannerTests : IDisposable
     }
 
     [Fact]
+    public void Skills_lock_entry_without_hash_evidence_does_not_poison_other_entries()
+    {
+        var skillPath = _fixture.WriteSkill(".agents/skills", "alpha", "alpha", "Alpha skill.");
+        _fixture.WriteSkill(".agents/skills", "beta", "beta", "Beta skill.");
+        var lockPath = _fixture.Root(".agents/.skill-lock.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(lockPath)!);
+        File.WriteAllText(lockPath, JsonSerializer.Serialize(new
+        {
+            version = 3,
+            skills = new Dictionary<string, object>
+            {
+                ["alpha"] = new
+                {
+                    source = "acme/library",
+                    sourceType = "github",
+                    sourceUrl = "https://github.com/acme/library.git",
+                    skillPath = "skills/alpha/SKILL.md",
+                    skillFolderHash = "f8608cc25b81e3855fdf8e94605e6f2570af916a",
+                },
+                ["beta"] = new
+                {
+                    source = "acme/library",
+                    sourceType = "github",
+                    sourceUrl = "https://github.com/acme/library.git",
+                    skillFolderHash = "",
+                },
+            },
+        }));
+
+        Assert.Equal("f8608cc25b81e3855fdf8e94605e6f2570af916a", GitTreeHasher.HashFolder(skillPath));
+
+        var entries = new InventoryScanner().Scan(_fixture.Home, new State.SkillyState()).Entries;
+
+        var alpha = new InventoryRow(Assert.Single(entries, entry => entry.FolderName == "alpha"));
+        Assert.Equal("Verified Adoption Available", alpha.Management);
+        Assert.True(alpha.CanAdopt);
+
+        var beta = new InventoryRow(Assert.Single(entries, entry => entry.FolderName == "beta"));
+        Assert.Equal("Unmanaged", beta.Management);
+        Assert.False(beta.CanAdopt);
+    }
+
+    [Fact]
     public void APM_lock_offers_verified_Adoption_for_exact_canonical_skill()
     {
         var skillPath = _fixture.WriteSkill(".agents/skills", "alpha", "alpha", "Alpha skill.");

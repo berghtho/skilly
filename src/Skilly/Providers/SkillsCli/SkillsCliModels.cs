@@ -105,9 +105,15 @@ public sealed class SkillsCliLock(string path)
         foreach (var property in skills.EnumerateObject())
         {
             var value = property.Value;
-            var source = RequiredString(value, "source", property.Name);
-            var sourceType = RequiredString(value, "sourceType", property.Name);
-            var hash = RequiredString(value, "skillFolderHash", property.Name);
+            var source = OptionalString(value, "source");
+            var sourceType = OptionalString(value, "sourceType");
+            var hash = OptionalString(value, "skillFolderHash");
+            // An incomplete entry invalidates only itself, never the whole lock:
+            // the remaining entries stay usable as Adoption and update evidence.
+            if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(sourceType) || string.IsNullOrWhiteSpace(hash))
+            {
+                continue;
+            }
             entries[property.Name] = new SkillsCliLockEntry(
                 property.Name,
                 source,
@@ -120,14 +126,6 @@ public sealed class SkillsCliLock(string path)
                 OptionalDate(value, "updatedAt"));
         }
         return entries;
-    }
-
-    private static string RequiredString(JsonElement value, string property, string skill)
-    {
-        var result = OptionalString(value, property);
-        return string.IsNullOrWhiteSpace(result)
-            ? throw new ProviderFailure($"The skills provider lock entry for '{skill}' has no valid {property} evidence.")
-            : result;
     }
 
     private static string? OptionalString(JsonElement value, string property)
