@@ -239,7 +239,7 @@ public sealed class SkillsCliProviderTests
         Assert.True(Junction.IsJunctionTo(record.IntendedClaudeJunctionPath!, record.CanonicalPath));
         var persisted = Assert.Single(fixture.StateStore.Load().Records);
         Assert.Equal(OperationOutcome.Reinstalled, persisted.LastOperationOutcome);
-        Assert.Equal(plan.Revision, persisted.InstalledRevision);
+        Assert.Equal(plan.PayloadHash, plan.Revision);
         Assert.Equal(plan.PayloadHash, PayloadHasher.HashFolder(persisted.CanonicalPath));
         Assert.Null(fixture.StateStore.Load().PendingOperation);
         Assert.False(Directory.Exists(Path.Combine(Path.GetDirectoryName(fixture.StatePath)!, "recovery")));

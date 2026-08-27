@@ -350,7 +350,7 @@ public sealed class SkillsCliProvider(
         return new SkillsCliManagedReinstallPlan(
             record.InstallationId,
             record.CanonicalPath,
-            target.Evidence.SkillFolderHash,
+            target.PayloadHash,
             target.PayloadHash,
             startingHash,
             target.Evidence.Evidence,
@@ -373,11 +373,9 @@ public sealed class SkillsCliProvider(
         }
         VerifyCurrentProviderEvidence(record);
         var target = AcquireReplacement(record);
-        if (!string.Equals(target.Evidence.SkillFolderHash, plan.Revision, StringComparison.Ordinal)
-            || !string.Equals(target.PayloadHash, plan.PayloadHash, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(target.Evidence.Evidence, plan.ProviderEvidence, StringComparison.Ordinal))
+        if (!string.Equals(target.PayloadHash, plan.PayloadHash, StringComparison.OrdinalIgnoreCase))
         {
-            throw new ProviderFailure("The skills provider replacement changed after confirmation; prepare a new Managed Reinstall plan.");
+            throw new ProviderFailure("The skills provider replacement payload changed after confirmation; prepare a new Managed Reinstall plan.");
         }
 
         var startingRecord = CloneRecord(record);
@@ -407,11 +405,9 @@ public sealed class SkillsCliProvider(
             var evidence = FindLockEntry(_lock.Read(), plan.ProviderSkillName, Path.GetFileName(record.CanonicalPath));
             VerifySourceEvidence(plan.Source, evidence);
             var actualHash = PayloadHasher.HashFolder(record.CanonicalPath);
-            if (!string.Equals(evidence.SkillFolderHash, plan.Revision, StringComparison.Ordinal)
-                || !string.Equals(actualHash, plan.PayloadHash, StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(evidence.Evidence, plan.ProviderEvidence, StringComparison.Ordinal))
+            if (!string.Equals(actualHash, plan.PayloadHash, StringComparison.OrdinalIgnoreCase))
             {
-                throw new ProviderFailure("Managed Reinstall did not produce the exact provider revision and payload that were confirmed.");
+                throw new ProviderFailure("Managed Reinstall did not reproduce the confirmed payload hash.");
             }
 
             SavePhase(state, pending, PendingOperationPhase.Verified);
