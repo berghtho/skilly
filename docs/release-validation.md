@@ -30,7 +30,7 @@ dotnet publish .\src\Skilly\Skilly.csproj -c Release -r win-x64 --self-contained
 
 | Scenario | Deterministic evidence | Live release gate |
 | --- | --- | --- |
-| 1. Portable application | Packaged `Skilly.exe` launch, isolated LocalAppData, runtime lookup disabled, second-launch focus signal, idle shutdown, and working-directory non-interference | Clean Windows 11 x64 profile without .NET; reported skipped when unavailable |
+| 1. Portable application | Packaged `Skilly.exe` launch, isolated LocalAppData, runtime lookup disabled, second-launch focus signal, idle shutdown, and working-directory non-interference | Windows 11 x64 isolated profile with all system .NET roots disabled; apphost trace verifies internal single-file hosting without a system `dotnet` path and records activation/shutdown evidence |
 | 2. `skills` provider | Fake process boundary covers Inspect, Install, Check, Update, Uninstall, exact `skills@1.5.23` arguments, lock/content/state/exposure reconciliation, and false success | `SKILLY_LIVE_SKILLS_SOURCE` |
 | 3. Microsoft APM provider | Fake process boundary covers all five operations, `apm-cli` branding/version, global canonical topology, provider evidence, and rollback | `SKILLY_LIVE_APM_SOURCE` with pinned 0.28.0 |
 | 4. Cursor pstack source | Exact 45-Skill fixture, including nested `grokbot/make-bot-ui`, path identity, exact `poteto-mode`/`Poteto Mode` aliases, and complete-folder acquisition | Current URL at an exact recorded commit; any count other than the reconciled fixture fails closed |

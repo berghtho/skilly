@@ -67,8 +67,13 @@ public sealed class SkillyInstance : IDisposable
         psi.Environment["LOCALAPPDATA"] = profile.LocalAppData;
         psi.Environment["APPDATA"] = profile.RoamingAppData;
         psi.Environment["USERPROFILE"] = profile.Home;
-        psi.Environment["DOTNET_ROOT"] = Path.Combine(profile.Root, "no-dotnet-runtime");
+        var missingRuntime = Path.Combine(profile.Root, "no-dotnet-runtime");
+        psi.Environment["DOTNET_ROOT"] = missingRuntime;
+        psi.Environment["DOTNET_ROOT_X64"] = missingRuntime;
+        psi.Environment["DOTNET_ROOT(x86)"] = missingRuntime;
         psi.Environment["DOTNET_MULTILEVEL_LOOKUP"] = "0";
+        psi.Environment["DOTNET_BUNDLE_EXTRACT_BASE_DIR"] = Path.Combine(profile.Root, "bundled-runtime");
+        psi.Environment["PATH"] = Environment.SystemDirectory;
         if (environment is not null)
         {
             foreach (var variable in environment)

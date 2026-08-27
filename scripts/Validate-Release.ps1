@@ -88,9 +88,15 @@ try {
 
     if ($buildPassed) {
         $trx = Join-Path $testResultsDirectory "deterministic.trx"
-        & dotnet test "Skilly.slnx" -c Release --no-restore --no-build `
-            --filter "Category!=LiveGitHubPreRelease&Category!=LiveSkillsCliPreRelease&Category!=LiveApmPreRelease" `
-            --logger "trx;LogFileName=$trx" --results-directory $testResultsDirectory
+        $savedEvidenceDirectory = [Environment]::GetEnvironmentVariable("SKILLY_LIVE_EVIDENCE_DIRECTORY")
+        try {
+            [Environment]::SetEnvironmentVariable("SKILLY_LIVE_EVIDENCE_DIRECTORY", $evidenceDirectory)
+            & dotnet test "Skilly.slnx" -c Release --no-restore --no-build `
+                --filter "Category!=LiveGitHubPreRelease&Category!=LiveSkillsCliPreRelease&Category!=LiveApmPreRelease" `
+                --logger "trx;LogFileName=$trx" --results-directory $testResultsDirectory
+        } finally {
+            [Environment]::SetEnvironmentVariable("SKILLY_LIVE_EVIDENCE_DIRECTORY", $savedEvidenceDirectory)
+        }
         if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $trx)) {
             [xml]$testRun = Get-Content -LiteralPath $trx -Raw
             $counters = $testRun.TestRun.ResultSummary.Counters
@@ -176,7 +182,12 @@ try {
         Add-Result "cross-harness" "SKIPPED" "Explicit prerequisite missing: pass -RunCrossHarness after confirming all four Harness sessions are authenticated and may consume AI credits."
     }
 
-    Add-Result "clean-windows-profile" "SKIPPED" "No disposable clean Windows 11 x64 profile without .NET was available. Packaged tests disable runtime lookup, but this does not fabricate the live clean-profile gate."
+    $cleanProfileEvidence = Join-Path $evidenceDirectory "clean-windows-profile.json"
+    if (Test-Path -LiteralPath $cleanProfileEvidence) {
+        Add-Result "clean-windows-profile" "PASSED" "Windows 11 x64 launched the packaged executable in an isolated profile with system .NET lookup disabled; internal single-file hosting, second-launch activation, and clean shutdown were verified." $cleanProfileEvidence
+    } else {
+        Add-Result "clean-windows-profile" "FAILED" "The packaged clean-profile test did not write runtime, activation, and shutdown evidence."
+    }
 
     $finalWorktree = @(& git status --porcelain=v1 --untracked-files=all)
     if (@(Compare-Object -ReferenceObject $initialWorktree -DifferenceObject $finalWorktree).Count -eq 0) {
