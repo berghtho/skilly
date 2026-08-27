@@ -1,6 +1,7 @@
 using System.IO;
 using Skilly.Infrastructure;
 using Skilly.Providers.SkillsCli;
+using Skilly.Skills;
 using Skilly.State;
 
 namespace Skilly.App.Tests;
@@ -11,7 +12,7 @@ public sealed class LiveSkillsCliFactAttribute : FactAttribute
     {
         if (!string.Equals(Environment.GetEnvironmentVariable("SKILLY_RUN_LIVE_SKILLS_TESTS"), "1", StringComparison.Ordinal))
         {
-            Skip = "Set SKILLY_RUN_LIVE_SKILLS_TESTS=1 and SKILLY_LIVE_SKILLS_SOURCE after satisfying Node/Git/network/auth prerequisites.";
+            Skip = "Set SKILLY_RUN_LIVE_SKILLS_TESTS=1 and a live source or mutable fixture template after satisfying Node/Git/network/auth prerequisites.";
         }
     }
 }
@@ -22,13 +23,12 @@ public sealed class LiveSkillsCliPreReleaseTests
     [LiveSkillsCliFact]
     public void Pinned_provider_supports_inspect_install_read_only_check_and_uninstall_in_an_isolated_home()
     {
-        var source = Environment.GetEnvironmentVariable("SKILLY_LIVE_SKILLS_SOURCE");
-        Assert.False(string.IsNullOrWhiteSpace(source), "SKILLY_LIVE_SKILLS_SOURCE must identify a provider-supported Skill Library.");
         var root = Path.Combine(Path.GetTempPath(), "skilly-live-skills-" + Guid.NewGuid().ToString("N"));
         var home = Path.Combine(root, "home");
         Directory.CreateDirectory(home);
         try
         {
+            var fixture = LiveMutableFixture.Prepare(root, "SKILLY_LIVE_SKILLS_SOURCE", "SKILLY_LIVE_SKILLS_FIXTURE_TEMPLATE");
             var environment = new Dictionary<string, string?>
             {
                 ["USERPROFILE"] = home,
@@ -47,28 +47,56 @@ public sealed class LiveSkillsCliPreReleaseTests
                 Path.Combine(root, "provider-state", "skills", ".skill-lock.json"));
 
             Assert.True(provider.GetReadiness().IsReady, provider.GetReadiness().Diagnostic);
-            var inspection = provider.Inspect(source!).ValueOrThrow();
+            var inspection = provider.Inspect(fixture.Source).ValueOrThrow();
             var selected = Assert.Single(inspection.Skills.Take(1));
             provider.Install(inspection, [selected]).ValueOrThrow();
             var record = Assert.Single(state.Load().Records);
-            var check = provider.Check(record).ValueOrThrow();
-            Assert.Equal(Skilly.State.UpdateStatus.Current, check.Status);
-            SkillsCliClient.RequireExit(client.Update(record.Provenance.ProviderSkillName!), "Pinned live update compatibility probe");
-            Assert.Equal(Skilly.State.UpdateStatus.Current, provider.Check(record).ValueOrThrow().Status);
+            Assert.True(Junction.IsJunctionTo(record.IntendedClaudeJunctionPath!, record.CanonicalPath));
+            Assert.False(File.GetAttributes(record.CanonicalPath).HasFlag(FileAttributes.ReparsePoint));
+            var operation = "provider-level Managed Reinstall (source was not a controlled mutable fixture)";
+            if (fixture.IsMutable)
+            {
+                fixture.Advance(selected.FolderName);
+                var check = provider.Check(record).ValueOrThrow();
+                Assert.Equal(UpdateStatus.UpdateAvailable, check.Status);
+                var persisted = state.Load();
+                persisted.Records.Single().LatestCheck = LiveGateEvidence.Snapshot(check);
+                state.Save(persisted);
+                provider.Update(persisted.Records.Single()).ValueOrThrow();
+                operation = "provider-level Update against a copied mutable fixture";
+            }
+            else
+            {
+                var plan = provider.PlanManagedReinstall(record).ValueOrThrow();
+                provider.ManagedReinstall(plan).ValueOrThrow();
+            }
+            record = Assert.Single(state.Load().Records);
+            Assert.Equal(UpdateStatus.Current, provider.Check(record).ValueOrThrow().Status);
+            var installedRevision = record.InstalledRevision;
+            var sourceSkillPath = record.Provenance.SourceSkillPath;
+            var installedFileCount = record.InstalledFileCount;
+            provider.Uninstall(record).ValueOrThrow();
+            Assert.Empty(state.Load().Records);
+            Assert.False(Directory.Exists(record.CanonicalPath));
+            Assert.False(Directory.Exists(record.IntendedClaudeJunctionPath));
+            Assert.Empty(new SkillsCliLock(Path.Combine(root, "provider-state", "skills", ".skill-lock.json")).Read());
+            Assert.False(Directory.Exists(Path.Combine(root, "state", "recovery")));
             LiveGateEvidence.Write("skills-provider", new
             {
                 provider = SkillsCliClient.Package,
-                installedRevision = record.InstalledRevision,
-                sourceSkillPath = record.Provenance.SourceSkillPath,
-                installedFileCount = record.InstalledFileCount,
+                installedRevision,
+                sourceSkillPath,
+                installedFileCount,
+                mutation = operation,
+                updateVerified = fixture.IsMutable,
+                installTopologyVerified = true,
+                providerUninstallVerified = true,
             });
-            provider.Uninstall(record).ValueOrThrow();
-            Assert.Empty(state.Load().Records);
-            Assert.False(Directory.Exists(Path.Combine(root, "state", "recovery")));
         }
         finally
         {
             PackagedAppFixture.TryDeleteDirectory(root);
         }
     }
+
 }
