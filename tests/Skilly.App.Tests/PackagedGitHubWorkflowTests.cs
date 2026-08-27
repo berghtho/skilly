@@ -103,7 +103,84 @@ public sealed class PackagedGitHubWorkflowTests(PackagedAppFixture fixture)
         }
     }
 
-    private static void CopyFakeGh(string tools)
+    [Fact]
+    public async Task Workbench_Managed_Reinstall_confirmation_shows_exact_path_and_revision_and_cancel_preserves_local_content()
+    {
+        using var source = new GitHubProviderFixture();
+        var inspection = source.Provider.Inspect(source.Reference).ValueOrThrow();
+        source.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
+        var record = Assert.Single(source.StateStore.Load().Records);
+        var localOnly = Path.Combine(record.CanonicalPath, "local-only.txt");
+        File.WriteAllText(localOnly, "confirmed content must remain after cancel");
+
+        using var profile = new IsolatedProfile();
+        Directory.CreateDirectory(Path.GetDirectoryName(profile.StateFilePath)!);
+        File.Copy(source.StatePath, profile.StateFilePath);
+        var workingDirectory = Path.Combine(profile.Root, "unchanged-project");
+        var tools = Path.Combine(profile.Root, "tools");
+        Directory.CreateDirectory(workingDirectory);
+        Directory.CreateDirectory(tools);
+        CopyFakeGh(tools);
+        var environment = new Dictionary<string, string?>
+        {
+            ["USERPROFILE"] = source.Home,
+            ["PATH"] = tools + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH"),
+            ["FAKE_GH_FIXTURE_ROOT"] = source.FixtureRoot,
+            ["FAKE_GH_STATE_PATH"] = profile.StateFilePath,
+            ["FAKE_GH_INVOCATIONS"] = Path.Combine(profile.Root, "gh-invocations.jsonl"),
+        };
+
+        using var app = SkillyInstance.Start(Fixture.ExePath, profile, workingDirectory, environment);
+        var main = AutomationElement.FromHandle(app.WaitForMainWindow(TimeSpan.FromMinutes(2)));
+        try
+        {
+            var status = Find(main, "Skilly.StatusMessage");
+            WaitUntil(
+                () => status.Current.Name.Contains("Checked 1 managed Skill(s)", StringComparison.Ordinal),
+                TimeSpan.FromSeconds(30),
+                "Launch update Check did not finish before Managed Reinstall confirmation.");
+            var list = Find(main, "Skilly.SkillList");
+            AutomationElement? alpha = null;
+            WaitUntil(() =>
+            {
+                alpha = list.FindAll(TreeScope.Descendants, Condition.TrueCondition).Cast<AutomationElement>()
+                    .FirstOrDefault(element => element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out _)
+                                               && element.FindAll(TreeScope.Descendants, Condition.TrueCondition).Cast<AutomationElement>()
+                                                   .Any(child => string.Equals(child.Current.Name, "alpha", StringComparison.Ordinal)));
+                return alpha is not null;
+            }, TimeSpan.FromSeconds(30), "Locally modified managed Skill did not appear in inventory.",
+                () => string.Join(", ", list.FindAll(TreeScope.Descendants, Condition.TrueCondition).Cast<AutomationElement>()
+                    .Select(static element => $"{element.Current.ControlType.ProgrammaticName}='{element.Current.Name}'")));
+            ((SelectionItemPattern)alpha!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+            var reinstall = Find(main, "Skilly.ManagedReinstall");
+            WaitUntil(() => reinstall.Current.IsEnabled, TimeSpan.FromSeconds(10), "Managed Reinstall did not become available.");
+            var invoke = Task.Run(() => ((InvokePattern)reinstall.GetCurrentPattern(InvokePattern.Pattern)).Invoke());
+            var confirmation = WaitForWindow(
+                app.Process.Id,
+                ["Confirm Managed Reinstall"],
+                TimeSpan.FromSeconds(30),
+                () => $"Invoke completed={invoke.IsCompleted}; fault={invoke.Exception}; status={status.Current.Name}; logs={ReadLogs(profile.LogsDirectory)}");
+            var confirmationText = string.Join("\n", confirmation.FindAll(TreeScope.Descendants, Condition.TrueCondition)
+                .Cast<AutomationElement>().Select(static element => element.Current.Name));
+
+            Assert.Contains(record.CanonicalPath, confirmationText, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(record.InstalledRevision, confirmationText, StringComparison.Ordinal);
+            var cancel = confirmation.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button))
+                .Cast<AutomationElement>().Single(element => string.Equals(element.Current.Name, "Cancel", StringComparison.Ordinal));
+            ((InvokePattern)cancel.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+            await invoke.WaitAsync(TimeSpan.FromSeconds(10));
+            WaitUntil(() => status.Current.Name.Contains("cancelled", StringComparison.OrdinalIgnoreCase),
+                TimeSpan.FromSeconds(10), "Cancellation was not announced in the persistent status area.");
+            Assert.Equal("confirmed content must remain after cancel", File.ReadAllText(localOnly));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(workingDirectory));
+        }
+        finally
+        {
+            app.CloseMainWindowAndWait();
+        }
+    }
+
+    internal static void CopyFakeGh(string tools)
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
         var source = Path.Combine(

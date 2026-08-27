@@ -40,13 +40,19 @@ public sealed class SingleInstanceTests(PackagedAppFixture fixture)
         Assert.Contains("Detected Single-File app bundle", trace, StringComparison.Ordinal);
         Assert.Contains("Using internal fxr", trace, StringComparison.Ordinal);
         Assert.DoesNotContain(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet"), trace, StringComparison.OrdinalIgnoreCase);
-        LiveGateEvidence.Write("clean-windows-profile", new
+        var logs = string.Join(Environment.NewLine, Directory.EnumerateFiles(profile.LogsDirectory).Select(ReadShared));
+        Assert.Contains("focus signal sent=True", logs, StringComparison.Ordinal);
+        LiveGateEvidence.Write("portable-runtime-proof", new
         {
+            evidenceKind = "deterministic equivalent, not a live clean-profile attestation",
             windowsVersion = Environment.OSVersion.Version.ToString(),
             architecture = RuntimeInformation.OSArchitecture.ToString(),
             runtime = "Skilly self-contained single-file bundle (internal hostfxr)",
             systemRuntimeLookupDisabled = true,
-            isolatedUserProfile = true,
+            isolatedDirectoryMapping = true,
+            actualWindowsUserProfile = false,
+            accountDotnetAbsenceAttested = false,
+            focusSignalObservedInLog = true,
             secondLaunchExitCode = second.Process.ExitCode,
             cleanShutdownExitCode = first.Process.ExitCode,
         });
@@ -66,5 +72,12 @@ public sealed class SingleInstanceTests(PackagedAppFixture fixture)
 
         Assert.True(instance.Process.HasExited);
         Assert.Equal(0, instance.Process.ExitCode);
+    }
+
+    private static string ReadShared(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
 }

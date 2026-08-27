@@ -75,6 +75,19 @@ public sealed class AccessibilityTests(PackagedAppFixture fixture)
                 () => ReadText(status).Contains("Installed content was not changed", StringComparison.Ordinal),
                 TimeSpan.FromMinutes(1),
                 "The polite operation status did not announce the read-only check result.");
+
+            ((ExpandCollapsePattern)provider.GetCurrentPattern(ExpandCollapsePattern.Pattern)).Expand();
+            var github = provider.FindAll(TreeScope.Descendants, Condition.TrueCondition)
+                .Cast<AutomationElement>()
+                .First(element => string.Equals(element.Current.Name, "GitHub", StringComparison.Ordinal));
+            ((SelectionItemPattern)github.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+            ((ValuePattern)FindById(window, "Skilly.SourceReference")!.GetCurrentPattern(ValuePattern.Pattern)).SetValue("not-a-github-source");
+            ((InvokePattern)FindById(window, "Skilly.InspectSource")!.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+            WaitUntil(
+                () => ReadText(status).Contains("source inspection failed", StringComparison.OrdinalIgnoreCase)
+                      && ReadText(status).Contains("Nothing changed", StringComparison.Ordinal),
+                TimeSpan.FromSeconds(10),
+                "Actionable source diagnostics were not announced through packaged UI Automation.");
         }
         finally
         {

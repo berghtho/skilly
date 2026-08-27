@@ -165,6 +165,14 @@ public sealed class SkillsCliProvider(
     public ProviderResult<SkillsCliUpdateResult> Update(ManagementRecord record, CancellationToken cancellationToken = default)
         => Wrap(() => UpdateCore(record, cancellationToken), "Updated through the pinned skills provider and reconciled provider and Skilly authority.");
 
+    public ProviderResult<SkillsCliManagedReinstallPlan> PlanManagedReinstall(ManagementRecord record)
+        => Wrap(() => PlanManagedReinstallCore(record), "Verified the exact skills provider replacement path and revision. Nothing changed.");
+
+    public ProviderResult<LifecycleResult> ManagedReinstall(
+        SkillsCliManagedReinstallPlan plan,
+        CancellationToken cancellationToken = default)
+        => Wrap(() => ManagedReinstallCore(plan, cancellationToken), "Managed Reinstall replaced content through the pinned skills provider and verified every postcondition.");
+
     public ProviderResult<LifecycleResult> Uninstall(ManagementRecord record, CancellationToken cancellationToken = default)
         => Wrap(() => UninstallCore(record, cancellationToken), "Uninstalled through the pinned skills provider and verified absence before authority removal.");
 
@@ -328,6 +336,110 @@ public sealed class SkillsCliProvider(
         catch (Exception exception)
         {
             FailAndRestore(state, pending, snapshot, exception, "Update", [startingRecord]);
+            throw;
+        }
+    }
+
+    private SkillsCliManagedReinstallPlan PlanManagedReinstallCore(ManagementRecord requested)
+    {
+        var state = RequireWritableState();
+        var record = FindRecord(state, requested.InstallationId);
+        var startingHash = VerifyReinstallableTopology(record);
+        VerifyCurrentProviderEvidence(record);
+        var target = AcquireReplacement(record);
+        return new SkillsCliManagedReinstallPlan(
+            record.InstallationId,
+            record.CanonicalPath,
+            target.Evidence.SkillFolderHash,
+            target.PayloadHash,
+            startingHash,
+            target.Evidence.Evidence,
+            record.Provenance.ProviderSkillName ?? Path.GetFileName(record.CanonicalPath),
+            record.Provenance.OriginalReference);
+    }
+
+    private LifecycleResult ManagedReinstallCore(SkillsCliManagedReinstallPlan plan, CancellationToken cancellationToken)
+    {
+        var state = RequireWritableState();
+        var record = FindRecord(state, plan.InstallationId);
+        if (!PathsEqual(record.CanonicalPath, plan.ExactPath))
+        {
+            throw new ProviderFailure("The exact Managed Reinstall path changed after confirmation.");
+        }
+        var startingHash = VerifyReinstallableTopology(record);
+        if (!string.Equals(startingHash, plan.StartingPayloadHash, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ProviderFailure("The local Skill content changed after the Managed Reinstall plan was confirmed; prepare a new plan.");
+        }
+        VerifyCurrentProviderEvidence(record);
+        var target = AcquireReplacement(record);
+        if (!string.Equals(target.Evidence.SkillFolderHash, plan.Revision, StringComparison.Ordinal)
+            || !string.Equals(target.PayloadHash, plan.PayloadHash, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(target.Evidence.Evidence, plan.ProviderEvidence, StringComparison.Ordinal))
+        {
+            throw new ProviderFailure("The skills provider replacement changed after confirmation; prepare a new Managed Reinstall plan.");
+        }
+
+        var startingRecord = CloneRecord(record);
+        var paths = new List<MutationPaths> { new(record.CanonicalPath, record.IntendedClaudeJunctionPath!) };
+        var pending = CreatePending(MutationType.ManagedReinstall, [record.InstallationId], paths, [startingHash]);
+        pending.TargetPayloadHash = plan.PayloadHash;
+        pending.TargetRevision = plan.Revision;
+        pending.TargetContentIdentity = plan.Revision;
+        pending.TargetProviderEvidence = SkillsCliClient.Package;
+        state.PendingOperation = pending;
+        stateStore.Save(state);
+        var snapshot = ProviderSnapshot.Create(pending.RecoveryDirectory!, _lock.Path, paths, log);
+        try
+        {
+            SavePhase(state, pending, PendingOperationPhase.SnapshotReady);
+            cancellationToken.ThrowIfCancellationRequested();
+            SavePhase(state, pending, PendingOperationPhase.MutationStarted);
+
+            SkillsCliClient.RequireExit(client.Uninstall(plan.ProviderSkillName), $"Managed Reinstall removal of '{plan.ProviderSkillName}'");
+            VerifyProviderAbsence(record, plan.ProviderSkillName);
+            cancellationToken.ThrowIfCancellationRequested();
+            SkillsCliClient.RequireExit(client.Install(plan.Source, plan.ProviderSkillName), $"Managed Reinstall acquisition of '{plan.ProviderSkillName}'");
+            cancellationToken.ThrowIfCancellationRequested();
+
+            VerifyCanonicalAndExposure(record.CanonicalPath, record.IntendedClaudeJunctionPath!);
+            VerifyListedSkill(client.ListGlobal(), record.CanonicalPath);
+            var evidence = FindLockEntry(_lock.Read(), plan.ProviderSkillName, Path.GetFileName(record.CanonicalPath));
+            VerifySourceEvidence(plan.Source, evidence);
+            var actualHash = PayloadHasher.HashFolder(record.CanonicalPath);
+            if (!string.Equals(evidence.SkillFolderHash, plan.Revision, StringComparison.Ordinal)
+                || !string.Equals(actualHash, plan.PayloadHash, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(evidence.Evidence, plan.ProviderEvidence, StringComparison.Ordinal))
+            {
+                throw new ProviderFailure("Managed Reinstall did not produce the exact provider revision and payload that were confirmed.");
+            }
+
+            SavePhase(state, pending, PendingOperationPhase.Verified);
+            ApplyEvidence(record, evidence, actualHash, OperationOutcome.Reinstalled);
+            record.LatestCheck = new CheckSnapshot
+            {
+                Status = UpdateStatus.Current,
+                InstalledRevision = evidence.SkillFolderHash,
+                AvailableRevision = evidence.SkillFolderHash,
+                AvailablePayloadHash = actualHash,
+                AvailableContentIdentity = evidence.SkillFolderHash,
+                CheckedAt = DateTimeOffset.Now,
+            };
+            state.PendingOperation = null;
+            state.LastOperationNote = $"reinstalled skills provider Skill '{record.Provenance.SourceSkillPath}' without merging files";
+            stateStore.Save(state);
+            VerifyPersisted([record.InstallationId]);
+            snapshot.Cleanup();
+            return new LifecycleResult(record.CanonicalPath, "Managed Reinstall completed through the pinned skills provider without merging files.");
+        }
+        catch (OperationCanceledException)
+        {
+            RetainCancellation(state, pending);
+            throw;
+        }
+        catch (Exception exception)
+        {
+            FailAndRestore(state, pending, snapshot, exception, "Managed Reinstall", [startingRecord]);
             throw;
         }
     }
@@ -531,6 +643,25 @@ public sealed class SkillsCliProvider(
         }
     }
 
+    private static string VerifyReinstallableTopology(ManagementRecord record)
+    {
+        if (!Directory.Exists(record.CanonicalPath)
+            || File.GetAttributes(record.CanonicalPath).HasFlag(FileAttributes.ReparsePoint))
+        {
+            throw new ProviderFailure("The canonical Skill Installation is missing or has conflicting topology.");
+        }
+        if (record.IntendedClaudeJunctionPath is null)
+        {
+            throw new ProviderFailure("The Management Record has no intended Claude Harness Exposure.");
+        }
+        if (PathEntryExists(record.IntendedClaudeJunctionPath)
+            && !Junction.IsJunctionTo(record.IntendedClaudeJunctionPath, record.CanonicalPath))
+        {
+            throw new ProviderFailure("The intended Claude destination has conflicting topology; Managed Reinstall is blocked as a Collision.");
+        }
+        return PayloadHasher.HashFolder(record.CanonicalPath);
+    }
+
     private void VerifyCurrentProviderEvidence(ManagementRecord record)
     {
         var name = record.Provenance.ProviderSkillName ?? Path.GetFileName(record.CanonicalPath);
@@ -543,6 +674,46 @@ public sealed class SkillsCliProvider(
             throw new ProviderFailure("Current provider lock evidence no longer matches recorded Provenance; mutation and Check are blocked.");
         }
         VerifyListedSkill(client.ListGlobal(), record.CanonicalPath);
+    }
+
+    private void VerifyProviderAbsence(ManagementRecord record, string providerName)
+    {
+        if (PathEntryExists(record.CanonicalPath) || PathEntryExists(record.IntendedClaudeJunctionPath!))
+        {
+            throw new ProviderFailure("The skills provider did not cleanly remove prior content before Managed Reinstall.");
+        }
+        if (_lock.Read().Values.Any(entry => string.Equals(entry.Name, providerName, StringComparison.OrdinalIgnoreCase)
+                                             || string.Equals(SkillsCliClient.SanitizeName(entry.Name), Path.GetFileName(record.CanonicalPath), StringComparison.OrdinalIgnoreCase))
+            || client.ListGlobal().Any(skill => PathsEqual(skill.Path, record.CanonicalPath)))
+        {
+            throw new ProviderFailure("The skills provider retained lock or inventory ownership after Managed Reinstall removal.");
+        }
+    }
+
+    private ReplacementAcquisition AcquireReplacement(ManagementRecord record)
+    {
+        var temporaryRoot = Path.Combine(Path.GetDirectoryName(stateStore.FilePath)!, "provider-reinstall-plan-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryRoot);
+        try
+        {
+            var environment = IsolatedEnvironment(temporaryRoot);
+            var name = record.Provenance.ProviderSkillName ?? Path.GetFileName(record.CanonicalPath);
+            SkillsCliClient.RequireExit(
+                client.Install(record.Provenance.OriginalReference, name, environment),
+                "Isolated Managed Reinstall acquisition");
+            var canonical = Path.Combine(temporaryRoot, ".agents", "skills", Path.GetFileName(record.CanonicalPath));
+            var claude = Path.Combine(temporaryRoot, ".claude", "skills", Path.GetFileName(record.CanonicalPath));
+            var temporaryLock = new SkillsCliLock(Path.Combine(temporaryRoot, "state", "skills", ".skill-lock.json"));
+            VerifyCanonicalAndExposure(canonical, claude);
+            VerifyListedSkill(client.ListGlobal(environment), canonical);
+            var evidence = FindLockEntry(temporaryLock.Read(), name, Path.GetFileName(record.CanonicalPath));
+            VerifySourceEvidence(record.Provenance.OriginalReference, evidence);
+            return new ReplacementAcquisition(evidence, PayloadHasher.HashFolder(canonical));
+        }
+        finally
+        {
+            DeleteDirectorySafe(temporaryRoot);
+        }
     }
 
     private static void VerifyCanonicalAndExposure(string canonical, string claude)
@@ -839,6 +1010,8 @@ public sealed class SkillsCliProvider(
     }
 
     private sealed record MutationPaths(string Canonical, string Claude);
+
+    private sealed record ReplacementAcquisition(SkillsCliLockEntry Evidence, string PayloadHash);
 
     private sealed record SnapshotPath(
         string Canonical,

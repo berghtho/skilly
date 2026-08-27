@@ -131,9 +131,9 @@ public sealed class InventoryRow
                             && Entry.Health == InstallationHealth.Healthy
                             && Entry.AdoptionEvidence is not null;
 
-    public bool CanManagedReinstall => string.Equals(Record?.Provenance.SourceProvider, "github", StringComparison.Ordinal)
-                                          && Entry.ManagementStatus == ManagementStatus.Managed
-                                         && Entry.Health is InstallationHealth.LocallyModified or InstallationHealth.ExposureProblem;
+    public bool CanManagedReinstall => Record?.Provenance.SourceProvider is "github" or "skills" or ApmClient.ProviderId
+                                       && Entry.ManagementStatus == ManagementStatus.Managed
+                                       && Entry.Health is InstallationHealth.LocallyModified or InstallationHealth.ExposureProblem;
 
     public bool CanUninstall => Entry.ManagementStatus == ManagementStatus.Managed
                                 && Entry.Health == InstallationHealth.Healthy;
@@ -148,7 +148,7 @@ public sealed class InventoryRow
             : Entry.Health == InstallationHealth.LocallyModified && CanManagedReinstall
             ? "Normal update is blocked because this Skill Installation is Locally Modified. Managed Reinstall is available."
             : Entry.Health == InstallationHealth.LocallyModified
-            ? "Normal update is blocked because this Skill Installation is Locally Modified. Its owning provider does not expose Managed Reinstall in Skilly v1."
+            ? "Normal update is blocked because this Skill Installation is Locally Modified. Its owning provider does not support Managed Reinstall."
             : Check?.IsStale == true
                 ? "Refresh checks successfully before updating."
                 : "No direct update is available.";

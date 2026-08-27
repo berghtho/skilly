@@ -64,6 +64,9 @@ public sealed class LiveGitHubPreReleaseTests
         var source = Environment.GetEnvironmentVariable("SKILLY_LIVE_PRIVATE_GITHUB_URL");
         Assert.False(string.IsNullOrWhiteSpace(source),
             "SKILLY_LIVE_PRIVATE_GITHUB_URL must identify an accessible private repository or Skill subdirectory.");
+        Assert.True(Uri.TryCreate(source, UriKind.Absolute, out var sourceUri), "The private live source must be an absolute credential-free URL.");
+        Assert.True(string.IsNullOrEmpty(sourceUri.UserInfo) && string.IsNullOrEmpty(sourceUri.Query),
+            "The private live source URL must not embed credentials or query secrets; use the active gh identity.");
         using var context = new LiveGitHubContext();
         Assert.True(GitHubSourceReference.TryParse(source!, out var reference, out var error), error);
 
@@ -80,6 +83,10 @@ public sealed class LiveGitHubPreReleaseTests
 
         Assert.Contains(files, static file => file.RelativePath == "SKILL.md");
         Assert.Equal(selected.FilePaths.Count, files.Count);
+        var logs = string.Join('\n', Directory.EnumerateFiles(context.LogDirectory).Select(ReadShared));
+        Assert.DoesNotContain("auth token", logs, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("--token", logs, StringComparison.OrdinalIgnoreCase);
+        Assert.False(Directory.EnumerateFiles(context.Root, "state.json", SearchOption.AllDirectories).Any());
         LiveGateEvidence.Write("private-github", new
         {
             repositoryVisibility = inspection.Repository.Visibility,
@@ -87,17 +94,18 @@ public sealed class LiveGitHubPreReleaseTests
             selectedSkillPath = selected.SkillPath,
             selectedFileCount = files.Count,
             provider = context.Client.GetVersion(),
+            credentialBoundary = "pre-authenticated gh; no token command, credential URL, or Skilly state",
         });
     }
 
     private sealed class LiveGitHubContext : IDisposable
     {
-        private readonly string _root = Path.Combine(Path.GetTempPath(), "skilly-live-github-" + Guid.NewGuid().ToString("N"));
-
         public LiveGitHubContext()
         {
-            Directory.CreateDirectory(_root);
-            var log = new RollingLog(Path.Combine(_root, "logs"));
+            Root = Path.Combine(Path.GetTempPath(), "skilly-live-github-" + Guid.NewGuid().ToString("N"));
+            LogDirectory = Path.Combine(Root, "logs");
+            Directory.CreateDirectory(Root);
+            var log = new RollingLog(LogDirectory);
             Client = new GhClient(new ProcessRunner(log));
             Client.EnsureAuthenticated();
             Inspector = new SourceInspector(Client, log);
@@ -107,6 +115,17 @@ public sealed class LiveGitHubPreReleaseTests
 
         public SourceInspector Inspector { get; }
 
-        public void Dispose() => PackagedAppFixture.TryDeleteDirectory(_root);
+        public string Root { get; }
+
+        public string LogDirectory { get; }
+
+        public void Dispose() => PackagedAppFixture.TryDeleteDirectory(Root);
+    }
+
+    private static string ReadShared(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
 }

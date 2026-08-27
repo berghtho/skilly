@@ -128,3 +128,16 @@ public sealed record SkillsCliInstallResult(IReadOnlyList<SkillsCliInstalledSkil
 }
 
 public sealed record SkillsCliUpdateResult(string InstallationId, string InstalledRevision);
+
+public sealed record SkillsCliManagedReinstallPlan(
+    string InstallationId,
+    string ExactPath,
+    string Revision,
+    string PayloadHash,
+    string StartingPayloadHash,
+    string ProviderEvidence,
+    string ProviderSkillName,
+    string Source) : IManagedReinstallPlan
+{
+    public IReadOnlyList<string> AffectedPaths => [ExactPath];
+}

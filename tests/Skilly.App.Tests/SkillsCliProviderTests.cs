@@ -1,9 +1,13 @@
 using System.IO;
 using System.Text.Json;
 using Skilly.Infrastructure;
+using Skilly.Providers;
+using Skilly.Providers.Apm;
+using Skilly.Providers.GitHub;
 using Skilly.Providers.SkillsCli;
 using Skilly.Skills;
 using Skilly.State;
+using Skilly.ViewModels;
 
 namespace Skilly.App.Tests;
 
@@ -207,6 +211,87 @@ public sealed class SkillsCliProviderTests
         Assert.Equal(before, PayloadHasher.HashFolder(fixture.Canonical("alpha")));
         Assert.True(Junction.IsJunctionTo(fixture.Claude("alpha"), fixture.Canonical("alpha")));
         Assert.Single(fixture.StateStore.Load().Records);
+    }
+
+    [Fact]
+    public void Managed_Reinstall_dispatches_to_skills_provider_replaces_without_merge_and_reconciles_every_postcondition()
+    {
+        using var fixture = new SkillsCliProviderFixture();
+        using var github = new GitHubProviderFixture();
+        using var apm = new ApmProviderFixture();
+        var inspection = fixture.Provider.Inspect(SkillsCliProviderFixture.Source).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
+        var record = Assert.Single(fixture.StateStore.Load().Records);
+        File.WriteAllText(Path.Combine(record.CanonicalPath, "local-only.txt"), "must not merge");
+        fixture.WriteSkill("alpha", "Alpha replacement.", "\nprovider replacement\n");
+        var dispatcher = new ManagedReinstallDispatcher(github.Provider, fixture.Provider, apm.Provider);
+        Assert.True(new InventoryRow(Assert.Single(new InventoryScanner().Scan(fixture.Home, fixture.StateStore.Load()).Entries)).CanManagedReinstall);
+
+        var plan = Assert.IsType<SkillsCliManagedReinstallPlan>(dispatcher.Plan(record).ValueOrThrow());
+
+        Assert.Equal(record.CanonicalPath, plan.ExactPath);
+        Assert.Equal(PayloadHasher.HashFolder(record.CanonicalPath), plan.StartingPayloadHash);
+        Assert.NotEqual(record.InstalledRevision, plan.Revision);
+        dispatcher.Execute(plan).ValueOrThrow();
+
+        Assert.False(File.Exists(Path.Combine(record.CanonicalPath, "local-only.txt")));
+        Assert.Contains("provider replacement", File.ReadAllText(Path.Combine(record.CanonicalPath, "SKILL.md")));
+        Assert.True(Junction.IsJunctionTo(record.IntendedClaudeJunctionPath!, record.CanonicalPath));
+        var persisted = Assert.Single(fixture.StateStore.Load().Records);
+        Assert.Equal(OperationOutcome.Reinstalled, persisted.LastOperationOutcome);
+        Assert.Equal(plan.Revision, persisted.InstalledRevision);
+        Assert.Equal(plan.PayloadHash, PayloadHasher.HashFolder(persisted.CanonicalPath));
+        Assert.Null(fixture.StateStore.Load().PendingOperation);
+        Assert.False(Directory.Exists(Path.Combine(Path.GetDirectoryName(fixture.StatePath)!, "recovery")));
+        var invocations = fixture.Invocations();
+        Assert.Contains(invocations, args => args.Length > 3 && args[2] == "remove" && args[3] == "alpha");
+        Assert.True(invocations.Count(args => args.Length > 3 && args[2] == "add" && args.Contains("alpha")) >= 3);
+    }
+
+    [Fact]
+    public void Skills_Managed_Reinstall_false_success_restores_local_content_provider_lock_exposure_and_authority()
+    {
+        using var fixture = new SkillsCliProviderFixture();
+        var inspection = fixture.Provider.Inspect(SkillsCliProviderFixture.Source).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
+        var record = Assert.Single(fixture.StateStore.Load().Records);
+        var localFile = Path.Combine(record.CanonicalPath, "local-only.txt");
+        File.WriteAllText(localFile, "preserve on failure");
+        var startingHash = PayloadHasher.HashFolder(record.CanonicalPath);
+        var startingLock = File.ReadAllBytes(fixture.ProviderLockPath);
+        var plan = fixture.Provider.PlanManagedReinstall(record).ValueOrThrow();
+        fixture.Set("FAKE_SKILLS_FALSE_SUCCESS_OPERATION", "add");
+
+        var result = fixture.Provider.ManagedReinstall(plan);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("preserve on failure", File.ReadAllText(localFile));
+        Assert.Equal(startingHash, PayloadHasher.HashFolder(record.CanonicalPath));
+        Assert.Equal(startingLock, File.ReadAllBytes(fixture.ProviderLockPath));
+        Assert.True(Junction.IsJunctionTo(record.IntendedClaudeJunctionPath!, record.CanonicalPath));
+        Assert.Single(fixture.StateStore.Load().Records);
+        Assert.Null(fixture.StateStore.Load().PendingOperation);
+    }
+
+    [Fact]
+    public void Managed_Reinstall_refuses_local_changes_made_after_the_explicit_plan()
+    {
+        using var fixture = new SkillsCliProviderFixture();
+        var inspection = fixture.Provider.Inspect(SkillsCliProviderFixture.Source).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
+        var record = Assert.Single(fixture.StateStore.Load().Records);
+        File.AppendAllText(Path.Combine(record.CanonicalPath, "SKILL.md"), "\nfirst confirmed local edit\n");
+        var plan = fixture.Provider.PlanManagedReinstall(record).ValueOrThrow();
+        var removesBefore = fixture.Invocations().Count(args => args.Length > 2 && args[2] == "remove");
+        File.AppendAllText(Path.Combine(record.CanonicalPath, "SKILL.md"), "\nchanged after confirmation\n");
+
+        var result = fixture.Provider.ManagedReinstall(plan);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("changed after", result.Diagnostics, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("changed after confirmation", File.ReadAllText(Path.Combine(record.CanonicalPath, "SKILL.md")));
+        Assert.Equal(removesBefore, fixture.Invocations().Count(args => args.Length > 2 && args[2] == "remove"));
+        Assert.Null(fixture.StateStore.Load().PendingOperation);
     }
 
     [Fact]

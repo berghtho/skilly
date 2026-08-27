@@ -4,6 +4,9 @@ param(
     [string]$PrivateGitHubUrl = $env:SKILLY_LIVE_PRIVATE_GITHUB_URL,
     [string]$SkillsSource = $env:SKILLY_LIVE_SKILLS_SOURCE,
     [string]$ApmSource = $env:SKILLY_LIVE_APM_SOURCE,
+    [string]$SkillsFixtureTemplate = $env:SKILLY_LIVE_SKILLS_FIXTURE_TEMPLATE,
+    [string]$ApmFixtureTemplate = $env:SKILLY_LIVE_APM_FIXTURE_TEMPLATE,
+    [string]$CleanProfileAttestation = $env:SKILLY_CLEAN_PROFILE_ATTESTATION,
     [switch]$RunCrossHarness,
     [switch]$RequireAllGates
 )
@@ -48,7 +51,7 @@ function Invoke-CommandGate([string]$Gate, [scriptblock]$Command, [string]$Succe
     }
 }
 
-function Invoke-LiveTest([string]$Gate, [string]$FullyQualifiedName, [hashtable]$Environment, [string]$EvidenceName) {
+function Invoke-LiveTest([string]$Gate, [string]$FullyQualifiedName, [hashtable]$Environment) {
     $saved = @{}
     try {
         foreach ($key in $Environment.Keys) {
@@ -62,12 +65,19 @@ function Invoke-LiveTest([string]$Gate, [string]$FullyQualifiedName, [hashtable]
             Add-Result $Gate "FAILED" "Live test failed with exit code $LASTEXITCODE."
             return
         }
-        $evidence = Join-Path $evidenceDirectory ($EvidenceName + ".json")
+        $evidence = Join-Path $evidenceDirectory ($Gate + ".json")
         if (-not (Test-Path -LiteralPath $evidence)) {
             Add-Result $Gate "FAILED" "Live test passed but did not write revision evidence."
             return
         }
-        Add-Result $Gate "PASSED" "Live compatibility and topology postconditions passed." $evidence
+        $payload = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
+        $hasMutation = $payload.evidence.PSObject.Properties.Name -contains "mutation"
+        $detail = if ($hasMutation -and $payload.evidence.mutation) {
+            "Live provider-level install/check/$($payload.evidence.mutation)/uninstall postconditions passed; exact observed facts are recorded."
+        } else {
+            "Live test postconditions passed; exact observed facts are recorded."
+        }
+        Add-Result $Gate "PASSED" $detail $evidence
     } catch {
         Add-Result $Gate "FAILED" $_.Exception.Message
     } finally {
@@ -127,8 +137,7 @@ try {
             if ($LASTEXITCODE -eq 0 -and $cursorRevision -match '^[0-9a-f]{40}$') {
                 Invoke-LiveTest "cursor-pstack" `
                     "Skilly.App.Tests.LiveGitHubPreReleaseTests.Current_Cursor_pstack_source_is_complete_at_one_immutable_revision" `
-                    @{ SKILLY_RUN_LIVE_GITHUB_TESTS = "1"; SKILLY_EXPECTED_CURSOR_REVISION = $cursorRevision } `
-                    "cursor-pstack"
+                    @{ SKILLY_RUN_LIVE_GITHUB_TESTS = "1"; SKILLY_EXPECTED_CURSOR_REVISION = $cursorRevision }
             } else {
                 Add-Result "cursor-pstack" "FAILED" "Could not resolve Cursor main to an immutable revision."
             }
@@ -144,26 +153,23 @@ try {
     } else {
         Invoke-LiveTest "private-github" `
             "Skilly.App.Tests.LiveGitHubPreReleaseTests.Authenticated_private_source_supports_discovery_and_selected_folder_acquisition" `
-            @{ SKILLY_RUN_LIVE_GITHUB_TESTS = "1"; SKILLY_LIVE_PRIVATE_GITHUB_URL = $PrivateGitHubUrl } `
-            "private-github"
+            @{ SKILLY_RUN_LIVE_GITHUB_TESTS = "1"; SKILLY_LIVE_PRIVATE_GITHUB_URL = $PrivateGitHubUrl }
     }
 
-    if ([string]::IsNullOrWhiteSpace($SkillsSource)) {
-        Add-Result "skills-provider" "SKIPPED" "Prerequisite missing: SKILLY_LIVE_SKILLS_SOURCE was not supplied."
+    if ([string]::IsNullOrWhiteSpace($SkillsSource) -and [string]::IsNullOrWhiteSpace($SkillsFixtureTemplate)) {
+        Add-Result "skills-provider" "SKIPPED" "Prerequisite missing: supply SKILLY_LIVE_SKILLS_SOURCE or a provider-compatible SKILLY_LIVE_SKILLS_FIXTURE_TEMPLATE."
     } else {
         Invoke-LiveTest "skills-provider" `
             "Skilly.App.Tests.LiveSkillsCliPreReleaseTests.Pinned_provider_supports_inspect_install_read_only_check_and_uninstall_in_an_isolated_home" `
-            @{ SKILLY_RUN_LIVE_SKILLS_TESTS = "1"; SKILLY_LIVE_SKILLS_SOURCE = $SkillsSource } `
-            "skills-provider"
+            @{ SKILLY_RUN_LIVE_SKILLS_TESTS = "1"; SKILLY_LIVE_SKILLS_SOURCE = $SkillsSource; SKILLY_LIVE_SKILLS_FIXTURE_TEMPLATE = $SkillsFixtureTemplate }
     }
 
-    if ([string]::IsNullOrWhiteSpace($ApmSource)) {
-        Add-Result "apm-provider" "SKIPPED" "Prerequisite missing: SKILLY_LIVE_APM_SOURCE was not supplied."
+    if ([string]::IsNullOrWhiteSpace($ApmSource) -and [string]::IsNullOrWhiteSpace($ApmFixtureTemplate)) {
+        Add-Result "apm-provider" "SKIPPED" "Prerequisite missing: supply SKILLY_LIVE_APM_SOURCE or a provider-compatible SKILLY_LIVE_APM_FIXTURE_TEMPLATE."
     } else {
         Invoke-LiveTest "apm-provider" `
             "Skilly.App.Tests.LiveApmPreReleaseTests.Pinned_Microsoft_APM_supports_the_adapter_contract_in_an_isolated_home" `
-            @{ SKILLY_RUN_LIVE_APM_TESTS = "1"; SKILLY_LIVE_APM_SOURCE = $ApmSource } `
-            "apm-provider"
+            @{ SKILLY_RUN_LIVE_APM_TESTS = "1"; SKILLY_LIVE_APM_SOURCE = $ApmSource; SKILLY_LIVE_APM_FIXTURE_TEMPLATE = $ApmFixtureTemplate }
     }
 
     if ($RunCrossHarness) {
@@ -182,11 +188,43 @@ try {
         Add-Result "cross-harness" "SKIPPED" "Explicit prerequisite missing: pass -RunCrossHarness after confirming all four Harness sessions are authenticated and may consume AI credits."
     }
 
-    $cleanProfileEvidence = Join-Path $evidenceDirectory "clean-windows-profile.json"
-    if (Test-Path -LiteralPath $cleanProfileEvidence) {
-        Add-Result "clean-windows-profile" "PASSED" "Windows 11 x64 launched the packaged executable in an isolated profile with system .NET lookup disabled; internal single-file hosting, second-launch activation, and clean shutdown were verified." $cleanProfileEvidence
+    $portableProof = Join-Path $evidenceDirectory "portable-runtime-proof.json"
+    if (Test-Path -LiteralPath $portableProof) {
+        Add-Result "portable-runtime-proof" "PASSED" "Deterministic equivalent verified single-file internal hosting, disabled runtime lookup, isolated directory mapping, second-activation signal, and shutdown. It is not a live clean-profile attestation." $portableProof
     } else {
-        Add-Result "clean-windows-profile" "FAILED" "The packaged clean-profile test did not write runtime, activation, and shutdown evidence."
+        Add-Result "portable-runtime-proof" "FAILED" "The packaged deterministic runtime test did not write its explicitly limited evidence."
+    }
+
+    $cleanProfileEvidence = Join-Path $evidenceDirectory "clean-windows-profile.json"
+    if ([string]::IsNullOrWhiteSpace($CleanProfileAttestation)) {
+        Add-Result "clean-windows-profile" "SKIPPED" "No actual clean Windows 11 x64 user profile without .NET is available in this run. Run scripts/Test-CleanWindowsProfile.ps1 there and supply SKILLY_CLEAN_PROFILE_ATTESTATION; the deterministic equivalent above is not substituted."
+    } else {
+        try {
+            $attestationPath = [IO.Path]::GetFullPath($CleanProfileAttestation)
+            $attestation = Get-Content -LiteralPath $attestationPath -Raw | ConvertFrom-Json
+            $publishedExe = Join-Path $publishDirectory "Skilly.exe"
+            $publishedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $publishedExe).Hash.ToLowerInvariant()
+            $valid = $attestation.schemaVersion -eq 1 `
+                -and $attestation.gate -eq "clean-windows-profile" `
+                -and $attestation.generatedBy -eq "scripts/Test-CleanWindowsProfile.ps1" `
+                -and $attestation.artifact.sha256 -eq $publishedHash `
+                -and $attestation.environment.windows11OrNewer -eq $true `
+                -and $attestation.environment.architecture -eq "X64" `
+                -and $attestation.environment.actualWindowsUserProfile `
+                -and $attestation.environment.dotnetCommandAbsent -eq $true `
+                -and $attestation.environment.systemDotnetRootsAbsent -eq $true `
+                -and $attestation.observations.directExecutableLaunch -eq $true `
+                -and $attestation.observations.secondActivationSignal -eq $true `
+                -and $attestation.observations.secondLaunchExitCode -eq 0 `
+                -and $attestation.observations.cleanShutdownExitCode -eq 0 `
+                -and $attestation.observations.stateUnderLocalAppData -eq $true `
+                -and $attestation.observations.workingDirectoryUnchanged -eq $true
+            if (-not $valid) { throw "Attestation fields or artifact SHA-256 do not satisfy the clean-profile contract." }
+            Copy-Item -LiteralPath $attestationPath -Destination $cleanProfileEvidence -Force
+            Add-Result "clean-windows-profile" "PASSED" "Externally supplied live attestation verified the exact published artifact in an actual Windows 11 x64 profile with no dotnet command or system .NET roots, including direct launch, second activation, and clean shutdown." $cleanProfileEvidence
+        } catch {
+            Add-Result "clean-windows-profile" "FAILED" "The supplied clean-profile attestation was invalid: $($_.Exception.Message)"
+        }
     }
 
     $finalWorktree = @(& git status --porcelain=v1 --untracked-files=all)
@@ -203,6 +241,11 @@ try {
         repository = $repo
         branch = $branch
         commit = $head
+        sourceState = [ordered]@{
+            workingTreeDirty = $initialWorktree.Count -gt 0
+            initialChangeCount = $initialWorktree.Count
+            note = if ($initialWorktree.Count -gt 0) { "Artifact includes uncommitted workspace changes on top of commit." } else { "Artifact source matched the recorded commit." }
+        }
         artifact = if (Test-Path -LiteralPath (Join-Path $publishDirectory "Skilly.exe")) {
             $published = Get-Item -LiteralPath (Join-Path $publishDirectory "Skilly.exe")
             [ordered]@{ path = $published.FullName; sizeBytes = $published.Length; sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $published.FullName).Hash.ToLowerInvariant() }
@@ -217,7 +260,8 @@ try {
         "",
         "- Generated: $($report.generatedAt)",
         "- Branch: ``$branch``",
-        "- Commit: ``$head``",
+        "- Base commit: ``$head``",
+        "- Source state: $($report.sourceState.note) Initial change count: $($report.sourceState.initialChangeCount).",
         "- Artifact: ``$($report.artifact.path)``",
         "- SHA-256: ``$($report.artifact.sha256)``",
         "- Size: $($report.artifact.sizeBytes) bytes",

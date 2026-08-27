@@ -1,10 +1,23 @@
 using System.IO;
 using System.Text.Json;
+using Skilly.Providers.GitHub;
+using Skilly.State;
 
 namespace Skilly.App.Tests;
 
 internal static class LiveGateEvidence
 {
+    public static CheckSnapshot Snapshot(CheckResult check) => new()
+    {
+        Status = check.Status,
+        InstalledRevision = check.InstalledRevision,
+        AvailableRevision = check.AvailableRevision,
+        AvailablePayloadHash = check.AvailablePayloadHash,
+        AvailableContentIdentity = check.AvailableContentIdentity,
+        CheckedAt = check.CheckedAt,
+        Warning = check.Warning,
+    };
+
     public static void Write(string gate, object evidence)
     {
         var directory = Environment.GetEnvironmentVariable("SKILLY_LIVE_EVIDENCE_DIRECTORY");
