@@ -244,7 +244,7 @@ public sealed class GitHubProviderTests
     private static readonly string[] CursorPstackSkills =
     [
         "architect", "arena", "automate-me", "blast-radius", "bro", "create-verification-skill",
-        "figure-it-out", "how", "interrogate", "maintain-verification-skill", "no-comments", "poteto-mode",
+        "figure-it-out", "grokbot/make-bot-ui", "how", "interrogate", "maintain-verification-skill", "no-comments", "poteto-mode",
         "principle-boundary-discipline", "principle-build-the-lever", "principle-encode-lessons-in-structure",
         "principle-exhaust-the-design-space", "principle-experience-first", "principle-fix-root-causes",
         "principle-foundational-thinking", "principle-guard-the-context-window", "principle-laziness-protocol",
@@ -284,7 +284,12 @@ public sealed class GitHubProviderTests
         {
             fixture.AddSourceSkill(
                 $"pstack/skills/{folder}",
-                folder == "poteto-mode" ? "Poteto Mode" : folder,
+                folder switch
+                {
+                    "grokbot/make-bot-ui" => "Make Bot UI",
+                    "poteto-mode" => "Poteto Mode",
+                    _ => folder,
+                },
                 folder == "poteto-mode" ? 44 : 0);
         }
         Assert.True(GitHubSourceReference.TryParse(

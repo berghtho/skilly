@@ -21,7 +21,7 @@ public sealed class LiveGitHubFactAttribute : FactAttribute
 [Trait("Category", "LiveGitHubPreRelease")]
 public sealed class LiveGitHubPreReleaseTests
 {
-    private const int ExpectedCursorSkillCount = 44;
+    private const int ExpectedCursorSkillCount = 45;
 
     [LiveGitHubFact]
     public void Current_Cursor_pstack_source_is_complete_at_one_immutable_revision()
