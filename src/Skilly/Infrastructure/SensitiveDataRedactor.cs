@@ -15,6 +15,8 @@ internal static partial class SensitiveDataRedactor
 
         var redacted = UrlUserInfo().Replace(value, "${scheme}" + Redacted + "@");
         redacted = SensitiveQueryValue().Replace(redacted, "${prefix}" + Redacted);
+        redacted = AuthorizationHeader().Replace(redacted, "${prefix}" + Redacted);
+        redacted = SensitiveAssignment().Replace(redacted, "${prefix}" + Redacted);
         redacted = GitHubToken().Replace(redacted, Redacted);
         redacted = CommonApiToken().Replace(redacted, Redacted);
         return redacted;
@@ -25,6 +27,12 @@ internal static partial class SensitiveDataRedactor
 
     [GeneratedRegex(@"(?<prefix>[?&](?:access_token|api[_-]?key|auth|password|secret|signature|token)=)[^&#\s]*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex SensitiveQueryValue();
+
+    [GeneratedRegex(@"(?<prefix>\bAuthorization\s*:\s*(?:Bearer|Basic)\s+)[^\s,;]+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex AuthorizationHeader();
+
+    [GeneratedRegex(@"(?<prefix>\b(?:access_token|api[_-]?key|auth|password|secret|signature|token)\s*[:=]\s*)[^\s,;&]+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex SensitiveAssignment();
 
     [GeneratedRegex(@"\b(?:gh[opsu]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b", RegexOptions.CultureInvariant)]
     private static partial Regex GitHubToken();

@@ -125,6 +125,13 @@ void Install(IReadOnlyList<string> selected, string requestedSource, bool explic
     lockText.Append("    deployed_files:\n");
     foreach (var name in selected) lockText.Append("      - .agents/skills/").Append(name).Append("/SKILL.md\n");
     if (Environment.GetEnvironmentVariable("FAKE_APM_EXTRA_DEPLOYMENT") == "1") lockText.Append("      - .copilot/agents/unexpected.agent.md\n");
+    lockText.Append("    deployed_file_hashes:\n");
+    foreach (var name in selected)
+    {
+        var hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(canonicalRoot, name, "SKILL.md")))).ToLowerInvariant();
+        if (Environment.GetEnvironmentVariable("FAKE_APM_BAD_HASH") == "1") hash = new string('0', 64);
+        lockText.Append("      .agents/skills/").Append(name).Append("/SKILL.md: ").Append(hash).Append('\n');
+    }
     File.WriteAllText(Path.Combine(apmRoot, "apm.lock.yaml"), lockText.ToString());
 }
 

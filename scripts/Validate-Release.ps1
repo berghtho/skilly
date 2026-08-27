@@ -91,21 +91,41 @@ try {
     $branch = (& git branch --show-current).Trim()
     $initialWorktree = @(& git status --porcelain=v1 --untracked-files=all | Where-Object { $_ -notmatch '^\?\? \.claude/' })
     $started = [DateTimeOffset]::UtcNow
+    if ($initialWorktree.Count -eq 0) {
+        Add-Result "source-cleanliness" "PASSED" "The release started from an exact committed source tree."
+    } else {
+        Add-Result "source-cleanliness" "FAILED" "Release validation requires a clean source tree: $($initialWorktree -join '; ')."
+    }
 
     $buildPassed = Invoke-CommandGate "release-build" {
         & dotnet build "Skilly.slnx" -c Release
     } "Release build completed without errors."
 
+    $exe = Join-Path $publishDirectory "Skilly.exe"
     if ($buildPassed) {
+        & dotnet publish "src\Skilly\Skilly.csproj" -c Release -r win-x64 --self-contained true --no-restore -o $publishDirectory
+        if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $exe)) {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant()
+            $size = (Get-Item -LiteralPath $exe).Length
+            Add-Result "self-contained-publish" "PASSED" "Published win-x64 single-file Skilly.exe ($size bytes, SHA-256 $hash)." $exe
+        } else {
+            Add-Result "self-contained-publish" "FAILED" "Self-contained publish failed or Skilly.exe was absent."
+        }
+    }
+
+    if ($buildPassed -and (Test-Path -LiteralPath $exe)) {
         $trx = Join-Path $testResultsDirectory "deterministic.trx"
         $savedEvidenceDirectory = [Environment]::GetEnvironmentVariable("SKILLY_LIVE_EVIDENCE_DIRECTORY")
+        $savedPackagedExe = [Environment]::GetEnvironmentVariable("SKILLY_PACKAGED_EXE")
         try {
             [Environment]::SetEnvironmentVariable("SKILLY_LIVE_EVIDENCE_DIRECTORY", $evidenceDirectory)
+            [Environment]::SetEnvironmentVariable("SKILLY_PACKAGED_EXE", $exe)
             & dotnet test "Skilly.slnx" -c Release --no-restore --no-build `
                 --filter "Category!=LiveGitHubPreRelease&Category!=LiveSkillsCliPreRelease&Category!=LiveApmPreRelease" `
                 --logger "trx;LogFileName=$trx" --results-directory $testResultsDirectory
         } finally {
             [Environment]::SetEnvironmentVariable("SKILLY_LIVE_EVIDENCE_DIRECTORY", $savedEvidenceDirectory)
+            [Environment]::SetEnvironmentVariable("SKILLY_PACKAGED_EXE", $savedPackagedExe)
         }
         if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $trx)) {
             [xml]$testRun = Get-Content -LiteralPath $trx -Raw
@@ -115,19 +135,7 @@ try {
             Add-Result "deterministic-suite" "FAILED" "Deterministic tests failed with exit code $LASTEXITCODE." $(if (Test-Path -LiteralPath $trx) { $trx } else { "" })
         }
     } else {
-        Add-Result "deterministic-suite" "FAILED" "Not run because the Release build failed."
-    }
-
-    if ($buildPassed) {
-        & dotnet publish "src\Skilly\Skilly.csproj" -c Release -r win-x64 --self-contained true --no-restore -o $publishDirectory
-        $exe = Join-Path $publishDirectory "Skilly.exe"
-        if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $exe)) {
-            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant()
-            $size = (Get-Item -LiteralPath $exe).Length
-            Add-Result "self-contained-publish" "PASSED" "Published win-x64 single-file Skilly.exe ($size bytes, SHA-256 $hash)." $exe
-        } else {
-            Add-Result "self-contained-publish" "FAILED" "Self-contained publish failed or Skilly.exe was absent."
-        }
+        Add-Result "deterministic-suite" "FAILED" "Not run because the Release build or self-contained publish failed."
     }
 
     if (Get-Command gh -ErrorAction SilentlyContinue) {

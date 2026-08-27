@@ -79,6 +79,18 @@ public sealed class DiagnosticsTests
         Assert.DoesNotContain(token, apm.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("token=plain-secret-canary")]
+    [InlineData("password: plain-secret-canary")]
+    [InlineData("Authorization: Bearer plain-secret-canary")]
+    public void Redactor_removes_common_unprefixed_process_output_credentials(string output)
+    {
+        var exception = Assert.Throws<ProviderFailure>(() => SkillsCliClient.RequireExit(new ProcessResult(17, string.Empty, output), "skills operation"));
+
+        Assert.Contains("<redacted>", exception.Message);
+        Assert.DoesNotContain("plain-secret-canary", exception.Message, StringComparison.Ordinal);
+    }
+
     private static string ReadShared(string path)
     {
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);

@@ -13,6 +13,7 @@ public sealed class PackagedAppCollection : ICollectionFixture<PackagedAppFixtur
 public sealed class PackagedAppFixture : IAsyncLifetime
 {
     private const int PublishTimeoutMinutes = 8;
+    private bool ownsPublishDirectory;
 
     public string PublishDirectory { get; private set; } = string.Empty;
 
@@ -20,10 +21,19 @@ public sealed class PackagedAppFixture : IAsyncLifetime
 
     public Task InitializeAsync()
     {
+        var releaseExe = Environment.GetEnvironmentVariable("SKILLY_PACKAGED_EXE");
+        if (!string.IsNullOrWhiteSpace(releaseExe))
+        {
+            if (!File.Exists(releaseExe)) throw new FileNotFoundException("The configured release executable was not found.", releaseExe);
+            PublishDirectory = Path.GetDirectoryName(Path.GetFullPath(releaseExe))!;
+            return Task.CompletedTask;
+        }
+
         var repoRoot = FindRepoRoot();
         PublishDirectory = Path.Combine(
             Path.GetTempPath(),
             "skilly-packaged-tests-" + Guid.NewGuid().ToString("N")[..10]);
+        ownsPublishDirectory = true;
 
         if (Directory.Exists(PublishDirectory))
         {
@@ -70,7 +80,7 @@ public sealed class PackagedAppFixture : IAsyncLifetime
 
     public Task DisposeAsync()
     {
-        TryDeleteDirectory(PublishDirectory);
+        if (ownsPublishDirectory) TryDeleteDirectory(PublishDirectory);
         return Task.CompletedTask;
     }
 
