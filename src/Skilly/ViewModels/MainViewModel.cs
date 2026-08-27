@@ -217,6 +217,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _searchText = string.Empty;
     private FilterCount _selectedFilter;
     private InventoryRow? _selectedRow;
+    private IReadOnlyList<InventoryRow> _selectedRows = [];
     private InventorySortColumn _sortColumn = InventorySortColumn.Name;
     private bool _sortDescending;
     private IReadOnlyList<FilterCount> _filters;
@@ -284,6 +285,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
         }
     }
+
+    public IReadOnlyList<InventoryRow> SelectedRows
+    {
+        get => _selectedRows;
+        set
+        {
+            if (SetProperty(ref _selectedRows, value))
+            {
+                OnPropertyChanged(nameof(CanAdoptSelection));
+            }
+        }
+    }
+
+    public bool CanAdoptSelection => _selectedRows.Any(static row => row.CanAdopt);
 
     public string SourceText
     {

@@ -187,6 +187,8 @@
                               x:Name="SkillList"
                               ItemsSource="{Binding Rows}"
                               SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
+                              SelectionMode="Extended"
+                              SelectionChanged="OnSkillListSelectionChanged"
                               AutomationProperties.Name="Skill list"
                               AutomationProperties.AutomationId="Skilly.SkillList"
                                BorderThickness="0"
@@ -265,11 +267,11 @@
                             <StackPanel IsEnabled="{Binding MutationsAllowed}">
                                 <Button Content="_Adopt Skill"
                                         Click="OnAdoptSelected"
-                                        IsEnabled="{Binding SelectedRow.CanAdopt}"
+                                        IsEnabled="{Binding CanAdoptSelection}"
                                         HorizontalAlignment="Left"
                                         MinWidth="110"
                                         Margin="0,2,0,6"
-                                        AutomationProperties.Name="Adopt exact verified Skill without changing content"
+                                        AutomationProperties.Name="Adopt exact verified Skills without changing content"
                                         AutomationProperties.AutomationId="Skilly.AdoptSkill" />
                                  <Button Content="_Update Skill"
                                         Click="OnUpdateSelected"

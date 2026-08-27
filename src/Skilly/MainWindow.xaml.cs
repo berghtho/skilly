@@ -225,6 +225,10 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnSkillListSelectionChanged(object sender, SelectionChangedEventArgs e)
+        => ((ViewModels.MainViewModel)DataContext).SelectedRows =
+            SkillList.SelectedItems.Cast<ViewModels.InventoryRow>().ToList();
+
     private void OnSkillListHeaderClick(object sender, RoutedEventArgs e)
     {
         if (e.OriginalSource is GridViewColumnHeader header && header.Column?.Header is string label
@@ -351,10 +355,13 @@ public partial class MainWindow : Window
     private async void OnAdoptSelected(object sender, RoutedEventArgs e)
     {
         var viewModel = (ViewModels.MainViewModel)DataContext;
-        var evidence = viewModel.SelectedRow?.Entry.AdoptionEvidence;
-        if (evidence is null || viewModel.SelectedRow?.CanAdopt != true || !viewModel.MutationsAllowed)
+        var targets = viewModel.SelectedRows
+            .Where(static row => row.CanAdopt && row.Entry.AdoptionEvidence is not null)
+            .Select(static row => row.Entry.AdoptionEvidence!)
+            .ToList();
+        if (targets.Count == 0 || !viewModel.MutationsAllowed)
         {
-            viewModel.Announce("Adoption is unavailable for the selected Skill. Nothing changed.");
+            viewModel.Announce("Adoption is unavailable for the selected Skill(s). Nothing changed.");
             return;
         }
         if (!await _maintenanceGate.WaitAsync(0))
@@ -364,39 +371,52 @@ public partial class MainWindow : Window
         }
 
         BeginMutation();
-        viewModel.Announce("Adopting the selected exact verified Skill. Existing Skill content will be preserved.");
+        viewModel.Announce(targets.Count == 1
+            ? "Adopting the selected exact verified Skill. Existing Skill content will be preserved."
+            : $"Adopting {targets.Count} exact verified Skill(s). Existing Skill content will be preserved.");
+        var adopted = new List<string>();
         try
         {
-            var provider = evidence.ProposedRecord.Provenance.SourceProvider;
-            var result = string.Equals(provider, "github", StringComparison.Ordinal)
-                ? await Task.Run(() => _githubProvider.Adopt(evidence, _mutationCancellation!.Token))
-                : await Task.Run(() => _githubProvider.AdoptVerifiedProviderEvidence(
-                    evidence,
-                    () => _refreshInventory(null).Entries.SingleOrDefault(entry =>
-                        string.Equals(entry.LocalPath, evidence.ProposedRecord.CanonicalPath, StringComparison.OrdinalIgnoreCase))?.AdoptionEvidence,
-                    _mutationCancellation!.Token));
-            _adoptionEvidence = _adoptionEvidence.Where(candidate =>
-                !string.Equals(
-                    candidate.ProposedRecord.CanonicalPath,
-                    evidence.ProposedRecord.CanonicalPath,
-                    StringComparison.OrdinalIgnoreCase)).ToList();
-            viewModel.LoadInventory(RefreshInventory());
-            if (!result.Succeeded)
+            foreach (var evidence in targets)
             {
-                ApplyRecoveryMode(viewModel);
-                viewModel.Announce($"Adoption failed. {result.Diagnostics} The installation remains Unmanaged; Skill content was not rewritten.");
-                return;
+                var provider = evidence.ProposedRecord.Provenance.SourceProvider;
+                var result = string.Equals(provider, "github", StringComparison.Ordinal)
+                    ? await Task.Run(() => _githubProvider.Adopt(evidence, _mutationCancellation!.Token))
+                    : await Task.Run(() => _githubProvider.AdoptVerifiedProviderEvidence(
+                        evidence,
+                        () => _refreshInventory(null).Entries.SingleOrDefault(entry =>
+                            string.Equals(entry.LocalPath, evidence.ProposedRecord.CanonicalPath, StringComparison.OrdinalIgnoreCase))?.AdoptionEvidence,
+                        _mutationCancellation!.Token));
+                _adoptionEvidence = _adoptionEvidence.Where(candidate =>
+                    !string.Equals(
+                        candidate.ProposedRecord.CanonicalPath,
+                        evidence.ProposedRecord.CanonicalPath,
+                        StringComparison.OrdinalIgnoreCase)).ToList();
+                if (!result.Succeeded)
+                {
+                    viewModel.LoadInventory(RefreshInventory());
+                    ApplyRecoveryMode(viewModel);
+                    viewModel.Announce(
+                        $"Adoption failed at '{evidence.ProposedRecord.CanonicalPath}' after {adopted.Count} Skill(s) were adopted. "
+                        + $"{result.Diagnostics} The failed installation remains Unmanaged; Skill content was not rewritten.");
+                    return;
+                }
+
+                adopted.Add(result.Value!.ExactPath);
             }
 
-            viewModel.Announce($"Adopted the selected Skill at {result.Value!.ExactPath}; verified Provenance was recorded and Skill content was preserved.");
+            viewModel.LoadInventory(RefreshInventory());
+            viewModel.Announce(adopted.Count == 1
+                ? $"Adopted the selected Skill at {adopted[0]}; verified Provenance was recorded and Skill content was preserved."
+                : $"Adopted {adopted.Count} Skill(s); verified Provenance was recorded and Skill content was preserved.");
         }
         catch (Exception exception)
         {
-            _log.Error("GitHub Adoption failed.", exception);
+            _log.Error("Adoption failed.", exception);
             _adoptionEvidence = [];
             viewModel.LoadInventory(RefreshInventory());
             ApplyRecoveryMode(viewModel);
-            viewModel.Announce($"Adoption failed. {exception.Message} Skill content was not rewritten.");
+            viewModel.Announce($"Adoption failed after {adopted.Count} Skill(s) were adopted. {exception.Message} Skill content was not rewritten.");
         }
         finally
         {
