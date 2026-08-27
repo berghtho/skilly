@@ -1,4 +1,8 @@
 using System.IO;
+using Skilly.Infrastructure;
+using Skilly.Providers;
+using Skilly.Providers.Apm;
+using Skilly.Providers.SkillsCli;
 
 namespace Skilly.Skills;
 
@@ -25,6 +29,10 @@ public sealed class InventoryScanner
             .GroupBy(evidence => NormalizePath(evidence.ProposedRecord.CanonicalPath), StringComparer.OrdinalIgnoreCase)
             .Where(static group => group.Count() == 1)
             .ToDictionary(static group => group.Key, static group => group.Single(), StringComparer.OrdinalIgnoreCase);
+        var attributionByPath = DiscoverProviderAttributions(home)
+            .GroupBy(static item => NormalizePath(item.Path), StringComparer.OrdinalIgnoreCase)
+            .Where(static group => group.Count() == 1)
+            .ToDictionary(static group => group.Key, static group => group.Single().Attribution, StringComparer.OrdinalIgnoreCase);
 
         var roots = new[]
         {
@@ -68,7 +76,10 @@ public sealed class InventoryScanner
             var evidence = adoptionByPath.TryGetValue(NormalizePath(candidate.FileSystemInfo.FullName), out var verified)
                 ? verified
                 : null;
-            entries.Add(BuildFolderEntry(candidate, duplicateNames.Contains(candidate), record, evidence));
+            var attribution = attributionByPath.TryGetValue(NormalizePath(candidate.FileSystemInfo.FullName), out var observed)
+                ? observed
+                : null;
+            entries.Add(BuildFolderEntry(candidate, duplicateNames.Contains(candidate), record, evidence, attribution));
         }
 
         foreach (var link in links.Where(link => !link.ConsumedAsExposure))
@@ -150,7 +161,8 @@ public sealed class InventoryScanner
         Candidate candidate,
         bool isDuplicate,
         State.ManagementRecord? record,
-        AdoptionEvidence? adoptionEvidence)
+        AdoptionEvidence? adoptionEvidence,
+        ProviderAttribution? providerAttribution)
     {
         var metadata = SkillMdReader.Read(candidate.FileSystemInfo.FullName, candidate.FolderName);
         var health = metadata.Status == MetadataReadStatus.Valid ? InstallationHealth.Healthy : InstallationHealth.InvalidMetadata;
@@ -221,8 +233,73 @@ public sealed class InventoryScanner
             Exposures = exposures,
             ManagementRecord = record,
             AdoptionEvidence = verifiedAdoption ? adoptionEvidence : null,
+            ProviderAttribution = record is null ? providerAttribution : null,
         };
     }
+
+    private static IEnumerable<(string Path, ProviderAttribution Attribution)> DiscoverProviderAttributions(string home)
+    {
+        var canonicalRoot = Path.Combine(home, ".agents", "skills");
+        var skillsLockPath = Path.Combine(home, ".agents", ".skill-lock.json");
+        if (File.Exists(skillsLockPath))
+        {
+            IReadOnlyDictionary<string, SkillsCliLockEntry> entries;
+            try { entries = new SkillsCliLock(skillsLockPath).Read(); }
+            catch (ProviderFailure) { entries = new Dictionary<string, SkillsCliLockEntry>(); }
+            foreach (var entry in entries.Values.Where(entry => IsSafeFolderName(entry.Name)))
+            {
+                yield return (
+                    Path.Combine(canonicalRoot, entry.Name),
+                    new ProviderAttribution(
+                        "skills",
+                        SkillsCliClient.Version,
+                        SensitiveDataRedactor.Redact(entry.SourceUrl ?? entry.Source),
+                        SensitiveDataRedactor.Redact(entry.Source),
+                        entry.SourceSkillPath,
+                        entry.TrackingRule,
+                        entry.TrackingRuleKind));
+            }
+        }
+
+        var apm = new ApmGlobalState(home);
+        if (!File.Exists(apm.ManifestPath) || !File.Exists(apm.LockPath)) yield break;
+        IReadOnlyList<ApmDependencyEvidence> dependencies;
+        try { dependencies = apm.Read(); }
+        catch (ProviderFailure) { yield break; }
+        foreach (var dependency in dependencies)
+        {
+            foreach (var folderName in dependency.DeployedFiles.Select(DeployedSkillFolder).Where(static name => name is not null).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                yield return (
+                    Path.Combine(canonicalRoot, folderName!),
+                    new ProviderAttribution(
+                        ApmClient.ProviderId,
+                        string.Empty,
+                        SensitiveDataRedactor.Redact(dependency.RepositoryUrl),
+                        SensitiveDataRedactor.Redact(dependency.Identity),
+                        folderName!,
+                        dependency.TrackingRule,
+                        dependency.TrackingRuleKind));
+            }
+        }
+    }
+
+    private static string? DeployedSkillFolder(string path)
+    {
+        var parts = path.Replace('\\', '/').Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 3
+               && string.Equals(parts[0], ".agents", StringComparison.OrdinalIgnoreCase)
+               && string.Equals(parts[1], "skills", StringComparison.OrdinalIgnoreCase)
+               && IsSafeFolderName(parts[2])
+            ? parts[2]
+            : null;
+    }
+
+    private static bool IsSafeFolderName(string name)
+        => !string.IsNullOrWhiteSpace(name)
+           && name is not "." and not ".."
+           && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0
+           && !name.Contains('/') && !name.Contains('\\');
 
     private InventoryEntry BuildLinkEntry(Candidate link)
     {

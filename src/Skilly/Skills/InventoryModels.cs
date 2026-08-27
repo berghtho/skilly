@@ -6,6 +6,15 @@ public sealed record AdoptionEvidence(
     int ExpectedFileCount,
     string ExpectedContentIdentity);
 
+public sealed record ProviderAttribution(
+    string SourceProvider,
+    string ProviderVersion,
+    string OriginalReference,
+    string Repository,
+    string SourceSkillPath,
+    string TrackingRule,
+    State.TrackingRuleKind TrackingRuleKind);
+
 public enum ManagementStatus
 {
     Managed,
@@ -88,6 +97,8 @@ public sealed class InventoryEntry
     public State.ManagementRecord? ManagementRecord { get; init; }
 
     public AdoptionEvidence? AdoptionEvidence { get; init; }
+
+    public ProviderAttribution? ProviderAttribution { get; init; }
 
     public bool NeedsAttention =>
         Health is InstallationHealth.LocallyModified

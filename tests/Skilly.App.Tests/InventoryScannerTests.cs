@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.IO;
+using System.Text.Json;
 using Skilly.Skills;
+using Skilly.ViewModels;
 
 namespace Skilly.App.Tests;
 
@@ -245,6 +247,63 @@ public sealed class InventoryScannerTests : IDisposable
         Assert.Equal(1, snapshot.HealthyCount);
         Assert.Equal(1, snapshot.AttentionCount);
         Assert.Equal(2, snapshot.UnmanagedCount);
+    }
+
+    [Fact]
+    public void Attributes_unmanaged_canonical_skill_from_real_global_skills_lock()
+    {
+        _fixture.WriteSkill(".agents/skills", "alpha", "alpha", "Alpha skill.");
+        var lockPath = _fixture.Root(".agents/.skill-lock.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(lockPath)!);
+        File.WriteAllText(lockPath, JsonSerializer.Serialize(new
+        {
+            version = 3,
+            skills = new Dictionary<string, object>
+            {
+                ["alpha"] = new
+                {
+                    source = "acme/library",
+                    sourceType = "github",
+                    sourceUrl = "https://github.com/acme/library.git",
+                    skillPath = "skills/alpha/SKILL.md",
+                    skillFolderHash = "0123456789abcdef0123456789abcdef01234567",
+                },
+            },
+        }));
+
+        var row = new InventoryRow(Assert.Single(new InventoryScanner().Scan(_fixture.Home, new State.SkillyState()).Entries));
+
+        Assert.Equal("Unmanaged", row.Management);
+        Assert.Equal("skills@1.5.23 - acme/library", row.Provenance);
+        Assert.Equal("https://github.com/acme/library.git", row.Source);
+        Assert.Equal("skills/alpha", row.SourceSkillPath);
+    }
+
+    [Fact]
+    public void Attributes_unmanaged_canonical_skill_from_APM_global_lock()
+    {
+        _fixture.WriteSkill(".agents/skills", "alpha", "alpha", "Alpha skill.");
+        var apmRoot = _fixture.Root(".apm");
+        Directory.CreateDirectory(apmRoot);
+        File.WriteAllText(Path.Combine(apmRoot, "apm.yml"), "name: global\ndependencies:\n  apm:\n    - git: acme/library\n");
+        File.WriteAllText(Path.Combine(apmRoot, "apm.lock.yaml"), """
+            lockfile_version: '1'
+            dependencies:
+              - repo_url: acme/library
+                resolved_ref: main
+                resolved_commit: 0123456789abcdef0123456789abcdef01234567
+                package_type: skill_bundle
+                deployed_files:
+                  - .agents/skills/alpha
+                  - .agents/skills/alpha/SKILL.md
+            """);
+
+        var row = new InventoryRow(Assert.Single(new InventoryScanner().Scan(_fixture.Home, new State.SkillyState()).Entries));
+
+        Assert.Equal("Unmanaged", row.Management);
+        Assert.Equal("Microsoft APM - acme/library", row.Provenance);
+        Assert.Equal("acme/library", row.Source);
+        Assert.Equal("alpha", row.SourceSkillPath);
     }
 
     public void Dispose() => _fixture.Dispose();

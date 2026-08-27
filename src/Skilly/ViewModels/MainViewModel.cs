@@ -49,25 +49,34 @@ public sealed class InventoryRow
 
     private ManagementRecord? Record => Entry.ManagementRecord ?? Entry.AdoptionEvidence?.ProposedRecord;
 
+    private ProviderAttribution? Attribution => Entry.ProviderAttribution;
+
     private CheckSnapshot? Check => Record?.LatestCheck;
 
-    public string Provenance => Record is null
-        ? "Not recorded"
-        : Record.Provenance.SourceProvider switch
+    public string Provenance => Record is not null
+        ? Record.Provenance.SourceProvider switch
         {
             "github" => $"GitHub - {Record.Provenance.Owner}/{Record.Provenance.Repository}",
             "skills" => $"skills@{Record.Provenance.ProviderVersion} - {Record.Provenance.Repository}",
             "apm" => $"Microsoft APM {Record.Provenance.ProviderVersion} - {Record.Provenance.Repository}",
             _ => Record.Provenance.SourceProvider,
+        }
+        : Attribution?.SourceProvider switch
+        {
+            "skills" => $"skills@{Attribution.ProviderVersion} - {Attribution.Repository}",
+            "apm" => $"Microsoft APM - {Attribution.Repository}",
+            _ => "Not recorded",
         };
 
-    public string Source => Record?.Provenance.OriginalReference ?? "Not recorded";
+    public string Source => Record?.Provenance.OriginalReference ?? Attribution?.OriginalReference ?? "Not recorded";
 
-    public string SourceSkillPath => Record?.Provenance.SourceSkillPath ?? "Not recorded";
+    public string SourceSkillPath => Record?.Provenance.SourceSkillPath ?? Attribution?.SourceSkillPath ?? "Not recorded";
 
-    public string TrackingRule => Record is null
-        ? "Not recorded"
-        : $"{Record.Provenance.TrackingRule} ({Record.Provenance.TrackingRuleKind})";
+    public string TrackingRule => Record is not null
+        ? $"{Record.Provenance.TrackingRule} ({Record.Provenance.TrackingRuleKind})"
+        : Attribution is not null
+            ? $"{Attribution.TrackingRule} ({Attribution.TrackingRuleKind})"
+            : "Not recorded";
 
     public string Management => Entry.ManagementStatus switch
     {
