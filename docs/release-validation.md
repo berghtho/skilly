@@ -8,6 +8,8 @@ Run the complete deterministic validation, publish, available Cursor live gate, 
 
 The ignored output is `artifacts/release/win-x64/`. It contains the self-contained `publish/Skilly.exe`, SHA-256 and size in `release-validation.json`, a readable `release-validation.md`, TRX results, and revision evidence from each live gate that ran.
 
+Routine `dotnet test` runs skip packaged WPF interaction tests and do not display application windows. The explicit release command sets `SKILLY_RUN_INTERACTIVE_UI_TESTS=1`, runs those tests against the published executable, and fails if any deterministic test is skipped.
+
 Supply explicit external prerequisites only when they are real:
 
 ```powershell
