@@ -57,7 +57,7 @@ function Invoke-LiveTest([string]$Gate, [string]$FullyQualifiedName, [hashtable]
         }
         $saved["SKILLY_LIVE_EVIDENCE_DIRECTORY"] = [Environment]::GetEnvironmentVariable("SKILLY_LIVE_EVIDENCE_DIRECTORY")
         [Environment]::SetEnvironmentVariable("SKILLY_LIVE_EVIDENCE_DIRECTORY", $evidenceDirectory)
-        & dotnet test (Join-Path $repo "Skilly.slnx") --no-restore --no-build --filter "FullyQualifiedName=$FullyQualifiedName" --logger "console;verbosity=minimal"
+        & dotnet test (Join-Path $repo "Skilly.slnx") -c Release --no-restore --no-build --filter "FullyQualifiedName=$FullyQualifiedName" --logger "console;verbosity=minimal"
         if ($LASTEXITCODE -ne 0) {
             Add-Result $Gate "FAILED" "Live test failed with exit code $LASTEXITCODE."
             return

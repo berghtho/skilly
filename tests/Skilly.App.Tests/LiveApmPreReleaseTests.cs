@@ -22,7 +22,7 @@ public sealed class LiveApmPreReleaseTests
     {
         var source = Environment.GetEnvironmentVariable("SKILLY_LIVE_APM_SOURCE");
         Assert.False(string.IsNullOrWhiteSpace(source), "SKILLY_LIVE_APM_SOURCE must identify an APM Skill Library.");
-        var root = Path.Combine(Path.GetTempPath(), "skilly-live-apm-" + Guid.NewGuid().ToString("N"));
+        var root = Path.Combine(Path.GetTempPath(), "sla-" + Guid.NewGuid().ToString("N")[..8]);
         var home = Path.Combine(root, "home");
         Directory.CreateDirectory(home);
         try

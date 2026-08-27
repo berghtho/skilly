@@ -83,7 +83,7 @@ public sealed class ApmClient(ProcessRunner runner, string executable = "apm.exe
         if (rows.Count == 0 && !output.Contains("All dependencies are up-to-date", StringComparison.Ordinal)
             && !output.Contains("No remote dependencies to check", StringComparison.Ordinal))
         {
-            throw new ProviderFailure("APM outdated returned successful but unrecognized output; Check failed closed.");
+            throw new ProviderFailure($"APM outdated returned successful but unrecognized output; Check failed closed. {SensitiveDataRedactor.Redact(output).Trim()}");
         }
         return rows;
     }
