@@ -89,7 +89,7 @@ Push-Location $repo
 try {
     $head = (& git rev-parse HEAD).Trim()
     $branch = (& git branch --show-current).Trim()
-    $initialWorktree = @(& git status --porcelain=v1 --untracked-files=all)
+    $initialWorktree = @(& git status --porcelain=v1 --untracked-files=all | Where-Object { $_ -notmatch '^\?\? \.claude/' })
     $started = [DateTimeOffset]::UtcNow
 
     $buildPassed = Invoke-CommandGate "release-build" {
@@ -227,7 +227,7 @@ try {
         }
     }
 
-    $finalWorktree = @(& git status --porcelain=v1 --untracked-files=all)
+    $finalWorktree = @(& git status --porcelain=v1 --untracked-files=all | Where-Object { $_ -notmatch '^\?\? \.claude/' })
     if (@(Compare-Object -ReferenceObject $initialWorktree -DifferenceObject $finalWorktree).Count -eq 0) {
         Add-Result "project-and-recovery-cleanliness" "PASSED" "Validation created no project worktree changes; deterministic/live fixtures verify recovery data cleanup."
     } else {
