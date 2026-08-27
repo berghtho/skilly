@@ -1,0 +1,3 @@
+# Adoption requires provider-verified evidence, never user-declared provenance
+
+Turning an Unmanaged Installation into a Managed one (Adoption) only happens when a Source Provider can prove the local payload matches source content: the provider fetches the candidate Source Skill, and the local git tree hash must match the source's content identity (`Providers/GitHub/GitHubAdoptionVerifier.cs` records the exact `gh api` evidence in the Management Record). Letting the user simply declare "this folder came from repo X" was rejected because every later safety decision — update vs. Managed Reinstall, Locally Modified detection — rests on Provenance being true. Ambiguous evidence (multiple plausible Source Skills) leaves the installation Unmanaged rather than picking one.
