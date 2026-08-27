@@ -81,13 +81,33 @@ public sealed class ProcessRunner(
     }
 
     private static string Describe(IReadOnlyList<string> arguments)
-        => string.Join(" ", arguments.Select(static argument =>
+    {
+        var redactNext = false;
+        return string.Join(" ", arguments.Select(argument =>
         {
-            if (argument.Length == 0 || argument.Any(char.IsWhiteSpace))
+            var sensitiveOption = IsSensitiveOption(argument);
+            var displayed = redactNext
+                ? "<redacted>"
+                : sensitiveOption && argument.Contains('=')
+                    ? argument.Split('=', 2)[0] + "=<redacted>"
+                    : SensitiveDataRedactor.Redact(argument);
+            redactNext = sensitiveOption && !argument.Contains('=');
+            if (displayed.Length == 0 || displayed.Any(char.IsWhiteSpace))
             {
-                return "\"" + argument.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+                return "\"" + displayed.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
             }
 
-            return argument;
+            return displayed;
         }));
+    }
+
+    private static bool IsSensitiveOption(string argument)
+    {
+        var option = argument.Split('=', 2)[0];
+        return option.Equals("--password", StringComparison.OrdinalIgnoreCase)
+               || option.Equals("--token", StringComparison.OrdinalIgnoreCase)
+               || option.Equals("--secret", StringComparison.OrdinalIgnoreCase)
+               || option.Equals("--api-key", StringComparison.OrdinalIgnoreCase)
+               || option.Equals("--access-token", StringComparison.OrdinalIgnoreCase);
+    }
 }

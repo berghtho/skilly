@@ -28,7 +28,7 @@ public sealed class SkillsCliProviderFixture : IDisposable
             "tests",
             "FakeSkills",
             "bin",
-            "Debug",
+            BuildConfiguration,
             "net10.0-windows",
             "FakeSkills.exe");
         Assert.True(File.Exists(fake), $"FakeSkills was not built at '{fake}'.");
@@ -63,6 +63,8 @@ public sealed class SkillsCliProviderFixture : IDisposable
 
     public string Canonical(string name) => Path.Combine(Home, ".agents", "skills", name);
     public string Claude(string name) => Path.Combine(Home, ".claude", "skills", name);
+
+    private static string BuildConfiguration => new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
 
     public void WriteSkill(string name, string description, string extra = "")
     {

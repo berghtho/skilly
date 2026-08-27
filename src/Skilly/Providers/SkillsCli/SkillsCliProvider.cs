@@ -81,6 +81,8 @@ public sealed class SkillsCliProvider(
                 throw new ProviderFailure("A skills provider source reference is required.");
             }
 
+            ValidateCredentialFreeReference(source);
+
             var before = ReadOnlyFingerprint();
             var result = client.Inspect(source.Trim());
             var inspection = client.ParseInspection(source.Trim(), result);
@@ -621,6 +623,20 @@ public sealed class SkillsCliProvider(
 
     private static string TrimGitSuffix(string value)
         => value.EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? value[..^4] : value;
+
+    private static void ValidateCredentialFreeReference(string source)
+    {
+        if (Uri.TryCreate(source.Trim(), UriKind.Absolute, out var uri)
+            && (!string.IsNullOrEmpty(uri.UserInfo)
+                || uri.Query.Contains("token=", StringComparison.OrdinalIgnoreCase)
+                || uri.Query.Contains("key=", StringComparison.OrdinalIgnoreCase)
+                || uri.Query.Contains("secret=", StringComparison.OrdinalIgnoreCase)
+                || uri.Query.Contains("password=", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new ProviderFailure(
+                "skills provider source references must not embed credentials; use the provider's existing authentication.");
+        }
+    }
 
     private PendingOperation CreatePending(
         MutationType type,

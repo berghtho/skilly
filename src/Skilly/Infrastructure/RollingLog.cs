@@ -46,7 +46,7 @@ public sealed class RollingLog
                     };
                 }
 
-                _writer.WriteLine($"{DateTimeOffset.Now:O} [{level}] {message}");
+                _writer.WriteLine($"{DateTimeOffset.Now:O} [{level}] {SensitiveDataRedactor.Redact(message)}");
             }
             catch
             {

@@ -21,7 +21,7 @@ public sealed class ApmProviderFixture : IDisposable
         Directory.CreateDirectory(Home);
         WriteSkill("alpha", "Alpha from APM.");
         WriteSkill("beta", "Beta from APM.");
-        var fake = Path.Combine(PackagedAppFixture.FindRepoRoot(), "tests", "FakeApm", "bin", "Debug", "net10.0-windows", "FakeApm.exe");
+        var fake = Path.Combine(PackagedAppFixture.FindRepoRoot(), "tests", "FakeApm", "bin", BuildConfiguration, "net10.0-windows", "FakeApm.exe");
         Assert.True(File.Exists(fake), $"FakeApm was not built at '{fake}'.");
         _environment = new Dictionary<string, string?>
         {
@@ -55,6 +55,8 @@ public sealed class ApmProviderFixture : IDisposable
     public string LockPath => Path.Combine(Home, ".apm", "apm.lock.yaml");
     public string Canonical(string name) => Path.Combine(Home, ".agents", "skills", name);
     public string Claude(string name) => Path.Combine(Home, ".claude", "skills", name);
+
+    private static string BuildConfiguration => new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
 
     public void WriteSkill(string name, string description, string extra = "")
     {

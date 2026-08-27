@@ -21,6 +21,8 @@ public sealed class LiveGitHubFactAttribute : FactAttribute
 [Trait("Category", "LiveGitHubPreRelease")]
 public sealed class LiveGitHubPreReleaseTests
 {
+    private const int ExpectedCursorSkillCount = 44;
+
     [LiveGitHubFact]
     public void Current_Cursor_pstack_source_is_complete_at_one_immutable_revision()
     {
@@ -32,8 +34,13 @@ public sealed class LiveGitHubPreReleaseTests
 
         var inspection = context.Inspector.Inspect(reference, context.Client.GetVersion());
 
-        Assert.True(inspection.Skills.Count >= 44,
-            $"Cursor pstack returned {inspection.Skills.Count} Skills at {inspection.Commit.Sha}; reconcile an intentional fixture change before release.");
+        var expectedRevision = Environment.GetEnvironmentVariable("SKILLY_EXPECTED_CURSOR_REVISION");
+        if (!string.IsNullOrWhiteSpace(expectedRevision))
+        {
+            Assert.Equal(expectedRevision, inspection.Commit.Sha);
+        }
+        Assert.True(inspection.Skills.Count == ExpectedCursorSkillCount,
+            $"Cursor pstack returned {inspection.Skills.Count} Skills at {inspection.Commit.Sha}; expected exactly {ExpectedCursorSkillCount}. Reconcile an intentional upstream change before changing this invariant.");
         Assert.All(inspection.Skills, static skill =>
         {
             Assert.True(skill.MetadataValid, skill.MetadataError);
@@ -42,6 +49,13 @@ public sealed class LiveGitHubPreReleaseTests
         var poteto = Assert.Single(inspection.Skills, static skill => skill.SkillPath == "poteto-mode");
         Assert.True(poteto.MatchesAlias("poteto-mode"));
         Assert.True(poteto.MatchesAlias("Poteto Mode"));
+        LiveGateEvidence.Write("cursor-pstack", new
+        {
+            source = reference.Normalized,
+            revision = inspection.Commit.Sha,
+            skillCount = inspection.Skills.Count,
+            provider = context.Client.GetVersion(),
+        });
     }
 
     [LiveGitHubFact]
@@ -66,6 +80,14 @@ public sealed class LiveGitHubPreReleaseTests
 
         Assert.Contains(files, static file => file.RelativePath == "SKILL.md");
         Assert.Equal(selected.FilePaths.Count, files.Count);
+        LiveGateEvidence.Write("private-github", new
+        {
+            repositoryVisibility = inspection.Repository.Visibility,
+            revision = inspection.Commit.Sha,
+            selectedSkillPath = selected.SkillPath,
+            selectedFileCount = files.Count,
+            provider = context.Client.GetVersion(),
+        });
     }
 
     private sealed class LiveGitHubContext : IDisposable

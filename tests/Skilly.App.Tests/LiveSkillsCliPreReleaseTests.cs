@@ -55,8 +55,16 @@ public sealed class LiveSkillsCliPreReleaseTests
             Assert.Equal(Skilly.State.UpdateStatus.Current, check.Status);
             SkillsCliClient.RequireExit(client.Update(record.Provenance.ProviderSkillName!), "Pinned live update compatibility probe");
             Assert.Equal(Skilly.State.UpdateStatus.Current, provider.Check(record).ValueOrThrow().Status);
+            LiveGateEvidence.Write("skills-provider", new
+            {
+                provider = SkillsCliClient.Package,
+                installedRevision = record.InstalledRevision,
+                sourceSkillPath = record.Provenance.SourceSkillPath,
+                installedFileCount = record.InstalledFileCount,
+            });
             provider.Uninstall(record).ValueOrThrow();
             Assert.Empty(state.Load().Records);
+            Assert.False(Directory.Exists(Path.Combine(root, "state", "recovery")));
         }
         finally
         {

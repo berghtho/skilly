@@ -44,6 +44,15 @@ public sealed class LiveApmPreReleaseTests
             var record = Assert.Single(state.Load().Records);
             Assert.NotEqual(UpdateStatus.CheckFailed, provider.Check(record).ValueOrThrow().Status);
             ApmClient.RequireExit(client.Update(record.Provenance.Repository), "Pinned APM live affirmative update compatibility probe");
+            LiveGateEvidence.Write("apm-provider", new
+            {
+                provider = "microsoft/apm apm-cli",
+                version = record.Provenance.ProviderVersion,
+                packageIdentity = record.Provenance.Repository,
+                installedRevision = record.InstalledRevision,
+                sourceSkillPath = record.Provenance.SourceSkillPath,
+                installedFileCount = record.InstalledFileCount,
+            });
             ApmClient.RequireExit(client.Uninstall(record.Provenance.Repository), "Pinned APM live uninstall compatibility probe");
             Assert.False(Directory.Exists(record.CanonicalPath));
         }

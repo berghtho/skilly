@@ -57,7 +57,7 @@ public sealed class GitHubProviderFixture : IDisposable
             "tests",
             "FakeGh",
             "bin",
-            "Debug",
+            BuildConfiguration,
             "net10.0",
             "FakeGh.exe");
         Assert.True(File.Exists(fakeGh), $"FakeGh was not built at '{fakeGh}'.");
@@ -66,7 +66,7 @@ public sealed class GitHubProviderFixture : IDisposable
             "tests",
             "FakeGit",
             "bin",
-            "Debug",
+            BuildConfiguration,
             "net10.0",
             "FakeGit.exe");
         Assert.True(File.Exists(fakeGit), $"FakeGit was not built at '{fakeGit}'.");
@@ -193,6 +193,8 @@ public sealed class GitHubProviderFixture : IDisposable
     public string CanonicalPath(string name) => Path.Combine(Home, ".agents", "skills", name);
 
     public string ClaudePath(string name) => Path.Combine(Home, ".claude", "skills", name);
+
+    private static string BuildConfiguration => new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
 
     public void Dispose() => PackagedAppFixture.TryDeleteDirectory(Root);
 }

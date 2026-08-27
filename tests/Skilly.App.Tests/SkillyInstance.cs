@@ -53,7 +53,11 @@ public sealed class SkillyInstance : IDisposable
 
     public IsolatedProfile Profile { get; }
 
-    public static SkillyInstance Start(string exePath, IsolatedProfile profile, string workingDirectory)
+    public static SkillyInstance Start(
+        string exePath,
+        IsolatedProfile profile,
+        string workingDirectory,
+        IReadOnlyDictionary<string, string?>? environment = null)
     {
         var psi = new ProcessStartInfo(exePath)
         {
@@ -63,6 +67,15 @@ public sealed class SkillyInstance : IDisposable
         psi.Environment["LOCALAPPDATA"] = profile.LocalAppData;
         psi.Environment["APPDATA"] = profile.RoamingAppData;
         psi.Environment["USERPROFILE"] = profile.Home;
+        psi.Environment["DOTNET_ROOT"] = Path.Combine(profile.Root, "no-dotnet-runtime");
+        psi.Environment["DOTNET_MULTILEVEL_LOOKUP"] = "0";
+        if (environment is not null)
+        {
+            foreach (var variable in environment)
+            {
+                psi.Environment[variable.Key] = variable.Value;
+            }
+        }
 
         var process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to launch Skilly.exe.");
         return new SkillyInstance(process, profile);

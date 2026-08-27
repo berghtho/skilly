@@ -145,8 +145,10 @@ public sealed class InventoryRow
             ? "Direct Adoption is available. It records verified Provenance and preserves Skill content."
             : CanUpdate
             ? "A verified direct update is available."
-            : Entry.Health == InstallationHealth.LocallyModified
+            : Entry.Health == InstallationHealth.LocallyModified && CanManagedReinstall
             ? "Normal update is blocked because this Skill Installation is Locally Modified. Managed Reinstall is available."
+            : Entry.Health == InstallationHealth.LocallyModified
+            ? "Normal update is blocked because this Skill Installation is Locally Modified. Its owning provider does not expose Managed Reinstall in Skilly v1."
             : Check?.IsStale == true
                 ? "Refresh checks successfully before updating."
                 : "No direct update is available.";
