@@ -93,7 +93,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        InspectSourceButton.IsEnabled = false;
+        viewModel.InspectionInProgress = true;
         viewModel.Announce("Inspecting GitHub source read-only. Nothing has changed.");
         try
         {
@@ -133,7 +133,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            InspectSourceButton.IsEnabled = true;
+            viewModel.InspectionInProgress = false;
             _maintenanceGate.Release();
         }
     }
@@ -145,7 +145,7 @@ public partial class MainWindow : Window
             viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
             return;
         }
-        InspectSourceButton.IsEnabled = false;
+        viewModel.InspectionInProgress = true;
         viewModel.Announce("Inspecting source through Microsoft APM in an isolated home. User state has not changed.");
         try
         {
@@ -175,7 +175,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            InspectSourceButton.IsEnabled = true;
+            viewModel.InspectionInProgress = false;
             _maintenanceGate.Release();
         }
     }
@@ -187,7 +187,7 @@ public partial class MainWindow : Window
             viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
             return;
         }
-        InspectSourceButton.IsEnabled = false;
+        viewModel.InspectionInProgress = true;
         viewModel.Announce($"Inspecting source read-only through {SkillsCliClient.Package}. Nothing has changed.");
         try
         {
@@ -220,7 +220,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            InspectSourceButton.IsEnabled = true;
+            viewModel.InspectionInProgress = false;
             _maintenanceGate.Release();
         }
     }

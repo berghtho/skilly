@@ -229,6 +229,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _apmReadiness = "Microsoft APM readiness has not been checked.";
     private bool _apmReadinessProblem;
     private bool _hasProviderReadinessProblem;
+    private bool _inspectionInProgress;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -287,8 +288,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string SourceText
     {
         get => _sourceText;
-        set => SetProperty(ref _sourceText, value);
+        set
+        {
+            if (SetProperty(ref _sourceText, value))
+            {
+                OnPropertyChanged(nameof(CanInspectSource));
+            }
+        }
     }
+
+    public bool InspectionInProgress
+    {
+        get => _inspectionInProgress;
+        set
+        {
+            if (SetProperty(ref _inspectionInProgress, value))
+            {
+                OnPropertyChanged(nameof(CanInspectSource));
+            }
+        }
+    }
+
+    public bool CanInspectSource => !_inspectionInProgress && !string.IsNullOrWhiteSpace(_sourceText);
 
     public IReadOnlyList<string> SourceProviders { get; } = ["GitHub", SkillsCliClient.Package, ApmClient.Provider];
 
