@@ -109,6 +109,53 @@ public sealed class GitHubLifecycle(
             throw new ProviderFailure("The immutable provider payload no longer matches the verified Adoption evidence.");
         }
 
+        return AdoptVerifiedEvidence(state, evidence, cancellationToken);
+    }
+
+    public LifecycleResult AdoptVerifiedProviderEvidence(
+        AdoptionEvidence evidence,
+        Func<AdoptionEvidence?> reverify,
+        CancellationToken cancellationToken = default)
+    {
+        var state = RequireWritableState();
+        ValidateCommonAdoptionEvidence(state, evidence);
+        var refreshed = reverify();
+        if (refreshed is null || !MatchesProviderEvidence(evidence, refreshed))
+        {
+            throw new ProviderFailure("The provider lock or installed content changed after verification and remains Unmanaged.");
+        }
+        return AdoptVerifiedEvidence(state, evidence, cancellationToken);
+    }
+
+    private static bool MatchesProviderEvidence(AdoptionEvidence expected, AdoptionEvidence actual)
+    {
+        var expectedRecord = expected.ProposedRecord;
+        var actualRecord = actual.ProposedRecord;
+        var expectedProvenance = expectedRecord.Provenance;
+        var actualProvenance = actualRecord.Provenance;
+        return string.Equals(expected.ExpectedPayloadHash, actual.ExpectedPayloadHash, StringComparison.OrdinalIgnoreCase)
+               && expected.ExpectedFileCount == actual.ExpectedFileCount
+               && string.Equals(expected.ExpectedContentIdentity, actual.ExpectedContentIdentity, StringComparison.Ordinal)
+               && string.Equals(expectedRecord.CanonicalPath, actualRecord.CanonicalPath, StringComparison.OrdinalIgnoreCase)
+               && string.Equals(expectedRecord.IntendedClaudeJunctionPath, actualRecord.IntendedClaudeJunctionPath, StringComparison.OrdinalIgnoreCase)
+               && string.Equals(expectedRecord.InstalledRevision, actualRecord.InstalledRevision, StringComparison.Ordinal)
+               && string.Equals(expectedRecord.ProviderEvidence, actualRecord.ProviderEvidence, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.SourceProvider, actualProvenance.SourceProvider, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.OriginalReference, actualProvenance.OriginalReference, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.NormalizedSource, actualProvenance.NormalizedSource, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.Repository, actualProvenance.Repository, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.SourceSkillPath, actualProvenance.SourceSkillPath, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.TrackingRule, actualProvenance.TrackingRule, StringComparison.Ordinal)
+               && expectedProvenance.TrackingRuleKind == actualProvenance.TrackingRuleKind
+               && string.Equals(expectedProvenance.ResolvedCommit, actualProvenance.ResolvedCommit, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.SelectedContentIdentity, actualProvenance.SelectedContentIdentity, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.ProviderVersion, actualProvenance.ProviderVersion, StringComparison.Ordinal)
+               && string.Equals(expectedProvenance.ProviderSkillName, actualProvenance.ProviderSkillName, StringComparison.Ordinal);
+    }
+
+    private LifecycleResult AdoptVerifiedEvidence(SkillyState state, AdoptionEvidence evidence, CancellationToken cancellationToken)
+    {
+        var record = evidence.ProposedRecord;
         var startingHash = PayloadHasher.HashFolder(record.CanonicalPath);
         if (!string.Equals(startingHash, evidence.ExpectedPayloadHash, StringComparison.OrdinalIgnoreCase)
             || Directory.EnumerateFiles(record.CanonicalPath, "*", SearchOption.AllDirectories).Count() != evidence.ExpectedFileCount)
@@ -155,7 +202,7 @@ public sealed class GitHubLifecycle(
             state.Records.Add(record);
             authorityAdded = true;
             state.PendingOperation = null;
-            state.LastOperationNote = $"adopted GitHub Skill '{record.Provenance.SourceSkillPath}' without rewriting content";
+            state.LastOperationNote = $"adopted {record.Provenance.SourceProvider} Skill '{record.Provenance.SourceSkillPath}' without rewriting content";
             stateStore.Save(state);
             return new LifecycleResult(record.CanonicalPath, "Adoption recorded exact verified Provenance; Skill content was preserved.");
         }
@@ -171,7 +218,7 @@ public sealed class GitHubLifecycle(
                 state.Records.Remove(record);
             }
             var restored = !createdJunction || RemoveCreatedAdoptionJunction(junctionPath, record.CanonicalPath);
-            FinishFailedMutation(state, pending, restored, $"GitHub Adoption failed: {exception.Message}");
+            FinishFailedMutation(state, pending, restored, $"{record.Provenance.SourceProvider} Adoption failed: {exception.Message}");
             throw Failure("Adoption", restored, exception);
         }
     }
@@ -676,6 +723,12 @@ public sealed class GitHubLifecycle(
         {
             throw new ProviderFailure("Adoption evidence does not contain exact normalized source, path, revision, content, and provider identity.");
         }
+        ValidateCommonAdoptionEvidence(state, evidence);
+    }
+
+    private static void ValidateCommonAdoptionEvidence(SkillyState state, AdoptionEvidence evidence)
+    {
+        var record = evidence.ProposedRecord;
         if (state.Records.Any(candidate =>
                 candidate.InstallationId == record.InstallationId
                 || string.Equals(candidate.CanonicalPath, record.CanonicalPath, StringComparison.OrdinalIgnoreCase)))

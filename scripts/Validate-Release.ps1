@@ -117,20 +117,27 @@ try {
         $trx = Join-Path $testResultsDirectory "deterministic.trx"
         $savedEvidenceDirectory = [Environment]::GetEnvironmentVariable("SKILLY_LIVE_EVIDENCE_DIRECTORY")
         $savedPackagedExe = [Environment]::GetEnvironmentVariable("SKILLY_PACKAGED_EXE")
+        $savedInteractiveUiTests = [Environment]::GetEnvironmentVariable("SKILLY_RUN_INTERACTIVE_UI_TESTS")
         try {
             [Environment]::SetEnvironmentVariable("SKILLY_LIVE_EVIDENCE_DIRECTORY", $evidenceDirectory)
             [Environment]::SetEnvironmentVariable("SKILLY_PACKAGED_EXE", $exe)
+            [Environment]::SetEnvironmentVariable("SKILLY_RUN_INTERACTIVE_UI_TESTS", "1")
             & dotnet test "Skilly.slnx" -c Release --no-restore --no-build `
                 --filter "Category!=LiveGitHubPreRelease&Category!=LiveSkillsCliPreRelease&Category!=LiveApmPreRelease" `
                 --logger "trx;LogFileName=$trx" --results-directory $testResultsDirectory
         } finally {
             [Environment]::SetEnvironmentVariable("SKILLY_LIVE_EVIDENCE_DIRECTORY", $savedEvidenceDirectory)
             [Environment]::SetEnvironmentVariable("SKILLY_PACKAGED_EXE", $savedPackagedExe)
+            [Environment]::SetEnvironmentVariable("SKILLY_RUN_INTERACTIVE_UI_TESTS", $savedInteractiveUiTests)
         }
         if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $trx)) {
             [xml]$testRun = Get-Content -LiteralPath $trx -Raw
             $counters = $testRun.TestRun.ResultSummary.Counters
-            Add-Result "deterministic-suite" "PASSED" "$($counters.passed) passed, $($counters.failed) failed, $($counters.notExecuted) not executed." $trx
+            if ([int]$counters.failed -eq 0 -and [int]$counters.notExecuted -eq 0) {
+                Add-Result "deterministic-suite" "PASSED" "$($counters.passed) passed, 0 failed, 0 not executed." $trx
+            } else {
+                Add-Result "deterministic-suite" "FAILED" "$($counters.passed) passed, $($counters.failed) failed, $($counters.notExecuted) not executed." $trx
+            }
         } else {
             Add-Result "deterministic-suite" "FAILED" "Deterministic tests failed with exit code $LASTEXITCODE." $(if (Test-Path -LiteralPath $trx) { $trx } else { "" })
         }

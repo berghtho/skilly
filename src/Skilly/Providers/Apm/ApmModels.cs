@@ -75,6 +75,7 @@ public sealed record ApmDependencyEvidence(
     IReadOnlyList<string> SkillSubset,
     IReadOnlyList<string> DeployedFiles,
     IReadOnlyDictionary<string, string> DeployedFileHashes,
+    string ProviderVersion,
     string ManifestHash,
     string LockHash)
 {
@@ -172,6 +173,7 @@ public sealed class ApmGlobalState(string home)
                 subset,
                 Strings(dependency, "deployed_files"),
                 StringMap(dependency, "deployed_file_hashes"),
+                Scalar(root, "apm_version") ?? "unknown",
                 manifestHash,
                 lockHash));
         }

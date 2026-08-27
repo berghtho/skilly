@@ -9,7 +9,7 @@ public sealed class SingleInstanceTests(PackagedAppFixture fixture)
 {
     public PackagedAppFixture Fixture { get; } = fixture;
 
-    [Fact]
+    [InteractiveUiFact]
     public void Second_launch_exits_and_first_instance_keeps_running()
     {
         using var profile = new IsolatedProfile();
@@ -58,7 +58,7 @@ public sealed class SingleInstanceTests(PackagedAppFixture fixture)
         });
     }
 
-    [Fact]
+    [InteractiveUiFact]
     public void Closing_idle_window_terminates_process_cleanly()
     {
         using var profile = new IsolatedProfile();

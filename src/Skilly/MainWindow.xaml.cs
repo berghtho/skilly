@@ -367,7 +367,14 @@ public partial class MainWindow : Window
         viewModel.Announce("Adopting the selected exact verified Skill. Existing Skill content will be preserved.");
         try
         {
-            var result = await Task.Run(() => _githubProvider.Adopt(evidence, _mutationCancellation!.Token));
+            var provider = evidence.ProposedRecord.Provenance.SourceProvider;
+            var result = string.Equals(provider, "github", StringComparison.Ordinal)
+                ? await Task.Run(() => _githubProvider.Adopt(evidence, _mutationCancellation!.Token))
+                : await Task.Run(() => _githubProvider.AdoptVerifiedProviderEvidence(
+                    evidence,
+                    () => _refreshInventory(null).Entries.SingleOrDefault(entry =>
+                        string.Equals(entry.LocalPath, evidence.ProposedRecord.CanonicalPath, StringComparison.OrdinalIgnoreCase))?.AdoptionEvidence,
+                    _mutationCancellation!.Token));
             _adoptionEvidence = _adoptionEvidence.Where(candidate =>
                 !string.Equals(
                     candidate.ProposedRecord.CanonicalPath,

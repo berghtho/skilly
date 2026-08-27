@@ -102,6 +102,23 @@ public sealed class GitHubProvider(
         }
     }
 
+    public ProviderResult<LifecycleResult> AdoptVerifiedProviderEvidence(
+        Skills.AdoptionEvidence evidence,
+        Func<Skills.AdoptionEvidence?> reverify,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return ProviderResult<LifecycleResult>.Success(
+                lifecycle.AdoptVerifiedProviderEvidence(evidence, reverify, cancellationToken),
+                "Adoption recorded verified provider Provenance without rewriting Skill content.");
+        }
+        catch (Exception exception)
+        {
+            return ProviderResult<LifecycleResult>.Failure(exception.Message);
+        }
+    }
+
     public ProviderResult<CheckResult> Check(State.ManagementRecord record)
     {
         try
