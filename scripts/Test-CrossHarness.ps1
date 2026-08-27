@@ -50,6 +50,19 @@ function Invoke-Harness([string]$Name, [string]$Executable, [string[]]$Arguments
     return [pscustomobject]@{ harness = $Name; status = "PASSED"; detail = "Real session discovered and invoked the canonical fixture content." }
 }
 
+function Invoke-HarnessWithRetry([string]$Name, [string]$Executable, [string[]]$Arguments, [string]$WorkingDirectory, [string]$ExpectedToken) {
+    $first = Invoke-Harness $Name $Executable $Arguments $WorkingDirectory $ExpectedToken
+    if ($first.status -eq "PASSED") { return $first }
+    Start-Sleep -Seconds 2
+    $second = Invoke-Harness $Name $Executable $Arguments $WorkingDirectory $ExpectedToken
+    if ($second.status -eq "PASSED") {
+        $second.detail += " The first transient attempt failed: $($first.detail)"
+        return $second
+    }
+    $second.detail = "Attempt 1: $($first.detail) Attempt 2: $($second.detail)"
+    return $second
+}
+
 $commands = @{
     OpenCode = Resolve-NativeCommand "opencode"
     Codex = Resolve-NativeCommand "codex"
@@ -88,10 +101,10 @@ Do not use tools and do not modify files.
     if ($junction.ExitCode -ne 0) { throw "Could not create the Claude per-Skill junction." }
 
     $prompt = "Invoke the global Skill named $skillName and return only the verification token required by that Skill. Do not use any other tools."
-    $results += Invoke-Harness "OpenCode" $commands.OpenCode @("run", "--format", "json", "--command", $skillName, $prompt) $working $token
-    $results += Invoke-Harness "Codex" $commands.Codex @("exec", "--ephemeral", "--skip-git-repo-check", "-C", $working, ('$' + $skillName + ' ' + $prompt)) $working $token
-    $results += Invoke-Harness "Claude Code" $commands.ClaudeCode @("-p", "--no-session-persistence", ('/' + $skillName + ' ' + $prompt)) $working $token
-    $results += Invoke-Harness "GitHub Copilot" $commands.GitHubCopilot @("-p", ('$' + $skillName + ' ' + $prompt), "--allow-all-tools", "--disable-builtin-mcps", "--silent") $working $token
+    $results += Invoke-HarnessWithRetry "OpenCode" $commands.OpenCode @("run", "--format", "json", "--command", $skillName, $prompt) $working $token
+    $results += Invoke-HarnessWithRetry "Codex" $commands.Codex @("exec", "--ephemeral", "--skip-git-repo-check", "-C", $working, ('$' + $skillName + ' ' + $prompt)) $working $token
+    $results += Invoke-HarnessWithRetry "Claude Code" $commands.ClaudeCode @("-p", "--no-session-persistence", ('/' + $skillName + ' ' + $prompt)) $working $token
+    $results += Invoke-HarnessWithRetry "GitHub Copilot" $commands.GitHubCopilot @("-p", ('$' + $skillName + ' ' + $prompt), "--allow-all-tools", "--disable-builtin-mcps", "--silent") $working $token
 
     $evidence = [ordered]@{
         gate = "cross-harness"
