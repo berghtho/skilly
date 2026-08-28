@@ -16,6 +16,13 @@
         SnapsToDevicePixels="True"
         TextOptions.TextFormattingMode="Display"
         AutomationProperties.Name="Source inspector">
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="64"
+                      CornerRadius="0"
+                      GlassFrameThickness="0,0,0,1"
+                      ResizeBorderThickness="6"
+                      UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
     <ContentControl Style="{StaticResource BlueprintPanel}" Margin="12" Padding="22,20">
         <DockPanel>
             <!-- Header -->
@@ -37,6 +44,7 @@
                 </StackPanel>
                 <Button Grid.Column="1"
                         Style="{StaticResource GhostIconButton}"
+                        WindowChrome.IsHitTestVisibleInChrome="True"
                         Click="OnCloseInspector"
                         IsEnabled="{Binding CanSelect}"
                         VerticalAlignment="Top"

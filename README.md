@@ -8,6 +8,10 @@ Skilly is a portable Windows app for managing global agent Skills across OpenCod
 
 > **Status:** Pre-release. [View the v1 spec](https://github.com/berghtho/skilly/issues/19).
 
+![Skilly workbench](assets/skilly-workbench.png)
+
+The workbench follows the Industry design system: a light technical ground with a steel-blue accent, condensed headings, and square blueprint panels. Filter the inventory, search it live, and inspect any installation's Provenance, health, update status, and Harness Exposures in the details pane. Skilly ships its typefaces (Barlow and Barlow Condensed, OFL) inside the executable.
+
 ## v1
 
 - Install, inspect, update, adopt, and remove Skills.
