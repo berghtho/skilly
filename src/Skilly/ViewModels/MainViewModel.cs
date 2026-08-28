@@ -349,6 +349,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public bool CanAdoptSelection => _selectedRows.Any(static row => row.CanAdopt);
 
+    public IReadOnlyList<InventoryRow> UpdatableRows =>
+        [.. _allRows.Where(static row => row.CanUpdate && row.Entry.ManagementRecord is not null)];
+
+    public bool CanUpdateAll => MutationsAllowed && UpdatableRows.Count > 0;
+
     public string SourceText
     {
         get => _sourceText;
@@ -479,6 +484,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(RecoveryRequired));
         OnPropertyChanged(nameof(MutationsAllowed));
         OnPropertyChanged(nameof(RecoveryDiagnostic));
+        OnPropertyChanged(nameof(CanUpdateAll));
         SetStatus(diagnostic);
     }
 
@@ -487,6 +493,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         var selectedPath = SelectedRow?.Entry.LocalPath;
         _allRows = [.. snapshot.Entries.Select(entry => new InventoryRow(entry))];
         Filters = BuildFilters(_allRows);
+        OnPropertyChanged(nameof(CanUpdateAll));
         ApplyView();
         if (selectedPath is not null)
         {

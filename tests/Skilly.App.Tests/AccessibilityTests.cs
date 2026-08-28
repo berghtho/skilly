@@ -30,6 +30,7 @@ public sealed class AccessibilityTests(PackagedAppFixture fixture)
             AssertElement(window, "Skilly.SourceReference", "Skill source URL or reference", expectKeyboardFocusable: true);
             AssertElement(window, "Skilly.InspectSource", "Inspect source", expectKeyboardFocusable: true);
             AssertElement(window, "Skilly.RefreshChecks", "Refresh checks", expectKeyboardFocusable: true);
+            AssertElement(window, "Skilly.UpdateAll", "Update all Skills", expectKeyboardFocusable: false);
             AssertElement(window, "Skilly.Search", "Search skills", expectKeyboardFocusable: true);
 
             AssertElement(window, "Skilly.StatusMessage", string.Empty, expectKeyboardFocusable: false);
