@@ -234,7 +234,7 @@ public partial class MainWindow : Window
 
     private void OnSkillListSelectionChanged(object sender, SelectionChangedEventArgs e)
         => ((ViewModels.MainViewModel)DataContext).SelectedRows =
-            SkillList.SelectedItems.Cast<ViewModels.InventoryRow>().ToList();
+            SkillList.SelectedItems.OfType<ViewModels.InventoryRow>().ToList();
 
     private void OnSortHeaderClick(object sender, RoutedEventArgs e)
     {
@@ -415,6 +415,100 @@ public partial class MainWindow : Window
             _maintenanceGate.Release();
         }
     }
+
+    private async void OnUpdateLibrary(object sender, RoutedEventArgs e)
+    {
+        var viewModel = (ViewModels.MainViewModel)DataContext;
+        if ((sender as FrameworkElement)?.DataContext is not ViewModels.LibraryGroupRow group || group.Key is null)
+        {
+            return;
+        }
+
+        var members = viewModel.LibraryMembers(group.Key);
+        var targets = members
+            .Where(static row => row.CanUpdate && row.Entry.ManagementRecord is not null)
+            .Select(static row => row.Entry.ManagementRecord!)
+            .ToList();
+        if (targets.Count == 0 || !viewModel.MutationsAllowed)
+        {
+            viewModel.Announce($"No Skill in Skill Library {group.Label} has a verified direct update available. Nothing changed.");
+            return;
+        }
+        if (!await _maintenanceGate.WaitAsync(0))
+        {
+            viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
+            return;
+        }
+
+        BeginMutation();
+        viewModel.Announce($"Updating Skill Library {group.Label}: {targets.Count} Skill(s) through the owning provider from verified source content.");
+        var before = LibraryMemberStates(members);
+        var updated = 0;
+        try
+        {
+            // Microsoft APM updates the whole dependency in one operation; every other provider updates per Skill.
+            if (string.Equals(targets[0].Provenance.SourceProvider, ApmClient.ProviderId, StringComparison.Ordinal))
+            {
+                var result = await RunProviderUpdate(targets[0]);
+                if (!result.Succeeded)
+                {
+                    viewModel.LoadInventory(RefreshInventory());
+                    ApplyRecoveryMode(viewModel);
+                    viewModel.Announce($"Skill Library update failed. {result.Diagnostics}");
+                    return;
+                }
+
+                updated = targets.Count;
+            }
+            else
+            {
+                foreach (var record in targets)
+                {
+                    var result = await RunProviderUpdate(record);
+                    if (!result.Succeeded)
+                    {
+                        viewModel.LoadInventory(RefreshInventory());
+                        ApplyRecoveryMode(viewModel);
+                        viewModel.Announce(
+                            $"Skill Library update stopped at '{record.CanonicalPath}' after {updated} Skill(s) were updated. "
+                            + $"{result.Diagnostics} The remaining Skill(s) were not touched.");
+                        return;
+                    }
+
+                    updated++;
+                }
+            }
+
+            viewModel.LoadInventory(RefreshInventory());
+            var after = LibraryMemberStates(viewModel.LibraryMembers(group.Key));
+            var changes = Skills.LibraryChangeDiff.Compute(before, after);
+            viewModel.Announce(changes.HasChanges
+                ? $"Updated Skill Library {group.Label} ({updated} Skill(s)); its membership changed: {changes.AddedSkills.Count} Skill(s) added, {changes.RemovedSkills.Count} removed."
+                : $"Updated Skill Library {group.Label} ({updated} Skill(s)) and verified provider evidence, content, state, and Harness Exposures.");
+            if (changes.HasChanges)
+            {
+                new LibraryChangesWindow(group.Label, updated, changes) { Owner = this }.ShowDialog();
+            }
+        }
+        catch (Exception exception)
+        {
+            _log.Error("Skill Library update failed.", exception);
+            viewModel.LoadInventory(RefreshInventory());
+            ApplyRecoveryMode(viewModel);
+            viewModel.Announce($"Skill Library update failed after {updated} Skill(s) were updated. {exception.Message}");
+        }
+        finally
+        {
+            EndMutation();
+            _maintenanceGate.Release();
+        }
+    }
+
+    private static List<Skills.LibraryMemberState> LibraryMemberStates(IReadOnlyList<ViewModels.InventoryRow> members)
+        => [.. members.Select(static row => new Skills.LibraryMemberState(
+            row.Entry.LocalPath,
+            row.Name,
+            row.Entry.Health != InstallationHealth.Missing))];
 
     private async void OnAdoptSelected(object sender, RoutedEventArgs e)
     {

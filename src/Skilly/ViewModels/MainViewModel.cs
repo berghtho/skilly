@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Windows;
 using System.Windows.Input;
 using Skilly.Skills;
 using Skilly.State;
@@ -113,6 +114,31 @@ public sealed class InventoryRow
         : Attribution is not null
             ? $"{Attribution.TrackingRule} ({Attribution.TrackingRuleKind})"
             : "Not recorded";
+
+    // Skill Library identity: one key per (Source Provider, source). GitHub records need the
+    // normalized source because Repository alone is ambiguous across owners; skills/APM records
+    // use Repository so managed records and lock-file attributions of the same source align.
+    public string? LibraryKey => Record is not null
+        ? $"{Record.Provenance.SourceProvider}|{(string.Equals(Record.Provenance.SourceProvider, "github", StringComparison.Ordinal)
+            ? Record.Provenance.NormalizedSource
+            : Record.Provenance.Repository)}"
+        : Attribution is not null
+            ? $"{Attribution.SourceProvider}|{Attribution.Repository}"
+            : null;
+
+    public string LibraryLabel => Record is not null
+        ? string.Equals(Record.Provenance.SourceProvider, "github", StringComparison.Ordinal)
+            ? $"{Record.Provenance.Owner}/{Record.Provenance.Repository}"
+            : Record.Provenance.Repository
+        : Attribution?.Repository ?? "No recorded Skill Library";
+
+    public string LibraryProviderLabel => (Record?.Provenance.SourceProvider ?? Attribution?.SourceProvider) switch
+    {
+        "github" => "GitHub",
+        "skills" => "skills",
+        "apm" => "Microsoft APM",
+        _ => string.Empty,
+    };
 
     public string Management => Entry.ManagementStatus switch
     {
@@ -280,6 +306,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _apmReadinessProblem;
     private bool _hasProviderReadinessProblem;
     private bool _inspectionInProgress;
+    private bool _groupByLibrary;
+    private readonly HashSet<string> _collapsedLibraries = new(StringComparer.OrdinalIgnoreCase);
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -307,7 +335,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public ObservableCollection<InventoryRow> Rows { get; } = [];
+    public ObservableCollection<object> Rows { get; } = [];
+
+    public bool GroupByLibrary
+    {
+        get => _groupByLibrary;
+        set
+        {
+            if (SetProperty(ref _groupByLibrary, value))
+            {
+                OnPropertyChanged(nameof(MemberIndent));
+                ApplyView();
+            }
+        }
+    }
+
+    // Indents Skill rows under their Skill Library headers in the grouped view.
+    public Thickness MemberIndent => _groupByLibrary ? new Thickness(24, 0, 0, 0) : default;
 
     public FilterCount SelectedFilter
     {
@@ -530,12 +574,38 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         var previouslySelected = SelectedRow;
         Rows.Clear();
-        foreach (var row in materialized)
+        if (GroupByLibrary)
         {
-            Rows.Add(row);
+            foreach (var group in materialized
+                         .GroupBy(static row => row.LibraryKey ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                         .OrderBy(static group => group.Key.Length == 0 ? 1 : 0)
+                         .ThenBy(static group => group.First().LibraryLabel, StringComparer.OrdinalIgnoreCase))
+            {
+                var members = group.ToList();
+                var header = new LibraryGroupRow(
+                    group.Key.Length == 0 ? null : group.Key,
+                    members,
+                    !_collapsedLibraries.Contains(group.Key),
+                    OnLibraryExpansionChanged);
+                Rows.Add(header);
+                if (header.IsExpanded)
+                {
+                    foreach (var row in members)
+                    {
+                        Rows.Add(row);
+                    }
+                }
+            }
+        }
+        else
+        {
+            foreach (var row in materialized)
+            {
+                Rows.Add(row);
+            }
         }
 
-        if (previouslySelected is not null && !materialized.Contains(previouslySelected))
+        if (previouslySelected is not null && !Rows.Contains(previouslySelected))
         {
             SelectedRow = null;
         }
@@ -545,6 +615,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(HasNoMatches));
         OnPropertyChanged(nameof(ListSummary));
     }
+
+    private void OnLibraryExpansionChanged(LibraryGroupRow group)
+    {
+        var key = group.Key ?? string.Empty;
+        if (group.IsExpanded)
+        {
+            _collapsedLibraries.Remove(key);
+        }
+        else
+        {
+            _collapsedLibraries.Add(key);
+        }
+
+        ApplyView();
+    }
+
+    public IReadOnlyList<InventoryRow> LibraryMembers(string? key)
+        => key is null
+            ? []
+            : [.. _allRows.Where(row => string.Equals(row.LibraryKey, key, StringComparison.OrdinalIgnoreCase))];
 
     private bool MatchesFilter(InventoryRow row)
     {

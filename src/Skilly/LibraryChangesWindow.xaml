@@ -1,0 +1,130 @@
+<Window x:Class="Skilly.LibraryChangesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Skill Library changes"
+        Width="560"
+        Height="520"
+        MinWidth="440"
+        MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{StaticResource BgBrush}"
+        Foreground="{StaticResource TextBrush}"
+        FontFamily="{StaticResource BodyFont}"
+        FontSize="13.5"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display"
+        AutomationProperties.Name="Skill Library changes">
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="64"
+                      CornerRadius="0"
+                      GlassFrameThickness="0,0,0,1"
+                      ResizeBorderThickness="6"
+                      UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
+    <Window.Resources>
+        <DataTemplate x:Key="SkillNameRow">
+            <Border BorderBrush="{StaticResource Text08Brush}"
+                    BorderThickness="0,0,0,1"
+                    Padding="8,6">
+                <TextBlock FontFamily="{StaticResource MonoFont}"
+                           FontSize="11.5"
+                           Text="{Binding}"
+                           TextTrimming="CharacterEllipsis" />
+            </Border>
+        </DataTemplate>
+    </Window.Resources>
+    <ContentControl Style="{StaticResource BlueprintPanel}" Margin="12" Padding="22,20">
+        <DockPanel>
+            <!-- Header -->
+            <Grid DockPanel.Dock="Top">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Style="{StaticResource SectionKicker}" Text="SKILL LIBRARY CHANGES" />
+                    <TextBlock x:Name="LibraryHeading"
+                               FontFamily="{StaticResource HeadingFont}"
+                               FontWeight="SemiBold"
+                               FontSize="26"
+                               TextWrapping="Wrap"
+                               LineHeight="29"
+                               LineStackingStrategy="BlockLineHeight"
+                               Margin="0,2,0,0" />
+                </StackPanel>
+                <Button Grid.Column="1"
+                        Style="{StaticResource GhostIconButton}"
+                        WindowChrome.IsHitTestVisibleInChrome="True"
+                        Click="OnClose"
+                        VerticalAlignment="Top"
+                        AutomationProperties.Name="Close"
+                        AutomationProperties.AutomationId="Skilly.CloseLibraryChangesIcon">
+                    <Viewbox Width="16" Height="16">
+                        <Canvas Width="24" Height="24">
+                            <Path Data="M18,6 L6,18 M6,6 L18,18"
+                                  Stroke="{StaticResource TextBrush}"
+                                  StrokeThickness="1.5"
+                                  StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round" />
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+            </Grid>
+
+            <TextBlock DockPanel.Dock="Top"
+                       x:Name="SummaryText"
+                       FontSize="12.5"
+                       Foreground="{StaticResource Text75Brush}"
+                       TextWrapping="Wrap"
+                       Margin="0,12,0,4"
+                       AutomationProperties.LiveSetting="Polite"
+                       AutomationProperties.AutomationId="Skilly.LibraryChangesSummary" />
+
+            <!-- Footer -->
+            <DockPanel DockPanel.Dock="Bottom" Margin="0,14,0,0">
+                <Button DockPanel.Dock="Right"
+                        Style="{StaticResource PrimaryButton}"
+                        Content="_Close"
+                        IsCancel="True"
+                        IsDefault="True"
+                        MinWidth="90"
+                        Click="OnClose"
+                        AutomationProperties.AutomationId="Skilly.CloseLibraryChanges" />
+                <TextBlock />
+            </DockPanel>
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          AutomationProperties.Name="Skill Library membership changes"
+                          AutomationProperties.AutomationId="Skilly.LibraryChangesList">
+                <StackPanel>
+                    <StackPanel x:Name="AddedSection">
+                        <Border BorderBrush="{StaticResource DividerBrush}"
+                                BorderThickness="0,0,0,1"
+                                Padding="0,0,0,4"
+                                Margin="0,14,0,4">
+                            <TextBlock Style="{StaticResource SectionKicker}" Text="NEW SKILLS IN THIS LIBRARY" />
+                        </Border>
+                        <ItemsControl x:Name="AddedList"
+                                      ItemTemplate="{StaticResource SkillNameRow}"
+                                      Focusable="False"
+                                      AutomationProperties.AutomationId="Skilly.LibraryChangesAdded" />
+                    </StackPanel>
+                    <StackPanel x:Name="RemovedSection">
+                        <Border BorderBrush="{StaticResource DividerBrush}"
+                                BorderThickness="0,0,0,1"
+                                Padding="0,0,0,4"
+                                Margin="0,14,0,4">
+                            <TextBlock Style="{StaticResource SectionKicker}" Text="REMOVED SKILLS" />
+                        </Border>
+                        <ItemsControl x:Name="RemovedList"
+                                      ItemTemplate="{StaticResource SkillNameRow}"
+                                      Focusable="False"
+                                      AutomationProperties.AutomationId="Skilly.LibraryChangesRemoved" />
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </DockPanel>
+    </ContentControl>
+</Window>

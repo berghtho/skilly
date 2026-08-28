@@ -821,7 +821,7 @@ public sealed class GitHubProviderTests
         var viewModel = new MainViewModel();
 
         viewModel.LoadInventory(new InventoryScanner().Scan(fixture.Home, fixture.StateStore.Load()));
-        viewModel.SelectedRow = Assert.Single(viewModel.Rows);
+        viewModel.SelectedRow = Assert.IsType<InventoryRow>(Assert.Single(viewModel.Rows));
 
         Assert.Equal("GitHub - acme/library", viewModel.SelectedRow.Provenance);
         Assert.Equal(fixture.Reference.Original, viewModel.SelectedRow.Source);

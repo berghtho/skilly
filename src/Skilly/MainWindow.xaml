@@ -1,6 +1,8 @@
 <Window x:Class="Skilly.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Skilly"
+        xmlns:vm="clr-namespace:Skilly.ViewModels"
         Title="Skilly"
         Width="1520"
         Height="850"
@@ -199,6 +201,28 @@
             <Setter Property="Padding" Value="0,0,0,4" />
             <Setter Property="Margin" Value="0,18,0,8" />
         </Style>
+
+        <!-- Skill Library header rows are action rows, not selectable inventory rows. -->
+        <Style x:Key="LibraryGroupRowContainer" TargetType="ListBoxItem">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="IsTabStop" Value="False" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border Background="{StaticResource Text05Brush}"
+                                BorderBrush="{StaticResource DividerBrush}"
+                                BorderThickness="0,0,0,1">
+                            <ContentPresenter />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <local:SkillListContainerStyleSelector x:Key="SkillListContainerSelector"
+                                               SkillRowStyle="{StaticResource SkillRowContainer}"
+                                               LibraryGroupRowStyle="{StaticResource LibraryGroupRowContainer}" />
     </Window.Resources>
 
     <Border x:Name="RootShell">
@@ -514,6 +538,21 @@
                                 </TextBlock.Style>
                             </TextBlock>
                         </Grid>
+                        <StackPanel DockPanel.Dock="Right"
+                                    Orientation="Horizontal"
+                                    VerticalAlignment="Center"
+                                    Margin="0,0,12,0">
+                            <CheckBox Style="{StaticResource IndustryCheckBox}"
+                                      IsChecked="{Binding GroupByLibrary, Mode=TwoWay}"
+                                      AutomationProperties.Name="Group by Skill Library"
+                                      AutomationProperties.AutomationId="Skilly.GroupByLibrary"
+                                      TabIndex="7" />
+                            <TextBlock Text="Group by Library"
+                                       FontSize="11.5"
+                                       Foreground="{StaticResource Text60Brush}"
+                                       VerticalAlignment="Center"
+                                       Margin="7,0,0,0" />
+                        </StackPanel>
                         <TextBlock Text="{Binding ListSummary}"
                                    FontSize="11.5"
                                    Foreground="{StaticResource Text45Brush}"
@@ -552,13 +591,13 @@
                              HorizontalContentAlignment="Stretch"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              VirtualizingPanel.ScrollUnit="Pixel"
-                             ItemContainerStyle="{StaticResource SkillRowContainer}"
+                             ItemContainerStyleSelector="{StaticResource SkillListContainerSelector}"
                              AutomationProperties.Name="Skill list"
                              AutomationProperties.AutomationId="Skilly.SkillList"
-                             TabIndex="7">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <Grid>
+                             TabIndex="8">
+                        <ListBox.Resources>
+                            <DataTemplate DataType="{x:Type vm:InventoryRow}">
+                                <Grid Margin="{Binding DataContext.MemberIndent, RelativeSource={RelativeSource AncestorType=Window}}">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="2*" MinWidth="200" />
                                         <ColumnDefinition Width="150" />
@@ -615,7 +654,98 @@
                                     </StackPanel>
                                 </Grid>
                             </DataTemplate>
-                        </ListBox.ItemTemplate>
+
+                            <!-- Skill Library root row: click toggles the tree, the action button updates the whole library. -->
+                            <DataTemplate DataType="{x:Type vm:LibraryGroupRow}">
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right"
+                                            Style="{StaticResource GhostButton}"
+                                            FontSize="12"
+                                            Margin="8,3,10,3"
+                                            VerticalAlignment="Center"
+                                            Click="OnUpdateLibrary"
+                                            IsEnabled="{Binding DataContext.MutationsAllowed, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            Visibility="{Binding CanUpdateLibrary, Converter={StaticResource BoolToVisibility}}"
+                                            AutomationProperties.Name="{Binding Label, StringFormat='Update Skill Library {0}'}"
+                                            AutomationProperties.AutomationId="Skilly.UpdateLibrary">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Viewbox Width="12" Height="12" Margin="0,0,6,0">
+                                                <Canvas Width="24" Height="24">
+                                                    <Path Data="M21,15 v4 a2,2 0 0 1 -2,2 H5 a2,2 0 0 1 -2,-2 v-4 M7,10 l5,5 5,-5 M12,15 V3"
+                                                          Stroke="{StaticResource AccentBrush}"
+                                                          StrokeThickness="1.5"
+                                                          StrokeStartLineCap="Round"
+                                                          StrokeEndLineCap="Round"
+                                                          StrokeLineJoin="Round" />
+                                                </Canvas>
+                                            </Viewbox>
+                                            <TextBlock Text="{Binding UpdatableCount, StringFormat='Update Library ({0})'}" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
+                                    <ToggleButton IsChecked="{Binding IsExpanded, Mode=TwoWay}"
+                                                  Cursor="Hand"
+                                                  FocusVisualStyle="{StaticResource IndustryFocusVisual}"
+                                                  HorizontalAlignment="Stretch"
+                                                  HorizontalContentAlignment="Stretch"
+                                                  AutomationProperties.Name="{Binding AutomationName}"
+                                                  AutomationProperties.AutomationId="Skilly.LibraryGroup">
+                                        <ToggleButton.Template>
+                                            <ControlTemplate TargetType="ToggleButton">
+                                                <Border Background="Transparent" Padding="14,8">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <Path x:Name="Chevron"
+                                                              Data="M9,6 L15,12 L9,18"
+                                                              Width="11"
+                                                              Height="11"
+                                                              Stretch="Uniform"
+                                                              Stroke="{StaticResource Text60Brush}"
+                                                              StrokeThickness="2"
+                                                              StrokeStartLineCap="Round"
+                                                              StrokeEndLineCap="Round"
+                                                              StrokeLineJoin="Round"
+                                                              VerticalAlignment="Center"
+                                                              RenderTransformOrigin="0.5,0.5"
+                                                              Margin="0,0,10,0">
+                                                            <Path.RenderTransform>
+                                                                <RotateTransform Angle="0" />
+                                                            </Path.RenderTransform>
+                                                        </Path>
+                                                        <TextBlock Text="{Binding Label}"
+                                                                   FontWeight="SemiBold"
+                                                                   FontSize="13"
+                                                                   VerticalAlignment="Center" />
+                                                        <Border Background="{StaticResource Neutral100Brush}"
+                                                                CornerRadius="3"
+                                                                Margin="10,0,0,0"
+                                                                VerticalAlignment="Center"
+                                                                Visibility="{Binding HasProviderLabel, Converter={StaticResource BoolToVisibility}}">
+                                                            <TextBlock Margin="8,2"
+                                                                       FontSize="10.5"
+                                                                       Foreground="{StaticResource Neutral800Brush}"
+                                                                       Text="{Binding ProviderLabel}" />
+                                                        </Border>
+                                                        <TextBlock Text="{Binding CountLabel}"
+                                                                   FontSize="11.5"
+                                                                   Foreground="{StaticResource Text50Brush}"
+                                                                   VerticalAlignment="Center"
+                                                                   Margin="10,0,0,0" />
+                                                    </StackPanel>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsChecked" Value="True">
+                                                        <Setter TargetName="Chevron" Property="RenderTransform">
+                                                            <Setter.Value>
+                                                                <RotateTransform Angle="90" />
+                                                            </Setter.Value>
+                                                        </Setter>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </ToggleButton.Template>
+                                    </ToggleButton>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.Resources>
                     </ListBox>
 
                     <TextBlock Grid.Row="2"
