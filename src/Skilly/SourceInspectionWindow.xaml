@@ -192,8 +192,8 @@
                                     </Grid.ColumnDefinitions>
                                     <CheckBox Grid.Column="0"
                                               Style="{StaticResource IndustryCheckBox}"
-                                              IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                              IsEnabled="{Binding Skill.MetadataValid}"
+                                              IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                              IsEnabled="{Binding CanToggle}"
                                               AutomationProperties.Name="{Binding Skill.SkillPath}" />
                                     <TextBlock Grid.Column="1"
                                                FontFamily="{StaticResource MonoFont}"
@@ -236,6 +236,10 @@
                             </Border>
                             <DataTemplate.Triggers>
                                 <DataTrigger Binding="{Binding Skill.MetadataValid}" Value="False">
+                                    <Setter TargetName="InstallablePlain" Property="Visibility" Value="Collapsed" />
+                                    <Setter TargetName="InstallableTag" Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsInstalled}" Value="True">
                                     <Setter TargetName="InstallablePlain" Property="Visibility" Value="Collapsed" />
                                     <Setter TargetName="InstallableTag" Property="Visibility" Value="Visible" />
                                 </DataTrigger>

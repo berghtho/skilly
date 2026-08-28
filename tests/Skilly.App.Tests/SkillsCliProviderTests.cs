@@ -433,6 +433,67 @@ public sealed class SkillsCliProviderTests
         Assert.Null(fixture.StateStore.Load().PendingOperation);
     }
 
+    [Fact]
+    public void Inspection_parses_clack_output_with_blank_frame_lines_and_wrapped_descriptions()
+    {
+        using var fixture = new SkillsCliProviderFixture();
+        var output = string.Join('\n',
+            "◇  Found 2 skills",
+            "│",
+            "◇  Available Skills",
+            "Mattpocock Skills",
+            "│",
+            "│    ask-matt",
+            "│",
+            "│      Ask which skill or flow fits your situation.",
+            "│      A router over the skills in this repo.",
+            "│",
+            "│    code-review",
+            "│",
+            "│      Review the changes since a fixed point.",
+            "│",
+            "└  Use --skill <name> to install specific skills",
+            "");
+
+        var inspection = fixture.Client.ParseInspection("mattpocock/skills", new ProcessResult(0, output, string.Empty));
+
+        Assert.Equal(["ask-matt", "code-review"], inspection.Skills.Select(static skill => skill.Name));
+        Assert.Equal(
+            "Ask which skill or flow fits your situation. A router over the skills in this repo.",
+            inspection.Skills[0].Description);
+        Assert.Equal("Review the changes since a fixed point.", inspection.Skills[1].Description);
+    }
+
+    [Fact]
+    public void Inspection_marks_installed_skills_which_show_checked_and_disabled()
+    {
+        using var fixture = new SkillsCliProviderFixture();
+        var inspection = fixture.Provider.Inspect(SkillsCliProviderFixture.Source).ValueOrThrow();
+        Assert.All(inspection.Skills, static skill => Assert.False(skill.AlreadyInstalled));
+        fixture.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
+
+        var reinspection = fixture.Provider.Inspect(SkillsCliProviderFixture.Source).ValueOrThrow();
+
+        Assert.Equal(["alpha", "beta"], reinspection.Skills.Select(static skill => skill.Name));
+        Assert.True(reinspection.Skills[0].AlreadyInstalled);
+        Assert.False(reinspection.Skills[1].AlreadyInstalled);
+
+        var viewModel = new SkillsCliSourceInspectionViewModel(reinspection);
+        var alpha = viewModel.Skills[0];
+        Assert.True(alpha.IsChecked);
+        Assert.False(alpha.CanToggle);
+        Assert.Equal("Installed", alpha.Installability);
+        alpha.IsChecked = false;
+        Assert.True(alpha.IsChecked);
+        viewModel.SelectAll(true);
+        Assert.Equal(1, viewModel.SelectedCount);
+        Assert.False(alpha.IsSelected);
+        Assert.True(viewModel.Skills[1].IsSelected);
+        viewModel.ExactSelection = "alpha";
+        Assert.False(viewModel.SelectExact());
+        Assert.Contains("already installed", viewModel.Status);
+    }
+
     private static CheckSnapshot Snapshot(Skilly.Providers.GitHub.CheckResult check) => new()
     {
         Status = check.Status,

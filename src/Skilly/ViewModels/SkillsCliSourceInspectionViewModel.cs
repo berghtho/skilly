@@ -20,15 +20,28 @@ public sealed class SelectableSkillsCliSourceSkill : INotifyPropertyChanged
         get => _isSelected;
         set
         {
-            if (_isSelected == value || !Skill.MetadataValid) return;
+            if (_isSelected == value || !CanToggle) return;
             _isSelected = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsChecked)));
         }
     }
 
+    public bool IsChecked
+    {
+        get => Skill.AlreadyInstalled || _isSelected;
+        set => IsSelected = value;
+    }
+
+    public bool CanToggle => Skill.MetadataValid && !Skill.AlreadyInstalled;
+
+    public bool IsInstalled => Skill.AlreadyInstalled;
+
     public string Alias => Skill.DeclaredName;
 
-    public string Installability => Skill.MetadataValid ? "Installable" : $"Invalid provider identity: {Skill.MetadataError}";
+    public string Installability => Skill.AlreadyInstalled
+        ? "Installed"
+        : Skill.MetadataValid ? "Installable" : $"Invalid provider identity: {Skill.MetadataError}";
 }
 
 public sealed class SkillsCliSourceInspectionViewModel : INotifyPropertyChanged
@@ -51,7 +64,10 @@ public sealed class SkillsCliSourceInspectionViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(CanInstall));
             };
         }
-        _status = $"Read-only {SkillsCliClient.Package} inspection found {Skills.Count} Source Skill(s). Nothing changed.";
+        var installedCount = Skills.Count(static item => item.IsInstalled);
+        _status = $"Read-only {SkillsCliClient.Package} inspection found {Skills.Count} Source Skill(s)"
+            + (installedCount > 0 ? $"; {installedCount} already installed and locked for reinstall here" : string.Empty)
+            + ". Nothing changed.";
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -103,7 +119,7 @@ public sealed class SkillsCliSourceInspectionViewModel : INotifyPropertyChanged
 
     public void SelectAll(bool selected)
     {
-        foreach (var item in Skills.Where(static item => item.Skill.MetadataValid)) item.IsSelected = selected;
+        foreach (var item in Skills.Where(static item => item.CanToggle)) item.IsSelected = selected;
     }
 
     public bool SelectExact()
@@ -115,6 +131,11 @@ public sealed class SkillsCliSourceInspectionViewModel : INotifyPropertyChanged
             Status = matches.Count == 0
                 ? $"No exact provider Source Skill name matches '{candidate}'. Nothing changed."
                 : $"'{candidate}' is ambiguous; select one exact Source Skill.";
+            return false;
+        }
+        if (matches[0].Skill.AlreadyInstalled)
+        {
+            Status = $"'{candidate}' is already installed; uninstall it first to reinstall. Nothing changed.";
             return false;
         }
         matches[0].IsSelected = true;

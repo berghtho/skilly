@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Skilly.Infrastructure;
@@ -119,7 +120,22 @@ public sealed class SkillsCliClient
             throw new ProviderFailure($"{Package} inspection output did not contain the expected Available Skills section.");
         }
 
+        // Names are the shallowest indented lines; each may be followed by deeper
+        // description lines, with blank clack frame lines interleaved anywhere.
         var skills = new List<SkillsCliSourceSkill>();
+        string? pendingName = null;
+        var pendingIndentation = 0;
+        var description = new StringBuilder();
+        void Flush()
+        {
+            if (pendingName is not null)
+            {
+                skills.Add(new SkillsCliSourceSkill(pendingName, description.ToString()));
+            }
+            pendingName = null;
+            description.Clear();
+        }
+
         for (var index = availableIndex + 1; index < lines.Length; index++)
         {
             var line = RemoveClackPrefix(lines[index]);
@@ -132,23 +148,21 @@ public sealed class SkillsCliClient
             {
                 continue;
             }
-
-            var name = line.Trim();
-            var description = string.Empty;
-            if (index + 1 < lines.Length)
+            if (pendingName is not null && indentation > pendingIndentation)
             {
-                var next = RemoveClackPrefix(lines[index + 1]);
-                if (!string.IsNullOrWhiteSpace(next) && LeadingSpaces(next) > indentation)
+                if (description.Length > 0)
                 {
-                    description = next.Trim();
-                    index++;
+                    description.Append(' ');
                 }
+                description.Append(line.Trim());
+                continue;
             }
-            if (name.Length > 0)
-            {
-                skills.Add(new SkillsCliSourceSkill(name, description));
-            }
+
+            Flush();
+            pendingName = line.Trim();
+            pendingIndentation = indentation;
         }
+        Flush();
 
         if (skills.Count == 0 || skills.Select(static skill => skill.Name).Distinct(StringComparer.Ordinal).Count() != skills.Count)
         {

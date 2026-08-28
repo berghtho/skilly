@@ -8,6 +8,8 @@ namespace Skilly.Providers.SkillsCli;
 
 public sealed record SkillsCliSourceSkill(string Name, string Description)
 {
+    public bool AlreadyInstalled { get; init; }
+
     public string FileCount => "Not reported";
 
     public string SkillPath => Name;

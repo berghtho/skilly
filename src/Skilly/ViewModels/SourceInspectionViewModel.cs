@@ -30,8 +30,19 @@ public sealed class SelectableSourceSkill : INotifyPropertyChanged
 
             _isSelected = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsChecked)));
         }
     }
+
+    public bool IsChecked
+    {
+        get => IsSelected;
+        set => IsSelected = value;
+    }
+
+    public bool CanToggle => Skill.MetadataValid;
+
+    public bool IsInstalled => false;
 
     public string Alias => Skill.DeclaredName is null || Skill.DeclaredName == Skill.FolderName
         ? Skill.FolderName

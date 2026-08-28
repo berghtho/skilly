@@ -19,8 +19,12 @@ public sealed class SelectableApmSourceSkill : INotifyPropertyChanged
             if (_isSelected == value || !Skill.MetadataValid) return;
             _isSelected = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsChecked)));
         }
     }
+    public bool IsChecked { get => IsSelected; set => IsSelected = value; }
+    public bool CanToggle => Skill.MetadataValid;
+    public bool IsInstalled => false;
     public string Alias => Skill.DeclaredName;
     public string Installability => Skill.MetadataValid ? "Installable" : $"Invalid APM identity: {Skill.MetadataError}";
 }
