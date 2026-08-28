@@ -30,6 +30,16 @@ public partial class App : Application
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
         _log.Info($"Skilly {version} starting. Exe: {Environment.ProcessPath}. Cwd: {Environment.CurrentDirectory}. Root: {SkillyPaths.ApplicationRoot}.");
 
+        var hostPackage = MsixVirtualization.DetectRedirectedApplicationRoot();
+        if (hostPackage is not null)
+        {
+            var refusal = MsixVirtualization.DescribeRefusal(hostPackage);
+            _log.Error(refusal);
+            MessageBox.Show(refusal, "Skilly", MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown(1);
+            return;
+        }
+
         _guard = new SingleInstanceGuard();
         if (!_guard.IsPrimary)
         {
