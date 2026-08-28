@@ -14,6 +14,13 @@
         SnapsToDevicePixels="True"
         TextOptions.TextFormattingMode="Display"
         AutomationProperties.Name="Skilly Workbench">
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="56"
+                      CornerRadius="0"
+                      GlassFrameThickness="0,0,0,1"
+                      ResizeBorderThickness="6"
+                      UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
 
@@ -194,6 +201,7 @@
         </Style>
     </Window.Resources>
 
+    <Border x:Name="RootShell">
     <DockPanel>
         <!-- ═══ Header bar ═══ -->
         <Border DockPanel.Dock="Top"
@@ -221,6 +229,7 @@
                                VerticalAlignment="Center" />
                     <ComboBox x:Name="SourceProviderBox"
                               Style="{StaticResource IndustryComboBox}"
+                              WindowChrome.IsHitTestVisibleInChrome="True"
                               Width="150"
                               Margin="14,0,0,0"
                               ItemsSource="{Binding SourceProviders}"
@@ -230,6 +239,7 @@
                               TabIndex="0" />
                     <TextBox x:Name="SourceBox"
                              Style="{StaticResource IndustryTextBox}"
+                             WindowChrome.IsHitTestVisibleInChrome="True"
                              Width="330"
                              Margin="14,0,0,0"
                              FontFamily="{StaticResource MonoFont}"
@@ -240,6 +250,7 @@
                              TabIndex="1" />
                     <Button x:Name="InspectSourceButton"
                             Style="{StaticResource PrimaryButton}"
+                            WindowChrome.IsHitTestVisibleInChrome="True"
                             Margin="14,0,0,0"
                             IsEnabled="{Binding CanInspectSource}"
                             Click="OnInspectSource"
@@ -261,6 +272,7 @@
                     </Button>
                     <Button x:Name="RefreshChecksButton"
                             Style="{StaticResource SecondaryBlueprintButton}"
+                            WindowChrome.IsHitTestVisibleInChrome="True"
                             Margin="14,0,0,0"
                             Click="OnRefreshChecks"
                             AutomationProperties.Name="Refresh checks"
@@ -279,6 +291,25 @@
                             </Viewbox>
                             <AccessText Text="_Refresh checks" VerticalAlignment="Center" />
                         </StackPanel>
+                    </Button>
+                    <Button x:Name="CloseWindowButton"
+                            Style="{StaticResource GhostIconButton}"
+                            WindowChrome.IsHitTestVisibleInChrome="True"
+                            Width="28"
+                            Height="28"
+                            Margin="14,0,0,0"
+                            Click="OnCloseWindow"
+                            AutomationProperties.Name="Close Skilly"
+                            AutomationProperties.AutomationId="Skilly.CloseWindow">
+                        <Viewbox Width="14" Height="14">
+                            <Canvas Width="24" Height="24">
+                                <Path Data="M18,6 L6,18 M6,6 L18,18"
+                                      Stroke="{StaticResource Text55Brush}"
+                                      StrokeThickness="1.5"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round" />
+                            </Canvas>
+                        </Viewbox>
                     </Button>
                 </StackPanel>
             </DockPanel>
@@ -793,4 +824,5 @@
             </ContentControl>
         </Grid>
     </DockPanel>
+    </Border>
 </Window>

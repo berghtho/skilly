@@ -45,6 +45,7 @@ public partial class MainWindow : Window
         DataContext = viewModel;
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
         Loaded += OnLoaded;
+        StateChanged += OnStateChanged;
         Closed += (_, _) =>
         {
             viewModel.PropertyChanged -= OnViewModelPropertyChanged;
@@ -61,6 +62,12 @@ public partial class MainWindow : Window
             peer.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
         });
     }
+
+    private void OnCloseWindow(object sender, RoutedEventArgs e) => Close();
+
+    // A chromeless maximized window overhangs the screen by the resize border.
+    private void OnStateChanged(object? sender, EventArgs e)
+        => RootShell.Margin = WindowState == WindowState.Maximized ? new Thickness(7) : new Thickness(0);
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
