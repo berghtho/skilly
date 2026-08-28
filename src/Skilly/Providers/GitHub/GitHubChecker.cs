@@ -21,7 +21,7 @@ public sealed record GitHubPayload(
 
 public sealed class GitHubChecker(GhClient client)
 {
-    public CheckResult Check(ManagementRecord record)
+    public CheckResult Check(ManagementRecord record, CommitResolutionCache? commitCache = null)
     {
         if (!string.Equals(record.Provenance.SourceProvider, "github", StringComparison.Ordinal))
         {
@@ -32,7 +32,9 @@ public sealed class GitHubChecker(GhClient client)
         ResolvedCommit commit;
         try
         {
-            commit = client.ResolveCommit(provenance.Owner, provenance.Repository, provenance.TrackingRule);
+            commit = commitCache is null
+                ? client.ResolveCommit(provenance.Owner, provenance.Repository, provenance.TrackingRule)
+                : commitCache.Resolve(client, provenance);
         }
         catch (GhSourceUnavailableException exception)
         {
