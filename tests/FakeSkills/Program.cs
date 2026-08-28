@@ -45,13 +45,19 @@ var lockPath = string.IsNullOrWhiteSpace(stateHome)
 
 if (command == "add" && args.Contains("--list", StringComparer.Ordinal))
 {
+    // Mirrors the real skills CLI shape: a source title line without indentation
+    // and blank clack frame lines between every name and description.
     Console.WriteLine("◇ Available Skills");
+    Console.WriteLine("Fixture Skills");
     foreach (var directory in Directory.EnumerateDirectories(Path.Combine(sourceRoot, "skills")).OrderBy(static path => path, StringComparer.Ordinal))
     {
         var name = Path.GetFileName(directory);
+        Console.WriteLine("│");
         Console.WriteLine($"│    {name}");
+        Console.WriteLine("│");
         Console.WriteLine($"│      {name} from deterministic provider fixture");
     }
+    Console.WriteLine("│");
     Console.WriteLine("└ Use --skill <name> to install specific skills");
     return 0;
 }

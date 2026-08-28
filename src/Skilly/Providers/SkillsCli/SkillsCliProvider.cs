@@ -86,6 +86,7 @@ public sealed class SkillsCliProvider(
             var before = ReadOnlyFingerprint();
             var result = client.Inspect(source.Trim());
             var inspection = client.ParseInspection(source.Trim(), result);
+            inspection = inspection with { Skills = MarkAlreadyInstalled(inspection.Skills) };
             if (!string.Equals(before, ReadOnlyFingerprint(), StringComparison.Ordinal))
             {
                 throw new ProviderFailure("Read-only provider inspection changed global Skill content or provider lock state.");
@@ -98,6 +99,23 @@ public sealed class SkillsCliProvider(
         {
             return ProviderResult<SkillsCliInspection>.Failure(exception.Message);
         }
+    }
+
+    // Mirrors the InstallCore collision checks so the inspector can disable
+    // Source Skills that a provider install would refuse anyway.
+    private IReadOnlyList<SkillsCliSourceSkill> MarkAlreadyInstalled(IReadOnlyList<SkillsCliSourceSkill> skills)
+    {
+        var canonicalRoot = HarnessRoot.Create(RootKind.CanonicalAgents, home).FullPath;
+        var claudeRoot = HarnessRoot.Create(RootKind.ClaudeSkills, home).FullPath;
+        var lockEntries = _lock.Read();
+        return skills.Select(skill => skill with
+        {
+            AlreadyInstalled = skill.MetadataValid
+                && (PathEntryExists(Path.Combine(canonicalRoot, skill.FolderName))
+                    || PathEntryExists(Path.Combine(claudeRoot, skill.FolderName))
+                    || lockEntries.Keys.Any(name =>
+                        string.Equals(SkillsCliClient.SanitizeName(name), skill.FolderName, StringComparison.OrdinalIgnoreCase))),
+        }).ToList();
     }
 
     public ProviderResult<SkillsCliInstallResult> Install(
