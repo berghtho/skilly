@@ -9,6 +9,7 @@
     <RootNamespace>Skilly</RootNamespace>
     <AssemblyName>Skilly</AssemblyName>
     <Version>0.1.0</Version>
+    <ApplicationIcon>skilly.ico</ApplicationIcon>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
