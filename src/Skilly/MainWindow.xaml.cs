@@ -312,27 +312,7 @@ public partial class MainWindow : Window
         viewModel.Announce("Updating the selected Skill through its owning provider from verified source content.");
         try
         {
-            var skillsOwned = string.Equals(record.Provenance.SourceProvider, "skills", StringComparison.Ordinal);
-            var apmOwned = string.Equals(record.Provenance.SourceProvider, ApmClient.ProviderId, StringComparison.Ordinal);
-            var result = skillsOwned
-                ? await Task.Run(() =>
-                {
-                    var providerResult = _skillsProvider.Update(record, _mutationCancellation!.Token);
-                    return providerResult.Succeeded
-                        ? Providers.ProviderResult<UpdateResult>.Success(
-                            new UpdateResult(providerResult.Value!.InstallationId, providerResult.Value.InstalledRevision),
-                            providerResult.Diagnostics)
-                        : Providers.ProviderResult<UpdateResult>.Failure(providerResult.Diagnostics);
-                })
-                : apmOwned
-                    ? await Task.Run(() =>
-                    {
-                        var providerResult = _apmProvider.Update(record, _mutationCancellation!.Token);
-                        return providerResult.Succeeded
-                            ? ProviderResult<UpdateResult>.Success(new UpdateResult(providerResult.Value!.InstallationId, providerResult.Value.InstalledRevision), providerResult.Diagnostics)
-                            : ProviderResult<UpdateResult>.Failure(providerResult.Diagnostics);
-                    })
-                    : await Task.Run(() => _githubProvider.Update(record, _mutationCancellation!.Token));
+            var result = await RunProviderUpdate(record);
             if (!result.Succeeded)
             {
                 viewModel.LoadInventory(RefreshInventory());
@@ -350,6 +330,84 @@ public partial class MainWindow : Window
             _log.Error("Provider update failed.", exception);
             viewModel.LoadInventory(RefreshInventory());
             viewModel.Announce($"Provider update failed. {exception.Message}");
+        }
+        finally
+        {
+            EndMutation();
+            _maintenanceGate.Release();
+        }
+    }
+
+    private Task<ProviderResult<UpdateResult>> RunProviderUpdate(State.ManagementRecord record)
+    {
+        var skillsOwned = string.Equals(record.Provenance.SourceProvider, "skills", StringComparison.Ordinal);
+        var apmOwned = string.Equals(record.Provenance.SourceProvider, ApmClient.ProviderId, StringComparison.Ordinal);
+        return skillsOwned
+            ? Task.Run(() =>
+            {
+                var providerResult = _skillsProvider.Update(record, _mutationCancellation!.Token);
+                return providerResult.Succeeded
+                    ? ProviderResult<UpdateResult>.Success(
+                        new UpdateResult(providerResult.Value!.InstallationId, providerResult.Value.InstalledRevision),
+                        providerResult.Diagnostics)
+                    : ProviderResult<UpdateResult>.Failure(providerResult.Diagnostics);
+            })
+            : apmOwned
+                ? Task.Run(() =>
+                {
+                    var providerResult = _apmProvider.Update(record, _mutationCancellation!.Token);
+                    return providerResult.Succeeded
+                        ? ProviderResult<UpdateResult>.Success(new UpdateResult(providerResult.Value!.InstallationId, providerResult.Value.InstalledRevision), providerResult.Diagnostics)
+                        : ProviderResult<UpdateResult>.Failure(providerResult.Diagnostics);
+                })
+                : Task.Run(() => _githubProvider.Update(record, _mutationCancellation!.Token));
+    }
+
+    private async void OnUpdateAll(object sender, RoutedEventArgs e)
+    {
+        var viewModel = (ViewModels.MainViewModel)DataContext;
+        var targets = viewModel.UpdatableRows.Select(static row => row.Entry.ManagementRecord!).ToList();
+        if (targets.Count == 0 || !viewModel.MutationsAllowed)
+        {
+            viewModel.Announce("No Skill has a verified direct update available. Nothing changed.");
+            return;
+        }
+        if (!await _maintenanceGate.WaitAsync(0))
+        {
+            viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
+            return;
+        }
+
+        BeginMutation();
+        viewModel.Announce($"Updating {targets.Count} Skill(s) through their owning providers from verified source content.");
+        var updated = 0;
+        try
+        {
+            foreach (var record in targets)
+            {
+                var result = await RunProviderUpdate(record);
+                if (!result.Succeeded)
+                {
+                    viewModel.LoadInventory(RefreshInventory());
+                    ApplyRecoveryMode(viewModel);
+                    viewModel.Announce(
+                        $"Update all stopped at '{record.CanonicalPath}' after {updated} Skill(s) were updated. "
+                        + $"{result.Diagnostics} The remaining Skill(s) were not touched.");
+                    return;
+                }
+
+                updated++;
+            }
+
+            viewModel.LoadInventory(RefreshInventory());
+            viewModel.Announce($"Updated {updated} Skill(s) through their owning providers and verified provider evidence, content, state, and Harness Exposures.");
+        }
+        catch (Exception exception)
+        {
+            _log.Error("Update all failed.", exception);
+            viewModel.LoadInventory(RefreshInventory());
+            ApplyRecoveryMode(viewModel);
+            viewModel.Announce($"Update all failed after {updated} Skill(s) were updated. {exception.Message} The remaining Skill(s) were not touched.");
         }
         finally
         {

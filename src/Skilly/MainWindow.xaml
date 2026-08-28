@@ -292,6 +292,29 @@
                             <AccessText Text="_Refresh checks" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
+                    <Button x:Name="UpdateAllButton"
+                            Style="{StaticResource SecondaryBlueprintButton}"
+                            WindowChrome.IsHitTestVisibleInChrome="True"
+                            Margin="14,0,0,0"
+                            IsEnabled="{Binding CanUpdateAll}"
+                            Click="OnUpdateAll"
+                            AutomationProperties.Name="Update all Skills"
+                            AutomationProperties.AutomationId="Skilly.UpdateAll"
+                            TabIndex="4">
+                        <StackPanel Orientation="Horizontal">
+                            <Viewbox Width="14" Height="14" Margin="0,0,6,0">
+                                <Canvas Width="24" Height="24">
+                                    <Path Data="M21,15 v4 a2,2 0 0 1 -2,2 H5 a2,2 0 0 1 -2,-2 v-4 M7,10 l5,5 5,-5 M12,15 V3"
+                                          Stroke="{StaticResource TextBrush}"
+                                          StrokeThickness="1.5"
+                                          StrokeStartLineCap="Round"
+                                          StrokeEndLineCap="Round"
+                                          StrokeLineJoin="Round" />
+                                </Canvas>
+                            </Viewbox>
+                            <AccessText Text="Update _all" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
                     <Button x:Name="CloseWindowButton"
                             Style="{StaticResource GhostIconButton}"
                             WindowChrome.IsHitTestVisibleInChrome="True"
@@ -427,7 +450,7 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              AutomationProperties.Name="Inventory filters"
                              AutomationProperties.AutomationId="Skilly.FilterRail"
-                             TabIndex="4">
+                             TabIndex="5">
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem" BasedOn="{StaticResource FilterRailContainer}">
                                 <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
@@ -473,7 +496,7 @@
                                      Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                                      AutomationProperties.Name="Search skills"
                                      AutomationProperties.AutomationId="Skilly.Search"
-                                     TabIndex="5" />
+                                     TabIndex="6" />
                             <TextBlock Text="Search skills"
                                        Margin="10,0"
                                        VerticalAlignment="Center"
@@ -532,7 +555,7 @@
                              ItemContainerStyle="{StaticResource SkillRowContainer}"
                              AutomationProperties.Name="Skill list"
                              AutomationProperties.AutomationId="Skilly.SkillList"
-                             TabIndex="6">
+                             TabIndex="7">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <Grid>
