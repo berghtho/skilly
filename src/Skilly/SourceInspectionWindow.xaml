@@ -2,19 +2,62 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Inspect Skill Library"
-        Width="780"
-        Height="600"
-        MinWidth="640"
-        MinHeight="440"
+        Width="840"
+        Height="640"
+        MinWidth="700"
+        MinHeight="480"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
-                 AutomationProperties.Name="Source inspector">
-    <DockPanel Margin="14">
-        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-            <TextBlock Text="Source Inspection" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
-            <Grid>
+        Background="{StaticResource BgBrush}"
+        Foreground="{StaticResource TextBrush}"
+        FontFamily="{StaticResource BodyFont}"
+        FontSize="13.5"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display"
+        AutomationProperties.Name="Source inspector">
+    <ContentControl Style="{StaticResource BlueprintPanel}" Margin="12" Padding="22,20">
+        <DockPanel>
+            <!-- Header -->
+            <Grid DockPanel.Dock="Top">
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Style="{StaticResource SectionKicker}" Text="SOURCE INSPECTION" />
+                    <TextBlock Text="{Binding Heading}"
+                               FontFamily="{StaticResource HeadingFont}"
+                               FontWeight="SemiBold"
+                               FontSize="26"
+                               TextWrapping="Wrap"
+                               LineHeight="29"
+                               LineStackingStrategy="BlockLineHeight"
+                               Margin="0,2,0,0" />
+                </StackPanel>
+                <Button Grid.Column="1"
+                        Style="{StaticResource GhostIconButton}"
+                        Click="OnCloseInspector"
+                        IsEnabled="{Binding CanSelect}"
+                        VerticalAlignment="Top"
+                        AutomationProperties.Name="Close"
+                        AutomationProperties.AutomationId="Skilly.CloseInspectorIcon">
+                    <Viewbox Width="16" Height="16">
+                        <Canvas Width="24" Height="24">
+                            <Path Data="M18,6 L6,18 M6,6 L18,18"
+                                  Stroke="{StaticResource TextBrush}"
+                                  StrokeThickness="1.5"
+                                  StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round" />
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+            </Grid>
+
+            <!-- Meta grid -->
+            <Grid DockPanel.Dock="Top" Margin="0,12,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="130" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>
@@ -22,73 +65,177 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="Source:" FontWeight="SemiBold" Margin="0,0,8,3" />
-                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Source}" TextWrapping="Wrap" />
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Tracking Rule:" FontWeight="SemiBold" Margin="0,0,8,3" />
-                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding TrackingRule}" />
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="Resolved identity:" FontWeight="SemiBold" Margin="0,0,8,0" />
-                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Commit}" />
+                <TextBlock Grid.Row="0" Grid.Column="0" FontSize="12.5" Foreground="{StaticResource Text55Brush}" Text="Source" Margin="0,0,10,4" />
+                <TextBlock Grid.Row="0" Grid.Column="1" FontFamily="{StaticResource MonoFont}" FontSize="11.5" Text="{Binding Source}" TextWrapping="Wrap" Margin="0,0,0,4" />
+                <TextBlock Grid.Row="1" Grid.Column="0" FontSize="12.5" Foreground="{StaticResource Text55Brush}" Text="Tracking Rule" Margin="0,0,10,4" />
+                <TextBlock Grid.Row="1" Grid.Column="1" FontSize="12.5" Text="{Binding TrackingRule}" Margin="0,0,0,4" />
+                <TextBlock Grid.Row="2" Grid.Column="0" FontSize="12.5" Foreground="{StaticResource Text55Brush}" Text="Resolved identity" Margin="0,0,10,0" />
+                <TextBlock Grid.Row="2" Grid.Column="1" FontFamily="{StaticResource MonoFont}" FontSize="11.5" Text="{Binding Commit}" />
             </Grid>
-        </StackPanel>
 
-        <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
-            <DockPanel Margin="0,0,0,8" IsEnabled="{Binding CanSelect}">
-                 <Button DockPanel.Dock="Right"
-                         Content="Select _exact"
-                         Click="OnSelectExact"
-                         AutomationProperties.Name="Select exact Source Skill"
-                         AutomationProperties.AutomationId="Skilly.SelectExact"
-                        MinWidth="100"
-                        Margin="8,0,0,0" />
-                 <TextBox Text="{Binding ExactSelection, UpdateSourceTrigger=PropertyChanged}"
-                          AutomationProperties.Name="Exact Source Skill path or declared-name alias"
-                          AutomationProperties.AutomationId="Skilly.ExactSelection" />
-            </DockPanel>
-             <TextBlock x:Name="SourceStatus"
-                        Text="{Binding Status}"
-                       TextWrapping="Wrap"
-                        AutomationProperties.Name="{Binding Status}"
-                        AutomationProperties.LiveSetting="Polite"
-                        AutomationProperties.AutomationId="Skilly.SourceStatus"
-                       Margin="0,0,0,10" />
-            <DockPanel>
-                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
-                    <Button Content="Select _all" Click="OnSelectAll" IsEnabled="{Binding CanSelect}" Margin="0,0,8,0" AutomationProperties.AutomationId="Skilly.SelectAll" />
-                    <Button Content="Select _none" Click="OnSelectNone" IsEnabled="{Binding CanSelect}" AutomationProperties.AutomationId="Skilly.SelectNone" />
-                </StackPanel>
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                    <Button Content="_Close" IsCancel="True" IsEnabled="{Binding CanSelect}" MinWidth="90" Margin="0,0,8,0" AutomationProperties.AutomationId="Skilly.CloseInspector" />
-                    <Button Content="_Install selected"
-                            Click="OnInstallSelected"
-                            IsEnabled="{Binding CanInstall}"
-                             MinWidth="130"
-                             AutomationProperties.Name="Install selected Source Skills"
-                             AutomationProperties.AutomationId="Skilly.InstallSelected" />
-                </StackPanel>
-            </DockPanel>
-        </StackPanel>
+            <TextBlock DockPanel.Dock="Top"
+                       FontSize="11.5"
+                       Foreground="{StaticResource Text55Brush}"
+                       Text="{Binding DiscoveryLine}"
+                       Margin="0,10,0,8" />
 
-        <ListView ItemsSource="{Binding Skills}"
-                  IsEnabled="{Binding CanSelect}"
-                  AutomationProperties.Name="Discovered Source Skills"
-                  AutomationProperties.AutomationId="Skilly.SourceSkills">
-            <ListView.View>
-                <GridView>
-                    <GridViewColumn Width="50">
-                        <GridViewColumn.CellTemplate>
-                            <DataTemplate>
-                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                          IsEnabled="{Binding Skill.MetadataValid}"
-                                          AutomationProperties.Name="{Binding Skill.SkillPath}" />
-                            </DataTemplate>
-                        </GridViewColumn.CellTemplate>
-                    </GridViewColumn>
-                    <GridViewColumn Header="Source Skill path" Width="245" DisplayMemberBinding="{Binding Skill.SkillPath}" />
-                    <GridViewColumn Header="Alias" Width="190" DisplayMemberBinding="{Binding Alias}" />
-                    <GridViewColumn Header="Files" Width="50" DisplayMemberBinding="{Binding Skill.FileCount}" />
-                    <GridViewColumn Header="Installability" Width="210" DisplayMemberBinding="{Binding Installability}" />
-                </GridView>
-            </ListView.View>
-        </ListView>
-    </DockPanel>
+            <!-- Column header -->
+            <Border DockPanel.Dock="Top"
+                    BorderBrush="{StaticResource DividerBrush}"
+                    BorderThickness="0,1,0,1"
+                    Padding="8,5">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="34" />
+                        <ColumnDefinition Width="*" MinWidth="220" />
+                        <ColumnDefinition Width="150" />
+                        <ColumnDefinition Width="56" />
+                        <ColumnDefinition Width="200" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="1" Style="{StaticResource ColumnKicker}" Text="SOURCE SKILL PATH" />
+                    <TextBlock Grid.Column="2" Style="{StaticResource ColumnKicker}" Text="ALIAS" />
+                    <TextBlock Grid.Column="3" Style="{StaticResource ColumnKicker}" Text="FILES" />
+                    <TextBlock Grid.Column="4" Style="{StaticResource ColumnKicker}" Text="INSTALLABILITY" />
+                </Grid>
+            </Border>
+
+            <!-- Footer -->
+            <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+                <DockPanel Margin="0,0,0,10" IsEnabled="{Binding CanSelect}">
+                    <Button DockPanel.Dock="Right"
+                            Style="{StaticResource SecondaryActionButton}"
+                            Content="Select _exact"
+                            Click="OnSelectExact"
+                            MinWidth="100"
+                            Margin="8,0,0,0"
+                            AutomationProperties.Name="Select exact Source Skill"
+                            AutomationProperties.AutomationId="Skilly.SelectExact" />
+                    <TextBox Style="{StaticResource IndustryTextBox}"
+                             MinHeight="32"
+                             FontFamily="{StaticResource MonoFont}"
+                             FontSize="11.5"
+                             Text="{Binding ExactSelection, UpdateSourceTrigger=PropertyChanged}"
+                             AutomationProperties.Name="Exact Source Skill path or declared-name alias"
+                             AutomationProperties.AutomationId="Skilly.ExactSelection" />
+                </DockPanel>
+                <TextBlock x:Name="SourceStatus"
+                           Text="{Binding Status}"
+                           FontSize="11.5"
+                           Foreground="{StaticResource Text65Brush}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="{Binding Status}"
+                           AutomationProperties.LiveSetting="Polite"
+                           AutomationProperties.AutomationId="Skilly.SourceStatus"
+                           Margin="0,0,0,10" />
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                        <Button Style="{StaticResource GhostButton}"
+                                Content="Select _all"
+                                FontSize="12.5"
+                                Click="OnSelectAll"
+                                IsEnabled="{Binding CanSelect}"
+                                Margin="0,0,8,0"
+                                AutomationProperties.AutomationId="Skilly.SelectAll" />
+                        <Button Style="{StaticResource GhostButton}"
+                                Content="Select _none"
+                                FontSize="12.5"
+                                Click="OnSelectNone"
+                                IsEnabled="{Binding CanSelect}"
+                                AutomationProperties.AutomationId="Skilly.SelectNone" />
+                    </StackPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Style="{StaticResource SecondaryButton}"
+                                Content="_Close"
+                                IsCancel="True"
+                                IsEnabled="{Binding CanSelect}"
+                                MinWidth="90"
+                                Margin="0,0,8,0"
+                                AutomationProperties.AutomationId="Skilly.CloseInspector" />
+                        <Button Style="{StaticResource PrimaryButton}"
+                                Content="{Binding SelectedCount}"
+                                ContentStringFormat="Install selected ({0})"
+                                Click="OnInstallSelected"
+                                IsEnabled="{Binding CanInstall}"
+                                MinWidth="150"
+                                AutomationProperties.Name="Install selected Source Skills"
+                                AutomationProperties.AutomationId="Skilly.InstallSelected" />
+                    </StackPanel>
+                </DockPanel>
+            </StackPanel>
+
+            <!-- Discovered Source Skills -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          IsEnabled="{Binding CanSelect}"
+                          AutomationProperties.Name="Discovered Source Skills"
+                          AutomationProperties.AutomationId="Skilly.SourceSkills">
+                <ItemsControl ItemsSource="{Binding Skills}" Focusable="False">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="{StaticResource Text08Brush}"
+                                    BorderThickness="0,0,0,1"
+                                    Padding="8,6">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="34" />
+                                        <ColumnDefinition Width="*" MinWidth="220" />
+                                        <ColumnDefinition Width="150" />
+                                        <ColumnDefinition Width="56" />
+                                        <ColumnDefinition Width="200" />
+                                    </Grid.ColumnDefinitions>
+                                    <CheckBox Grid.Column="0"
+                                              Style="{StaticResource IndustryCheckBox}"
+                                              IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                              IsEnabled="{Binding Skill.MetadataValid}"
+                                              AutomationProperties.Name="{Binding Skill.SkillPath}" />
+                                    <TextBlock Grid.Column="1"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="11.5"
+                                               Text="{Binding Skill.SkillPath}"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,8,0" />
+                                    <TextBlock Grid.Column="2"
+                                               FontSize="12.5"
+                                               Text="{Binding Alias}"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,8,0" />
+                                    <TextBlock Grid.Column="3"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="11.5"
+                                               Foreground="{StaticResource Text75Brush}"
+                                               Text="{Binding Skill.FileCount}"
+                                               VerticalAlignment="Center" />
+                                    <Grid Grid.Column="4" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                        <TextBlock x:Name="InstallablePlain"
+                                                   FontSize="12"
+                                                   Foreground="{StaticResource Text55Brush}"
+                                                   Text="{Binding Installability}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <Border x:Name="InstallableTag"
+                                                Background="{StaticResource Accent900Brush}"
+                                                CornerRadius="3"
+                                                Visibility="Collapsed">
+                                            <TextBlock Margin="9,3"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource BgBrush}"
+                                                       Text="{Binding Installability}"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       MaxWidth="180" />
+                                        </Border>
+                                    </Grid>
+                                </Grid>
+                            </Border>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding Skill.MetadataValid}" Value="False">
+                                    <Setter TargetName="InstallablePlain" Property="Visibility" Value="Collapsed" />
+                                    <Setter TargetName="InstallableTag" Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </DockPanel>
+    </ContentControl>
 </Window>

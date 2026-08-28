@@ -13,6 +13,8 @@ public sealed record FilterCount(string Name, int Count);
 
 public record StatusUpdate(string Message, DateTimeOffset Timestamp);
 
+public sealed record ExposureRow(string Harness, string Mode, string ModeKind, string Detail);
+
 public sealed class InventoryRow
 {
     public InventoryRow(InventoryEntry entry)
@@ -27,7 +29,7 @@ public sealed class InventoryRow
             RootKind.CodexLegacySkills => ".codex\\skills (legacy)",
             _ => entry.RootKind.ToString(),
         };
-        ExposuresSummary = $"{entry.Exposures.Values.Count(static value => value.State is ExposureState.Canonical or ExposureState.Direct or ExposureState.VerifiedJunction)} of 4 harnesses exposed";
+        ExposuresSummary = $"{entry.Exposures.Values.Count(static value => IsExposed(value.State))} of 4 harnesses exposed";
         ExposureDisplay = new Dictionary<string, HarnessExposure>
         {
             ["OpenCode"] = entry.Exposures[Harness.OpenCode],
@@ -35,11 +37,45 @@ public sealed class InventoryRow
             ["ClaudeCode"] = entry.Exposures[Harness.ClaudeCode],
             ["GitHubCopilot"] = entry.Exposures[Harness.GitHubCopilot],
         };
+        (Harness Harness, string Label)[] harnesses =
+        [
+            (Harness.OpenCode, "OpenCode"),
+            (Harness.Codex, "Codex"),
+            (Harness.ClaudeCode, "Claude Code"),
+            (Harness.GitHubCopilot, "GitHub Copilot"),
+        ];
+        ExposureCells = [.. harnesses.Select(harness => IsExposed(entry.Exposures[harness.Harness].State))];
+        ExposedCount = ExposureCells.Count(static exposed => exposed);
+        ExposuresLabel = $"{ExposedCount}/4";
+        ExposureRows = [.. harnesses.Select(harness =>
+        {
+            var exposure = entry.Exposures[harness.Harness];
+            var mode = exposure.State == ExposureState.None ? "Not exposed" : exposure.Display;
+            var kind = exposure.State switch
+            {
+                ExposureState.Canonical or ExposureState.Direct => "Tinted",
+                ExposureState.VerifiedJunction => "Outline",
+                ExposureState.None => "Plain",
+                _ => "Problem",
+            };
+            return new ExposureRow(harness.Label, mode, kind, exposure.Detail);
+        })];
     }
+
+    private static bool IsExposed(ExposureState state)
+        => state is ExposureState.Canonical or ExposureState.Direct or ExposureState.VerifiedJunction;
 
     public InventoryEntry Entry { get; }
 
     public IReadOnlyDictionary<string, HarnessExposure> ExposureDisplay { get; }
+
+    public IReadOnlyList<bool> ExposureCells { get; }
+
+    public int ExposedCount { get; }
+
+    public string ExposuresLabel { get; }
+
+    public IReadOnlyList<ExposureRow> ExposureRows { get; }
 
     public string Name => Entry.FolderName;
 
@@ -84,6 +120,19 @@ public sealed class InventoryRow
         ManagementStatus.VerifiedAdoptionAvailable => "Verified Adoption Available",
         ManagementStatus.Unmanaged => "Unmanaged",
         _ => Entry.ManagementStatus.ToString(),
+    };
+
+    public string ManagementShort => Entry.ManagementStatus == ManagementStatus.VerifiedAdoptionAvailable
+        ? "Verified Adoption"
+        : Management;
+
+    public bool HealthIsHealthy => Entry.Health == InstallationHealth.Healthy;
+
+    public string UpdateKind => UpdateStatus switch
+    {
+        "Update Available" => "Available",
+        "Not checked" => "Faint",
+        _ => "Muted",
     };
 
     public string Health => Entry.Health switch
@@ -368,7 +417,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public bool HasSkills => Rows.Count > 0;
 
-    public bool HasNoSkills => Rows.Count == 0;
+    public bool HasNoSkills => _allRows.Count == 0;
+
+    public bool HasNoMatches => _allRows.Count > 0 && Rows.Count == 0;
+
+    public string ListSummary
+    {
+        get
+        {
+            var attention = _allRows.Count(static row => row.Entry.NeedsAttention);
+            return attention == 0
+                ? $"{_allRows.Count} installations"
+                : $"{_allRows.Count} installations · {attention} need attention";
+        }
+    }
 
     public bool HasSelection => SelectedRow is not null;
 
@@ -473,6 +535,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         OnPropertyChanged(nameof(HasSkills));
         OnPropertyChanged(nameof(HasNoSkills));
+        OnPropertyChanged(nameof(HasNoMatches));
+        OnPropertyChanged(nameof(ListSummary));
     }
 
     private bool MatchesFilter(InventoryRow row)

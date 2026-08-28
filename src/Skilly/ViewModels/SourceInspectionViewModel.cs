@@ -72,6 +72,10 @@ public sealed class SourceInspectionViewModel : INotifyPropertyChanged
 
     public string Source => Inspection.Reference.Normalized;
 
+    public string Heading => $"{Inspection.Reference.Owner}/{Inspection.Reference.Repository}";
+
+    public string DiscoveryLine => $"{Skills.Count} Source Skill(s) discovered — read-only scan; nothing is installed until you confirm.";
+
     public string TrackingRule => Inspection.RequestedTrackingRule;
 
     public string Commit => Inspection.Commit.Sha[..Math.Min(12, Inspection.Commit.Sha.Length)];
