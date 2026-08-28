@@ -119,13 +119,13 @@ public sealed class GitHubProvider(
         }
     }
 
-    public ProviderResult<CheckResult> Check(State.ManagementRecord record)
+    public ProviderResult<CheckResult> Check(State.ManagementRecord record, CommitResolutionCache? commitCache = null)
     {
         try
         {
             client.EnsureAuthenticated(record.Provenance.Host);
             return ProviderResult<CheckResult>.Success(
-                checker.Check(record),
+                checker.Check(record, commitCache),
                 "Read-only selected-content Check completed; nothing changed.");
         }
         catch (Exception exception)

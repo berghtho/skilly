@@ -634,6 +634,46 @@ public sealed class GitHubProviderTests
     }
 
     [Fact]
+    public void Check_refresh_resolves_a_shared_Tracking_Rule_once_for_same_repository_Skills()
+    {
+        using var fixture = new GitHubProviderFixture();
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills[0], inspection.Skills[1]]).ValueOrThrow();
+        var resolvesBeforeRefresh = CountCommitResolutions(fixture);
+
+        var result = new ProviderCheckRunner(fixture.Provider, fixture.StateStore).Refresh();
+
+        Assert.Equal(2, result.CheckedCount);
+        Assert.Equal(0, result.FailureCount);
+        Assert.Equal(resolvesBeforeRefresh + 1, CountCommitResolutions(fixture));
+        Assert.All(
+            fixture.StateStore.Load().Records,
+            record => Assert.Equal(UpdateStatus.Current, record.LatestCheck!.Status));
+    }
+
+    [Fact]
+    public void Check_refresh_fails_all_same_repository_Skills_from_one_shared_resolution_failure()
+    {
+        using var fixture = new GitHubProviderFixture();
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills[0], inspection.Skills[1]]).ValueOrThrow();
+        fixture.FailRequestsContaining("/commits/");
+        var resolvesBeforeRefresh = CountCommitResolutions(fixture);
+
+        var result = new ProviderCheckRunner(fixture.Provider, fixture.StateStore).Refresh();
+
+        Assert.Equal(2, result.FailureCount);
+        Assert.Equal(resolvesBeforeRefresh + 1, CountCommitResolutions(fixture));
+        Assert.All(
+            fixture.StateStore.Load().Records,
+            record => Assert.Contains("exit code 17", record.LatestCheck!.Failure));
+    }
+
+    private static int CountCommitResolutions(GitHubProviderFixture fixture)
+        => File.ReadAllLines(fixture.GhInvocationsPath)
+            .Count(static line => line.Contains("commits/main", StringComparison.Ordinal));
+
+    [Fact]
     public void Initial_provider_failure_is_persisted_as_Check_Failed()
     {
         using var fixture = new GitHubProviderFixture();

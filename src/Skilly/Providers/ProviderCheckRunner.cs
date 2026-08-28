@@ -32,6 +32,7 @@ public sealed class ProviderCheckRunner
 
         var checkedCount = 0;
         var failureCount = 0;
+        var commitCache = new CommitResolutionCache();
         foreach (var record in state.Records.Where(record =>
                       string.Equals(record.Provenance.SourceProvider, "github", StringComparison.Ordinal)
                      || (_skillsProvider is not null && string.Equals(record.Provenance.SourceProvider, "skills", StringComparison.Ordinal))
@@ -42,7 +43,7 @@ public sealed class ProviderCheckRunner
                 ? _skillsProvider!.Check(record)
                 : string.Equals(record.Provenance.SourceProvider, ApmClient.ProviderId, StringComparison.Ordinal)
                     ? _apmProvider!.Check(record)
-                    : _provider.Check(record);
+                    : _provider.Check(record, commitCache);
             if (result.Succeeded)
             {
                 var check = result.Value!;
