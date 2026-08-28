@@ -229,10 +229,9 @@ public partial class MainWindow : Window
         => ((ViewModels.MainViewModel)DataContext).SelectedRows =
             SkillList.SelectedItems.Cast<ViewModels.InventoryRow>().ToList();
 
-    private void OnSkillListHeaderClick(object sender, RoutedEventArgs e)
+    private void OnSortHeaderClick(object sender, RoutedEventArgs e)
     {
-        if (e.OriginalSource is GridViewColumnHeader header && header.Column?.Header is string label
-            && ColumnMap.TryGetValue(label, out var column))
+        if (sender is Button { Tag: string tag } && Enum.TryParse<ViewModels.InventorySortColumn>(tag, out var column))
         {
             ((ViewModels.MainViewModel)DataContext).SortBy(column);
         }
@@ -628,13 +627,4 @@ public partial class MainWindow : Window
         base.OnClosing(e);
     }
 
-    private static readonly Dictionary<string, ViewModels.InventorySortColumn> ColumnMap = new()
-    {
-        ["Skill"] = ViewModels.InventorySortColumn.Name,
-        ["Root"] = ViewModels.InventorySortColumn.Root,
-        ["Management"] = ViewModels.InventorySortColumn.Management,
-        ["Health"] = ViewModels.InventorySortColumn.Health,
-        ["Update"] = ViewModels.InventorySortColumn.UpdateStatus,
-        ["Exposures"] = ViewModels.InventorySortColumn.Exposures,
-    };
 }

@@ -66,6 +66,8 @@ public partial class SourceInspectionWindow : Window
 
     public Task OperationCompletion => _operationCompletion?.Task ?? Task.CompletedTask;
 
+    private void OnCloseInspector(object sender, RoutedEventArgs e) => Close();
+
     private void OnSelectAll(object sender, RoutedEventArgs e)
     {
         _viewModel?.SelectAll(true);

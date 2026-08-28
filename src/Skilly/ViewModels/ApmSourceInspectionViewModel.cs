@@ -45,6 +45,8 @@ public sealed class ApmSourceInspectionViewModel : INotifyPropertyChanged
     public ApmInspection Inspection { get; }
     public ObservableCollection<SelectableApmSourceSkill> Skills { get; }
     public string Source => Inspection.NormalizedSource;
+    public string Heading => Inspection.NormalizedSource;
+    public string DiscoveryLine => $"{Skills.Count} Source Skill(s) discovered — read-only scan; nothing is installed until you confirm.";
     public string TrackingRule => Inspection.RequestedTrackingRule;
     public string Commit => $"apm-cli {Inspection.ProviderVersion}";
     public int SelectedCount => Skills.Count(item => item.IsSelected);

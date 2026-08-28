@@ -58,6 +58,8 @@ public sealed class SkillsCliSourceInspectionViewModel : INotifyPropertyChanged
     public SkillsCliInspection Inspection { get; }
     public ObservableCollection<SelectableSkillsCliSourceSkill> Skills { get; }
     public string Source => Inspection.NormalizedSource;
+    public string Heading => Inspection.NormalizedSource;
+    public string DiscoveryLine => $"{Skills.Count} Source Skill(s) discovered — read-only scan; nothing is installed until you confirm.";
     public string TrackingRule => Inspection.RequestedTrackingRule;
     public string Commit => SkillsCliClient.Package;
     public int SelectedCount => Skills.Count(static item => item.IsSelected);
