@@ -24,38 +24,47 @@
                       UseAeroCaptionButtons="False" />
     </WindowChrome.WindowChrome>
     <Window.Resources>
-        <DataTemplate x:Key="SkillNameRow">
-            <Border BorderBrush="{StaticResource Text08Brush}"
-                    BorderThickness="0,0,0,1"
-                    Padding="8,6">
-                <TextBlock FontFamily="{StaticResource MonoFont}"
-                           FontSize="11.5"
-                           Text="{Binding}"
-                           TextTrimming="CharacterEllipsis" />
+        <DataTemplate x:Key="AddedSkillRow">
+            <Border BorderBrush="{StaticResource Text08Brush}" BorderThickness="0,0,0,1" Padding="8,7">
+                <DockPanel>
+                    <Border DockPanel.Dock="Left" Background="{StaticResource Accent100Brush}" CornerRadius="3" Padding="7,2" Margin="0,0,10,0">
+                        <TextBlock Text="Added" FontSize="10.5" Foreground="{StaticResource Accent800Brush}" />
+                    </Border>
+                    <TextBlock FontFamily="{StaticResource MonoFont}" FontSize="11.5" Text="{Binding}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                </DockPanel>
+            </Border>
+        </DataTemplate>
+        <DataTemplate x:Key="RemovedSkillRow">
+            <Border BorderBrush="{StaticResource Text08Brush}" BorderThickness="0,0,0,1" Padding="8,7">
+                <DockPanel>
+                    <Border DockPanel.Dock="Left" Background="{StaticResource Accent900Brush}" CornerRadius="3" Padding="7,2" Margin="0,0,10,0">
+                        <TextBlock Text="Removed" FontSize="10.5" Foreground="{StaticResource BgBrush}" />
+                    </Border>
+                    <TextBlock FontFamily="{StaticResource MonoFont}" FontSize="11.5" Text="{Binding}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                </DockPanel>
             </Border>
         </DataTemplate>
     </Window.Resources>
-    <ContentControl Style="{StaticResource BlueprintPanel}" Margin="12" Padding="22,20">
-        <DockPanel>
+    <DockPanel>
             <!-- Header -->
-            <Grid DockPanel.Dock="Top">
+            <Grid DockPanel.Dock="Top" Background="{StaticResource Accent900Brush}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0">
-                    <TextBlock Style="{StaticResource SectionKicker}" Text="SKILL LIBRARY CHANGES" />
-                    <TextBlock x:Name="LibraryHeading"
+                <StackPanel Grid.Column="0" Margin="20,14,0,16">
+                    <TextBlock Style="{StaticResource SectionKicker}" Foreground="{StaticResource Paper70Brush}" Text="SKILL LIBRARY CHANGES" />
+                    <TextBlock x:Name="LibraryHeading" Foreground="{StaticResource BgBrush}"
                                FontFamily="{StaticResource HeadingFont}"
                                FontWeight="SemiBold"
-                               FontSize="26"
+                               FontSize="24"
                                TextWrapping="Wrap"
                                LineHeight="29"
                                LineStackingStrategy="BlockLineHeight"
                                Margin="0,2,0,0" />
                 </StackPanel>
                 <Button Grid.Column="1"
-                        Style="{StaticResource GhostIconButton}"
+                        Style="{StaticResource SteelCloseButton}" Margin="12,14,20,0"
                         WindowChrome.IsHitTestVisibleInChrome="True"
                         Click="OnClose"
                         VerticalAlignment="Top"
@@ -64,7 +73,7 @@
                     <Viewbox Width="16" Height="16">
                         <Canvas Width="24" Height="24">
                             <Path Data="M18,6 L6,18 M6,6 L18,18"
-                                  Stroke="{StaticResource TextBrush}"
+                                  Stroke="{StaticResource BgBrush}"
                                   StrokeThickness="1.5"
                                   StrokeStartLineCap="Round"
                                   StrokeEndLineCap="Round" />
@@ -78,12 +87,12 @@
                        FontSize="12.5"
                        Foreground="{StaticResource Text75Brush}"
                        TextWrapping="Wrap"
-                       Margin="0,12,0,4"
+                       Margin="20,12,20,4"
                        AutomationProperties.LiveSetting="Polite"
                        AutomationProperties.AutomationId="Skilly.LibraryChangesSummary" />
 
             <!-- Footer -->
-            <DockPanel DockPanel.Dock="Bottom" Margin="0,14,0,0">
+            <DockPanel DockPanel.Dock="Bottom" Margin="20,14,20,18">
                 <Button DockPanel.Dock="Right"
                         Style="{StaticResource PrimaryButton}"
                         Content="_Close"
@@ -95,6 +104,7 @@
                 <TextBlock />
             </DockPanel>
 
+            <ContentControl Style="{StaticResource BlueprintPanel}" Margin="20,14,20,0" Padding="12,0,12,12">
             <ScrollViewer VerticalScrollBarVisibility="Auto"
                           AutomationProperties.Name="Skill Library membership changes"
                           AutomationProperties.AutomationId="Skilly.LibraryChangesList">
@@ -107,7 +117,7 @@
                             <TextBlock Style="{StaticResource SectionKicker}" Text="NEW SKILLS IN THIS LIBRARY" />
                         </Border>
                         <ItemsControl x:Name="AddedList"
-                                      ItemTemplate="{StaticResource SkillNameRow}"
+                                      ItemTemplate="{StaticResource AddedSkillRow}"
                                       Focusable="False"
                                       AutomationProperties.AutomationId="Skilly.LibraryChangesAdded" />
                     </StackPanel>
@@ -119,12 +129,12 @@
                             <TextBlock Style="{StaticResource SectionKicker}" Text="REMOVED SKILLS" />
                         </Border>
                         <ItemsControl x:Name="RemovedList"
-                                      ItemTemplate="{StaticResource SkillNameRow}"
+                                      ItemTemplate="{StaticResource RemovedSkillRow}"
                                       Focusable="False"
                                       AutomationProperties.AutomationId="Skilly.LibraryChangesRemoved" />
                     </StackPanel>
                 </StackPanel>
             </ScrollViewer>
-        </DockPanel>
-    </ContentControl>
+            </ContentControl>
+    </DockPanel>
 </Window>

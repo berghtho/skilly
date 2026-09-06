@@ -10,7 +10,9 @@ Skilly is a portable Windows app for managing global agent Skills across OpenCod
 
 ![Skilly workbench](assets/skilly-workbench.png)
 
-The workbench follows the Industry design system: a light technical ground with a steel-blue accent, condensed headings, and square blueprint panels. Filter the inventory, search it live, and inspect any installation's Provenance, health, update status, and Harness Exposures in the details pane. Skilly ships its typefaces (Barlow and Barlow Condensed, OFL) inside the executable.
+The workbench uses a steel-blue header, segmented inventory filters, condensed headings, and square blueprint panels. The Status column highlights health problems, available updates, and failed checks. Update or adopt a Skill directly from its row; inspect Provenance and the four Harness Exposures in the details pane. Review updates, History, Skill Library changes, and SKILL.md share the same styling. Skilly ships its typefaces (Barlow and Barlow Condensed, OFL) inside the executable.
+
+Click a selected row again to clear its details. Ctrl/Shift selection still supports batch Adoption; a row action selects only that Skill. Click Status to sort deviations first, or right-click it to sort by Health or Update separately.
 
 ## v1
 

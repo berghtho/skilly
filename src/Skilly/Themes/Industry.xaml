@@ -59,8 +59,8 @@
     <!-- Barlow ships embedded (OFL, see Fonts/OFL-*.txt); Segoe UI is the safety net.
          The stretches live in separate folders because DirectWrite groups both under
          the WWS family "Barlow", and a mixed folder makes face selection ambiguous. -->
-    <FontFamily x:Key="HeadingFont">pack://application:,,,/Fonts/BarlowCondensed/#Barlow, Segoe UI</FontFamily>
-    <FontFamily x:Key="BodyFont">pack://application:,,,/Fonts/Barlow/#Barlow, Segoe UI</FontFamily>
+    <FontFamily x:Key="HeadingFont">pack://application:,,,/Skilly;component/Fonts/BarlowCondensed/#Barlow, Segoe UI</FontFamily>
+    <FontFamily x:Key="BodyFont">pack://application:,,,/Skilly;component/Fonts/Barlow/#Barlow, Segoe UI</FontFamily>
     <FontFamily x:Key="MonoFont">Cascadia Mono, Consolas</FontFamily>
 
     <!-- ═══ Focus visual: 2px accent outline, 2px offset ═══ -->
@@ -81,17 +81,23 @@
     <!-- ═══ Text styles ═══ -->
 
     <Style x:Key="Kicker" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="10.5" />
+        <Setter Property="FontFamily" Value="{StaticResource HeadingFont}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="FontSize" Value="13" />
         <Setter Property="Foreground" Value="{StaticResource Text55Brush}" />
     </Style>
 
     <Style x:Key="ColumnKicker" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="10.5" />
+        <Setter Property="FontFamily" Value="{StaticResource HeadingFont}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="FontSize" Value="12.5" />
         <Setter Property="Foreground" Value="{StaticResource Text60Brush}" />
     </Style>
 
     <Style x:Key="SectionKicker" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="10.5" />
+        <Setter Property="FontFamily" Value="{StaticResource HeadingFont}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="FontSize" Value="13" />
         <Setter Property="Foreground" Value="{StaticResource Accent700Brush}" />
     </Style>
 
@@ -349,6 +355,7 @@
     </Style>
 
     <Style x:Key="IndustryComboBoxItem" TargetType="ComboBoxItem">
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
         <Setter Property="Padding" Value="10,6" />
         <Setter Property="FocusVisualStyle" Value="{StaticResource IndustryFocusVisual}" />
         <Setter Property="Template">
@@ -385,19 +392,20 @@
                     <Grid>
                         <ToggleButton x:Name="ToggleButton"
                                       Focusable="False"
+                                      Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" Foreground="{TemplateBinding Foreground}"
                                       ClickMode="Press"
                                       IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
                             <ToggleButton.Template>
                                 <ControlTemplate TargetType="ToggleButton">
                                     <Border x:Name="Bd"
-                                            Background="{StaticResource SurfaceBrush}"
-                                            BorderBrush="{StaticResource DividerBrush}"
+                                            Background="{TemplateBinding Background}"
+                                            BorderBrush="{TemplateBinding BorderBrush}"
                                             BorderThickness="1">
                                         <Path HorizontalAlignment="Right"
                                               VerticalAlignment="Center"
                                               Margin="0,0,10,0"
                                               Data="M0,0 L4,4 L8,0"
-                                              Stroke="{StaticResource Text55Brush}"
+                                              Stroke="{TemplateBinding Foreground}"
                                               StrokeThickness="1.5" />
                                     </Border>
                                     <ControlTemplate.Triggers>
@@ -425,7 +433,7 @@
                                     MaxHeight="{TemplateBinding MaxDropDownHeight}"
                                     Margin="0,2,0,0">
                                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                    <ItemsPresenter />
+                                    <ItemsPresenter TextElement.Foreground="{StaticResource TextBrush}" />
                                 </ScrollViewer>
                             </Border>
                         </Popup>
@@ -568,6 +576,7 @@
 
     <Style x:Key="SkillRowContainer" TargetType="ListBoxItem">
         <Setter Property="FocusVisualStyle" Value="{StaticResource IndustryFocusVisual}" />
+        <Setter Property="Padding" Value="14,9" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         <Setter Property="Template">
@@ -577,7 +586,7 @@
                             Background="Transparent"
                             BorderBrush="{StaticResource Text08Brush}"
                             BorderThickness="0,0,0,1"
-                            Padding="14,9">
+                            Padding="{TemplateBinding Padding}">
                         <ContentPresenter />
                     </Border>
                     <ControlTemplate.Triggers>
@@ -593,4 +602,161 @@
         </Setter>
     </Style>
 
+
+    <!-- Workbench v3: paper controls on the steel header. -->
+    <SolidColorBrush x:Key="Paper10Brush" Color="#1AF2F2F3" />
+    <SolidColorBrush x:Key="Paper12Brush" Color="#1FF2F2F3" />
+    <SolidColorBrush x:Key="Paper18Brush" Color="#2EF2F2F3" />
+    <SolidColorBrush x:Key="Paper30Brush" Color="#4DF2F2F3" />
+    <SolidColorBrush x:Key="Paper35Brush" Color="#59F2F2F3" />
+    <SolidColorBrush x:Key="Paper60Brush" Color="#99F2F2F3" />
+    <SolidColorBrush x:Key="Paper70Brush" Color="#B3F2F2F3" />
+
+    <Style x:Key="SteelTextBox" TargetType="TextBox" BasedOn="{StaticResource IndustryTextBox}">
+        <Setter Property="Background" Value="{StaticResource Paper10Brush}" />
+        <Setter Property="Foreground" Value="{StaticResource BgBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Paper30Brush}" />
+        <Setter Property="CaretBrush" Value="{StaticResource BgBrush}" />
+    </Style>
+    <Style x:Key="SteelComboBox" TargetType="ComboBox" BasedOn="{StaticResource IndustryComboBox}">
+        <Setter Property="Background" Value="{StaticResource Paper10Brush}" />
+        <Setter Property="Foreground" Value="{StaticResource BgBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Paper30Brush}" />
+    </Style>
+    <Style x:Key="SteelButton" TargetType="Button" BasedOn="{StaticResource ButtonBase}">
+        <Setter Property="Foreground" Value="{StaticResource BgBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Paper35Brush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd" Background="Transparent" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="{StaticResource Paper12Brush}" /></Trigger>
+                        <Trigger Property="IsPressed" Value="True"><Setter TargetName="Bd" Property="Background" Value="{StaticResource Paper18Brush}" /></Trigger>
+                        <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45" /></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="SteelGhostButton" TargetType="Button" BasedOn="{StaticResource SteelButton}">
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style x:Key="SteelCloseButton" TargetType="Button" BasedOn="{StaticResource SteelGhostButton}">
+        <Setter Property="Width" Value="28" /><Setter Property="Height" Value="28" />
+        <Setter Property="MinHeight" Value="28" /><Setter Property="Padding" Value="6" />
+    </Style>
+    <Style x:Key="SteelToggle" TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{StaticResource BgBrush}" />
+        <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
+        <Setter Property="FontSize" Value="12" /><Setter Property="Padding" Value="10,7" />
+        <Setter Property="Cursor" Value="Hand" /><Setter Property="MinHeight" Value="34" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource IndustryFocusVisual}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Border x:Name="Bd" Background="Transparent" BorderBrush="{StaticResource Paper35Brush}" BorderThickness="0,0,1,0" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="{StaticResource Paper12Brush}" /></Trigger>
+                        <Trigger Property="IsChecked" Value="True"><Setter TargetName="Bd" Property="Background" Value="{StaticResource Paper18Brush}" /><Setter Property="FontWeight" Value="SemiBold" /></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="FilterSegment" TargetType="ListBoxItem">
+        <Setter Property="FocusVisualStyle" Value="{StaticResource IndustryFocusVisual}" />
+        <Setter Property="Cursor" Value="Hand" /><Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="Bd" Background="Transparent" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,1,0" Padding="12,6">
+                        <ContentPresenter />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentTint10Brush}" /></Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Accent900Brush}" />
+                            <Setter Property="Foreground" Value="{StaticResource BgBrush}" /><Setter Property="FontWeight" Value="SemiBold" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="QuickActionButton" TargetType="Button" BasedOn="{StaticResource GhostButton}">
+        <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
+        <Setter Property="FontSize" Value="12" /><Setter Property="MinHeight" Value="28" /><Setter Property="Padding" Value="8,4" />
+    </Style>
+    <Style x:Key="RowActionButton" TargetType="Button" BasedOn="{StaticResource SecondaryButton}">
+        <Setter Property="FontFamily" Value="{StaticResource BodyFont}" /><Setter Property="FontSize" Value="12" />
+        <Setter Property="MinHeight" Value="26" /><Setter Property="Padding" Value="10,3" />
+    </Style>
+    <Style x:Key="ReadOnlyDocument" TargetType="TextBox" BasedOn="{StaticResource IndustryTextBox}">
+        <Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" />
+        <Setter Property="IsReadOnly" Value="True" /><Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+        <Setter Property="FontSize" Value="11.5" /><Setter Property="Padding" Value="12" />
+        <Setter Property="VerticalContentAlignment" Value="Top" /><Setter Property="VerticalScrollBarVisibility" Value="Auto" />
+        <Setter Property="HorizontalScrollBarVisibility" Value="Auto" />
+    </Style>
+    <Style x:Key="IndustryTab" TargetType="TabItem">
+        <Setter Property="FontFamily" Value="{StaticResource HeadingFont}" /><Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="{StaticResource Text55Brush}" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource IndustryFocusVisual}" />
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TabItem">
+            <Border x:Name="Bd" Background="Transparent" BorderBrush="Transparent" BorderThickness="0,0,0,2" Padding="12,9">
+                <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" />
+            </Border>
+            <ControlTemplate.Triggers><Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            </Trigger></ControlTemplate.Triggers>
+        </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="IndustryTabs" TargetType="TabControl">
+        <Setter Property="ItemContainerStyle" Value="{StaticResource IndustryTab}" />
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TabControl">
+            <DockPanel>
+                <Border DockPanel.Dock="Top" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,0,1">
+                    <TabPanel IsItemsHost="True" />
+                </Border>
+                <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent" />
+            </DockPanel>
+        </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="IndustryProgress" TargetType="ProgressBar">
+        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ProgressBar">
+            <Border BorderBrush="{StaticResource Accent700Brush}" BorderThickness="1" Padding="1">
+                <Grid x:Name="PART_Track"><Border x:Name="PART_Indicator" Background="{TemplateBinding Foreground}" HorizontalAlignment="Left" /></Grid>
+            </Border>
+        </ControlTemplate></Setter.Value></Setter>
+    </Style>
+
+    <Style x:Key="InspectorRowContainer" TargetType="ListBoxItem" BasedOn="{StaticResource SkillRowContainer}">
+        <Setter Property="Padding" Value="0" />
+    </Style>
+    <Style x:Key="ColumnResizeThumb" TargetType="Thumb">
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Thumb">
+            <Border Background="Transparent"><Border Width="1" Background="{StaticResource DividerBrush}" HorizontalAlignment="Center" /></Border>
+        </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <DataTemplate x:Key="HistoryResultTag">
+        <Border x:Name="Tag" Background="{StaticResource Neutral100Brush}" BorderBrush="Transparent" BorderThickness="1" CornerRadius="3" Padding="7,2" Margin="8,6" HorizontalAlignment="Left" VerticalAlignment="Center">
+            <TextBlock x:Name="Label" Text="{Binding Status}" FontSize="10.5" Foreground="{StaticResource Neutral800Brush}" />
+        </Border>
+        <DataTemplate.Triggers>
+            <DataTrigger Binding="{Binding Status}" Value="Succeeded"><Setter TargetName="Tag" Property="Background" Value="Transparent" /><Setter TargetName="Label" Property="Foreground" Value="{StaticResource Text55Brush}" /></DataTrigger>
+            <DataTrigger Binding="{Binding Status}" Value="Updated"><Setter TargetName="Tag" Property="Background" Value="Transparent" /><Setter TargetName="Label" Property="Foreground" Value="{StaticResource Text55Brush}" /></DataTrigger>
+            <DataTrigger Binding="{Binding Status}" Value="Failed"><Setter TargetName="Tag" Property="Background" Value="{StaticResource Accent900Brush}" /><Setter TargetName="Label" Property="Foreground" Value="{StaticResource BgBrush}" /></DataTrigger>
+            <DataTrigger Binding="{Binding Status}" Value="Preview failed"><Setter TargetName="Tag" Property="Background" Value="{StaticResource Accent900Brush}" /><Setter TargetName="Label" Property="Foreground" Value="{StaticResource BgBrush}" /></DataTrigger>
+            <DataTrigger Binding="{Binding Status}" Value="Interrupted"><Setter TargetName="Tag" Property="Background" Value="Transparent" /><Setter TargetName="Tag" Property="BorderBrush" Value="{StaticResource Accent700Brush}" /><Setter TargetName="Label" Property="Foreground" Value="{StaticResource Accent800Brush}" /></DataTrigger>
+        </DataTemplate.Triggers>
+    </DataTemplate>
 </ResourceDictionary>
