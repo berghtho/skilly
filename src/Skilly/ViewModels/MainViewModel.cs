@@ -14,7 +14,13 @@ public sealed record FilterCount(string Name, int Count);
 
 public record StatusUpdate(string Message, DateTimeOffset Timestamp);
 
-public sealed record ExposureRow(string Harness, string Mode, string ModeKind, string Detail);
+public sealed record ExposureRow(string Harness, string Mode, string ModeKind, string Detail)
+{
+    public string Abbreviation => Harness switch { "OpenCode" => "OC", "Codex" => "CX", "Claude Code" => "CC", _ => "GH" };
+    public string Label => Harness switch { "Claude Code" => "CLAUDE", "GitHub Copilot" => "COPILOT", _ => Harness.ToUpperInvariant() };
+    public bool IsExposed => ModeKind is "Tinted" or "Outline";
+    public bool HasProblem => ModeKind == "Problem";
+}
 
 public sealed class InventoryRow
 {
@@ -159,12 +165,22 @@ public sealed class InventoryRow
 
     public bool HealthIsHealthy => Entry.Health == InstallationHealth.Healthy;
 
-    public string UpdateKind => UpdateStatus switch
+    public string UpdateKind => StatusUpdateText switch
     {
         "Update Available" => "Available",
         "Not checked" => "Faint",
+        "Source Unavailable" or "Check Failed" => "Outline",
         _ => "Muted",
     };
+
+    // Stale results remain visible as failed checks, never as a clean dash.
+    public string StatusUpdateText => Check?.IsStale == true ? "Check Failed"
+        : Check?.Status == State.UpdateStatus.SourceUnavailable ? "Source Unavailable"
+        : Check?.Failure is not null ? "Check Failed" : UpdateStatus;
+    public bool HasUpdateDeviation => UpdateKind is "Available" or "Outline";
+    public bool HasStatusDeviation => !HealthIsHealthy || HasUpdateDeviation;
+    public int StatusPriority => !HealthIsHealthy ? 0 : UpdateKind == "Available" ? 1 : UpdateKind == "Outline" ? 2 : 3;
+    public string LibraryDetail => string.IsNullOrEmpty(LibraryProviderLabel) ? LibraryLabel : $"{LibraryLabel} · {LibraryProviderLabel}";
 
     public string Health => Entry.Health switch
     {
@@ -234,8 +250,8 @@ public sealed class InventoryRow
     {
         InstallationHealth.Collision => $"Compare the conflicting paths listed above. Keep the intended Skill Installation and move the conflicting folder manually, then Refresh checks. Skilly will not overwrite it. Local path: {Entry.LocalPath}",
         InstallationHealth.ExposureProblem => CanManagedReinstall
-            ? "Inspect the affected Harness Exposure below. Managed Reinstall can restore provider content and exposures after you review the replacement paths. It replaces content; preserve any local work first."
-            : "Inspect the affected Harness Exposure and its target below. Resolve the missing or conflicting reference manually, then Refresh checks.",
+            ? "Inspect the affected Harness Exposure above. Managed Reinstall can restore provider content and exposures after you review the replacement paths. It replaces content; preserve any local work first."
+            : "Inspect the affected Harness Exposure and its target above. Resolve the missing or conflicting reference manually, then Refresh checks.",
         InstallationHealth.InvalidMetadata => $"Read SKILL.md and the metadata error above. Correct the file outside Skilly, then Refresh checks. Local path: {Entry.LocalPath}",
         InstallationHealth.Missing => $"Restore the recorded installation from your backup, then Refresh checks. Skilly cannot safely update a missing installation. Expected path: {Entry.LocalPath}",
         _ => CanAdopt
@@ -296,6 +312,7 @@ public enum InventorySortColumn
     Management,
     Health,
     UpdateStatus,
+    Status,
     Exposures,
 }
 
@@ -341,7 +358,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private int _progressValue;
     private int _progressMaximum = 1;
     private GridLength _skillColumnWidth = new(1, GridUnitType.Star);
-    private double _managementWidth = 130, _healthWidth = 120, _updateWidth = 120, _exposuresWidth = 90;
+    private double _managementWidth = 150, _statusWidth = 180, _exposuresWidth = 100, _actionWidth = 96;
     public ObservableCollection<Infrastructure.OperationEntry> OperationHistory { get; } = [];
     public bool ReviewUpdatesFirst { get; set; } = true;
     public bool MaintenanceBusy
@@ -366,10 +383,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public void ResizeDetails(double delta) { _detailsWidth = Math.Clamp(_detailsWidth - delta, 260, 600); OnPropertyChanged(nameof(DetailsWidth)); }
     public GridLength SkillColumnWidth => _skillColumnWidth;
     public double ManagementWidth => _managementWidth;
-    public double HealthWidth => _healthWidth;
-    public double UpdateWidth => _updateWidth;
+    public double StatusWidth => _statusWidth;
+    public double ActionWidth => _actionWidth;
     public double ExposuresWidth => _exposuresWidth;
-    public double InventoryMinimumWidth => (_skillColumnWidth.IsStar ? 160 : _skillColumnWidth.Value) + _managementWidth + _healthWidth + _updateWidth + _exposuresWidth + 28;
+    public double InventoryMinimumWidth => (_skillColumnWidth.IsStar ? 160 : _skillColumnWidth.Value) + _managementWidth + _statusWidth + _exposuresWidth + _actionWidth + 28;
     public void ResizeColumn(int index, double actualWidth, double delta)
     {
         var width = Math.Clamp(actualWidth + delta, index == 0 ? 160 : 85, 650);
@@ -377,11 +394,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             case 0: _skillColumnWidth = new GridLength(width); break;
             case 1: _managementWidth = width; break;
-            case 2: _healthWidth = width; break;
-            case 3: _updateWidth = width; break;
-            case 4: _exposuresWidth = width; break;
+            case 2: _statusWidth = width; break;
+            case 3: _exposuresWidth = width; break;
+            case 4: _actionWidth = width; break;
         }
-        foreach (var property in new[] { nameof(SkillColumnWidth), nameof(ManagementWidth), nameof(HealthWidth), nameof(UpdateWidth), nameof(ExposuresWidth), nameof(InventoryMinimumWidth) }) OnPropertyChanged(property);
+        foreach (var property in new[] { nameof(SkillColumnWidth), nameof(ManagementWidth), nameof(StatusWidth), nameof(ActionWidth), nameof(ExposuresWidth), nameof(InventoryMinimumWidth) }) OnPropertyChanged(property);
     }
 
     public MainViewModel()
@@ -399,11 +416,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (SetProperty(ref _filters, value))
             {
-                if (!value.Any(filter => filter.Name == SelectedFilter.Name))
-                {
-                    _selectedFilter = value[0];
-                    OnPropertyChanged(nameof(SelectedFilter));
-                }
+                _selectedFilter = value.FirstOrDefault(filter => filter.Name == _selectedFilter.Name) ?? value[0];
+                OnPropertyChanged(nameof(SelectedFilter));
             }
         }
     }
@@ -468,6 +482,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public IReadOnlyList<InventoryRow> UpdatableRows =>
         [.. _allRows.Where(static row => row.CanUpdate && row.Entry.ManagementRecord is not null)];
+
+    public int UpdatableCount => UpdatableRows.Count;
 
     public bool CanUpdateAll => MutationsAllowed && UpdatableRows.Count > 0;
 
@@ -611,6 +627,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _allRows = [.. snapshot.Entries.Select(entry => new InventoryRow(entry))];
         Filters = BuildFilters(_allRows);
         OnPropertyChanged(nameof(CanUpdateAll));
+        OnPropertyChanged(nameof(UpdatableCount));
         ApplyView();
         if (selectedPath is not null)
         {
@@ -624,6 +641,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private List<InventoryRow> _allRows = [];
 
+    public string NameHeader => SortHeader("SKILL", InventorySortColumn.Name);
+    public string ManagementHeader => SortHeader("MANAGEMENT", InventorySortColumn.Management);
+    public string StatusHeader => SortHeader("STATUS", _sortColumn is InventorySortColumn.Health or InventorySortColumn.UpdateStatus ? _sortColumn : InventorySortColumn.Status);
+    public string ExposuresHeader => SortHeader("EXPOSURES", InventorySortColumn.Exposures);
+    private string SortHeader(string label, InventorySortColumn column)
+        => _sortColumn == column ? $"{label} {(_sortDescending ? "▼" : "▲")}" : label;
+
     public void SortBy(InventorySortColumn column)
     {
         if (_sortColumn == column)
@@ -636,6 +660,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _sortDescending = false;
         }
 
+        OnPropertyChanged(nameof(NameHeader));
+        OnPropertyChanged(nameof(ManagementHeader));
+        OnPropertyChanged(nameof(StatusHeader));
+        OnPropertyChanged(nameof(ExposuresHeader));
         ApplyView();
     }
 
@@ -727,6 +755,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         InventorySortColumn.Provenance => static row => row.Provenance,
         InventorySortColumn.Management => static row => row.Management,
         InventorySortColumn.Health => static row => row.Health,
+        InventorySortColumn.Status => static row => row.StatusPriority,
         InventorySortColumn.UpdateStatus => static row => row.UpdateStatus,
         InventorySortColumn.Exposures => static row => row.ExposuresSummary,
         _ => static row => row.Name,

@@ -78,6 +78,15 @@ public partial class MainWindow : Window
 
     private void OnCloseWindow(object sender, RoutedEventArgs e) => Close();
 
+    private void OnShellSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var stacked = e.NewSize.Width < 1400;
+        Grid.SetRow(HeaderToolbar, stacked ? 1 : 0);
+        Grid.SetColumn(HeaderToolbar, stacked ? 0 : 1);
+        Grid.SetColumnSpan(HeaderToolbar, stacked ? 3 : 1);
+        HeaderToolbar.Margin = stacked ? new Thickness(0, 7, 0, -5) : new Thickness(0, -5, 0, -5);
+    }
+
     private void OnResizeColumn(object sender, System.Windows.Controls.Primitives.DragDeltaEventArgs e)
     {
         var thumb = (System.Windows.Controls.Primitives.Thumb)sender;
@@ -309,9 +318,56 @@ public partial class MainWindow : Window
         => ((ViewModels.MainViewModel)DataContext).SelectedRows =
             SkillList.SelectedItems.OfType<ViewModels.InventoryRow>().ToList();
 
+    private void OnSkillListMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (System.Windows.Input.Keyboard.Modifiers != System.Windows.Input.ModifierKeys.None) return;
+        var source = e.OriginalSource as DependencyObject;
+        while (source is not null && source != SkillList)
+        {
+            // Child actions keep their own click; Ctrl/Shift keep batch selection.
+            if (source is System.Windows.Controls.Primitives.ButtonBase) return;
+            if (source is ListBoxItem item)
+            {
+                if (item.DataContext is ViewModels.InventoryRow && item.IsSelected && SkillList.SelectedItems.Count == 1)
+                {
+                    SkillList.UnselectAll();
+                    e.Handled = true;
+                }
+                return;
+            }
+            source = source is System.Windows.Media.Visual
+                ? System.Windows.Media.VisualTreeHelper.GetParent(source)
+                : LogicalTreeHelper.GetParent(source);
+        }
+    }
+
+    private bool SelectActionRow(object sender)
+    {
+        if (((ViewModels.MainViewModel)DataContext).MutationsAllowed
+            && sender is FrameworkElement { DataContext: ViewModels.InventoryRow row })
+        {
+            SkillList.UnselectAll();
+            SkillList.SelectedItem = row;
+            return true;
+        }
+        return false;
+    }
+
+    private void OnRowUpdate(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (SelectActionRow(sender)) OnUpdateSelected(sender, e);
+    }
+
+    private void OnRowAdopt(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (SelectActionRow(sender)) OnAdoptSelected(sender, e);
+    }
+
     private void OnSortHeaderClick(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: string tag } && Enum.TryParse<ViewModels.InventorySortColumn>(tag, out var column))
+        if (sender is FrameworkElement { Tag: string tag } && Enum.TryParse<ViewModels.InventorySortColumn>(tag, out var column))
         {
             ((ViewModels.MainViewModel)DataContext).SortBy(column);
         }

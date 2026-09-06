@@ -87,14 +87,20 @@
                        Text="{Binding DiscoveryLine}"
                        Margin="0,10,0,8" />
 
-            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8" IsEnabled="{Binding CanSelect}">
-                <TextBlock Text="Search paths, names and descriptions" Margin="0,0,0,4" />
-                <TextBox Style="{StaticResource IndustryTextBox}"
-                         Text="{Binding Browser.SearchText, UpdateSourceTrigger=PropertyChanged}"
-                         AutomationProperties.Name="Search Source Skills"
-                         AutomationProperties.AutomationId="Skilly.SourceSearch" />
-                <TextBlock Text="{Binding Browser.ResultSummary}" Margin="0,4,0,0" TextWrapping="Wrap" />
-            </StackPanel>
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8" IsEnabled="{Binding CanSelect}">
+                <TextBlock DockPanel.Dock="Right" Text="{Binding Browser.ResultSummary}" Margin="12,0,0,0" FontSize="11.5" Foreground="{StaticResource Text55Brush}" VerticalAlignment="Center" />
+                <Grid>
+                    <TextBox x:Name="SourceSearch" Style="{StaticResource IndustryTextBox}" MinHeight="31"
+                             Text="{Binding Browser.SearchText, UpdateSourceTrigger=PropertyChanged}"
+                             AutomationProperties.Name="Search Source Skills" AutomationProperties.AutomationId="Skilly.SourceSearch" />
+                    <TextBlock Text="Search paths, names and descriptions" Margin="10,0" FontSize="11.5" Foreground="{StaticResource Text45Brush}" VerticalAlignment="Center" IsHitTestVisible="False">
+                        <TextBlock.Style><Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=SourceSearch}" Value=""><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                        </Style></TextBlock.Style>
+                    </TextBlock>
+                </Grid>
+            </DockPanel>
 
             <!-- Column header -->
             <Border DockPanel.Dock="Top"
@@ -105,9 +111,9 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="34" />
                         <ColumnDefinition Width="*" MinWidth="120" />
-                        <ColumnDefinition Width="120" />
-                        <ColumnDefinition Width="90" />
-                        <ColumnDefinition Width="180" />
+                        <ColumnDefinition Width="130" />
+                        <ColumnDefinition Width="56" />
+                        <ColumnDefinition Width="190" />
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="1" Style="{StaticResource ColumnKicker}" Text="SOURCE SKILL PATH" />
                     <TextBlock Grid.Column="2" Style="{StaticResource ColumnKicker}" Text="ALIAS" />
@@ -181,14 +187,14 @@
             </StackPanel>
 
             <DockPanel>
-            <TextBox DockPanel.Dock="Bottom" Height="120" Margin="0,8,0,0"
+            <TextBox Style="{StaticResource IndustryTextBox}" FontFamily="{StaticResource MonoFont}" FontSize="11.5" Padding="10" VerticalContentAlignment="Top" DockPanel.Dock="Bottom" Height="110" Margin="0,8,0,0"
                      Text="{Binding Browser.PreviewText, Mode=OneWay}" IsReadOnly="True"
                      TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                      Background="{StaticResource BgBrush}" Foreground="{StaticResource TextBrush}"
                      AutomationProperties.Name="Source Skill description and SKILL.md preview"
                      AutomationProperties.AutomationId="Skilly.SourcePreview" />
             <!-- Row focus previews content; only checkboxes select installation. -->
-            <ListBox ScrollViewer.VerticalScrollBarVisibility="Auto"
+            <ListBox ItemContainerStyle="{StaticResource InspectorRowContainer}" ScrollViewer.VerticalScrollBarVisibility="Auto"
                           Background="Transparent" BorderThickness="0"
                           IsEnabled="{Binding CanSelect}"
                           ItemsSource="{Binding Browser.VisibleSkills}"
@@ -205,9 +211,9 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="34" />
                                         <ColumnDefinition Width="*" MinWidth="120" />
-                                        <ColumnDefinition Width="120" />
-                                        <ColumnDefinition Width="90" />
-                                        <ColumnDefinition Width="180" />
+                                        <ColumnDefinition Width="130" />
+                                        <ColumnDefinition Width="56" />
+                                        <ColumnDefinition Width="190" />
                                     </Grid.ColumnDefinitions>
                                     <CheckBox Grid.Column="0"
                                               Style="{StaticResource IndustryCheckBox}"
@@ -223,7 +229,7 @@
                                                VerticalAlignment="Center"
                                                Margin="0,0,8,0" />
                                     <TextBlock Text="{Binding Skill.Description}" TextTrimming="CharacterEllipsis"
-                                               ToolTip="{Binding Skill.Description}" FontSize="12" Margin="0,3,8,0" />
+                                               ToolTip="{Binding Skill.Description}" Foreground="{StaticResource Text65Brush}" FontSize="12" Margin="0,3,8,0" />
                                     </StackPanel>
                                     <TextBlock Grid.Column="2"
                                                FontSize="12.5"
@@ -236,6 +242,7 @@
                                                FontSize="11.5"
                                                Foreground="{StaticResource Text75Brush}"
                                                Text="{Binding Skill.FileCount}"
+                                               TextTrimming="CharacterEllipsis" ToolTip="{Binding Skill.FileCount}" Margin="0,0,8,0"
                                                VerticalAlignment="Center" />
                                     <Grid Grid.Column="4" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{Binding Installability}">
                                         <TextBlock x:Name="InstallablePlain"
@@ -247,7 +254,7 @@
                                                 Background="{StaticResource Accent900Brush}"
                                                 CornerRadius="3"
                                                 Visibility="Collapsed">
-                                            <TextBlock Margin="9,3"
+                                            <TextBlock x:Name="InstallabilityLabel" Margin="9,3"
                                                        FontSize="11"
                                                        Foreground="{StaticResource BgBrush}"
                                                        Text="{Binding Installability}"
@@ -265,6 +272,8 @@
                                 <DataTrigger Binding="{Binding IsInstalled}" Value="True">
                                     <Setter TargetName="InstallablePlain" Property="Visibility" Value="Collapsed" />
                                     <Setter TargetName="InstallableTag" Property="Visibility" Value="Visible" />
+                                    <Setter TargetName="InstallableTag" Property="Background" Value="{StaticResource Neutral100Brush}" />
+                                    <Setter TargetName="InstallabilityLabel" Property="Foreground" Value="{StaticResource Neutral800Brush}" />
                                 </DataTrigger>
                             </DataTemplate.Triggers>
                         </DataTemplate>

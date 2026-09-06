@@ -7,6 +7,43 @@ namespace Skilly.App.Tests;
 public sealed class LibraryGroupingTests
 {
     [Fact]
+    public void Status_sort_prioritizes_health_then_updates_and_keeps_stale_checks_visible()
+    {
+        var current = Record("github", "acme", "toolbox", "github.com/acme/toolbox", "current");
+        current.LatestCheck = new CheckSnapshot { Status = UpdateStatus.Current, InstalledRevision = "v1", CheckedAt = DateTimeOffset.Now };
+        var update = Record("github", "acme", "toolbox", "github.com/acme/toolbox", "update");
+        update.LatestCheck = new CheckSnapshot { Status = UpdateStatus.UpdateAvailable, InstalledRevision = "v1", CheckedAt = DateTimeOffset.Now };
+        var stale = Record("github", "acme", "toolbox", "github.com/acme/toolbox", "stale");
+        stale.LatestCheck = new CheckSnapshot { Status = UpdateStatus.Current, InstalledRevision = "v1", CheckedAt = DateTimeOffset.Now, IsStale = true, Failure = "Network unavailable" };
+        var model = new MainViewModel();
+        model.LoadInventory(Snapshot(Entry("current", current), Entry("update", update), Entry("stale", stale), Entry("broken", health: InstallationHealth.ExposureProblem)));
+        model.SortBy(InventorySortColumn.Status);
+        Assert.Equal(["broken", "update", "stale", "current"], model.Rows.Cast<InventoryRow>().Select(row => row.Name));
+        Assert.False(model.Rows.Cast<InventoryRow>().Single(row => row.Name == "current").HasStatusDeviation);
+        var staleRow = model.Rows.Cast<InventoryRow>().Single(row => row.Name == "stale");
+        Assert.Equal("Outline", staleRow.UpdateKind);
+        Assert.Equal("Check Failed", staleRow.StatusUpdateText);
+        Assert.False(staleRow.CanUpdate);
+        stale.LatestCheck.IsStale = false;
+        stale.LatestCheck.Status = UpdateStatus.SourceUnavailable;
+        Assert.Equal("Source Unavailable", staleRow.StatusUpdateText);
+        model.SortBy(InventorySortColumn.Status);
+        Assert.Equal("current", ((InventoryRow)model.Rows[0]).Name);
+    }
+
+    [Fact]
+    public void Reload_refreshes_selected_segment_count_and_update_all_count_without_losing_filter()
+    {
+        var model = new MainViewModel();
+        model.LoadInventory(Snapshot(Entry("alpha")));
+        model.SelectedFilter = model.Filters.Single(filter => filter.Name == "Healthy");
+        model.LoadInventory(Snapshot(Entry("alpha"), Entry("beta")));
+        Assert.Same(model.Filters.Single(filter => filter.Name == "Healthy"), model.SelectedFilter);
+        Assert.Equal(2, model.SelectedFilter.Count);
+        Assert.Equal(0, model.UpdatableCount);
+    }
+
+    [Fact]
     public void Library_key_uses_normalized_source_for_github_and_repository_for_other_providers()
     {
         var github = new InventoryRow(Entry("alpha", Record("github", "acme", "toolbox", "github.com/acme/toolbox", "alpha")));

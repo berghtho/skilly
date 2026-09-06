@@ -71,18 +71,21 @@
             </DataTemplate.Triggers>
         </DataTemplate>
 
-        <!-- Health: plain muted text when Healthy, solid dark tag otherwise -->
-        <DataTemplate x:Key="HealthCell">
-            <Grid HorizontalAlignment="Left" VerticalAlignment="Center">
-                <TextBlock x:Name="Plain" FontSize="12.5" Foreground="{StaticResource Text55Brush}" Text="{Binding Health}" />
-                <Border x:Name="Tag" Background="{StaticResource Accent900Brush}" CornerRadius="3" Visibility="Collapsed">
+        <DataTemplate x:Key="StatusCell">
+            <StackPanel VerticalAlignment="Center">
+                <Border Background="{StaticResource Accent900Brush}" CornerRadius="3" HorizontalAlignment="Left" Margin="0,1" x:Name="HealthTag" Visibility="Collapsed">
                     <TextBlock Margin="9,3" FontSize="11" Foreground="{StaticResource BgBrush}" Text="{Binding Health}" />
                 </Border>
-            </Grid>
+                <Border Background="{StaticResource Accent100Brush}" CornerRadius="3" BorderThickness="1" BorderBrush="Transparent" HorizontalAlignment="Left" Margin="0,1" x:Name="UpdateTag" Visibility="{Binding HasUpdateDeviation, Converter={StaticResource BoolToVisibility}}" ToolTip="{Binding CheckNotice}">
+                    <TextBlock Margin="8,2" FontSize="11" Foreground="{StaticResource Accent800Brush}" Text="{Binding StatusUpdateText}" />
+                </Border>
+                <TextBlock x:Name="Dash" Text="—" Opacity="0.3" />
+            </StackPanel>
             <DataTemplate.Triggers>
-                <DataTrigger Binding="{Binding HealthIsHealthy}" Value="False">
-                    <Setter TargetName="Plain" Property="Visibility" Value="Collapsed" />
-                    <Setter TargetName="Tag" Property="Visibility" Value="Visible" />
+                <DataTrigger Binding="{Binding HealthIsHealthy}" Value="False"><Setter TargetName="HealthTag" Property="Visibility" Value="Visible" /></DataTrigger>
+                <DataTrigger Binding="{Binding HasStatusDeviation}" Value="True"><Setter TargetName="Dash" Property="Visibility" Value="Collapsed" /></DataTrigger>
+                <DataTrigger Binding="{Binding UpdateKind}" Value="Outline">
+                    <Setter TargetName="UpdateTag" Property="Background" Value="Transparent" /><Setter TargetName="UpdateTag" Property="BorderBrush" Value="{StaticResource Accent700Brush}" />
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
@@ -99,27 +102,8 @@
             </DataTemplate.Triggers>
         </DataTemplate>
 
-        <!-- Update: tinted tag when available, muted / faint text otherwise -->
-        <DataTemplate x:Key="UpdateCell">
-            <Grid HorizontalAlignment="Left" VerticalAlignment="Center">
-                <TextBlock x:Name="Plain" FontSize="12.5" Foreground="{StaticResource Text55Brush}" Text="{Binding UpdateStatus}" TextTrimming="CharacterEllipsis" />
-                <Border x:Name="Tag" Background="{StaticResource Accent100Brush}" CornerRadius="3" Visibility="Collapsed">
-                    <TextBlock Margin="9,3" FontSize="11" Foreground="{StaticResource Accent800Brush}" Text="{Binding UpdateStatus}" />
-                </Border>
-            </Grid>
-            <DataTemplate.Triggers>
-                <DataTrigger Binding="{Binding UpdateKind}" Value="Available">
-                    <Setter TargetName="Plain" Property="Visibility" Value="Collapsed" />
-                    <Setter TargetName="Tag" Property="Visibility" Value="Visible" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding UpdateKind}" Value="Faint">
-                    <Setter TargetName="Plain" Property="Foreground" Value="{StaticResource Text35Brush}" />
-                </DataTrigger>
-            </DataTemplate.Triggers>
-        </DataTemplate>
-
         <DataTemplate x:Key="UpdateTagDetail">
-            <Border x:Name="Tag" Background="{StaticResource Neutral100Brush}" CornerRadius="3" HorizontalAlignment="Left" VerticalAlignment="Center">
+            <Border x:Name="Tag" BorderThickness="1" BorderBrush="Transparent" Background="{StaticResource Neutral100Brush}" CornerRadius="3" HorizontalAlignment="Left" VerticalAlignment="Center">
                 <TextBlock x:Name="TagText" Margin="9,3" FontSize="11" Foreground="{StaticResource Neutral700Brush}" Text="{Binding UpdateStatus}" />
             </Border>
             <DataTemplate.Triggers>
@@ -127,30 +111,10 @@
                     <Setter TargetName="Tag" Property="Background" Value="{StaticResource Accent100Brush}" />
                     <Setter TargetName="TagText" Property="Foreground" Value="{StaticResource Accent800Brush}" />
                 </DataTrigger>
-            </DataTemplate.Triggers>
-        </DataTemplate>
-
-        <!-- Harness Exposure mode tag in the details pane -->
-        <DataTemplate x:Key="ExposureModeTag">
-            <Grid HorizontalAlignment="Right" VerticalAlignment="Center">
-                <TextBlock x:Name="Plain" FontSize="11" Foreground="{StaticResource Text40Brush}" Text="{Binding Mode}" Visibility="Collapsed" />
-                <Grid x:Name="TagGrid">
-                    <Rectangle x:Name="TagBg" RadiusX="3" RadiusY="3" Fill="{StaticResource Accent100Brush}" Stroke="Transparent" StrokeThickness="1" />
-                    <TextBlock x:Name="TagText" Margin="9,3" FontSize="11" Foreground="{StaticResource Accent800Brush}" Text="{Binding Mode}" />
-                </Grid>
-            </Grid>
-            <DataTemplate.Triggers>
-                <DataTrigger Binding="{Binding ModeKind}" Value="Outline">
-                    <Setter TargetName="TagBg" Property="Fill" Value="Transparent" />
-                    <Setter TargetName="TagBg" Property="Stroke" Value="{StaticResource AccentBrush}" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding ModeKind}" Value="Problem">
-                    <Setter TargetName="TagBg" Property="Fill" Value="{StaticResource Accent900Brush}" />
-                    <Setter TargetName="TagText" Property="Foreground" Value="{StaticResource BgBrush}" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding ModeKind}" Value="Plain">
-                    <Setter TargetName="Plain" Property="Visibility" Value="Visible" />
-                    <Setter TargetName="TagGrid" Property="Visibility" Value="Collapsed" />
+                <DataTrigger Binding="{Binding UpdateKind}" Value="Outline">
+                    <Setter TargetName="Tag" Property="Background" Value="Transparent" />
+                    <Setter TargetName="Tag" Property="BorderBrush" Value="{StaticResource Accent700Brush}" />
+                    <Setter TargetName="TagText" Property="Foreground" Value="{StaticResource Accent800Brush}" />
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
@@ -158,10 +122,13 @@
         <!-- Sortable column headers -->
         <Style x:Key="SortHeaderButton" TargetType="Button">
             <Setter Property="Foreground" Value="{StaticResource Text60Brush}" />
-            <Setter Property="FontSize" Value="10.5" />
+            <Setter Property="FontFamily" Value="{StaticResource HeadingFont}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="FocusVisualStyle" Value="{StaticResource IndustryFocusVisual}" />
+            <Setter Property="FontSize" Value="12.5" />
             <Setter Property="HorizontalAlignment" Value="Left" />
             <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Focusable" Value="False" />
+
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -225,16 +192,17 @@
                                                LibraryGroupRowStyle="{StaticResource LibraryGroupRowContainer}" />
     </Window.Resources>
 
-    <Border x:Name="RootShell">
+    <Border x:Name="RootShell" SizeChanged="OnShellSizeChanged">
     <DockPanel>
         <!-- ═══ Header bar ═══ -->
         <Border DockPanel.Dock="Top"
-                Padding="20,10"
+                Padding="20,12" Background="{StaticResource Accent900Brush}" TextElement.Foreground="{StaticResource BgBrush}"
                 BorderBrush="{StaticResource DividerBrush}"
                 BorderThickness="0,0,0,1">
             <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                <StackPanel Grid.Row="0" VerticalAlignment="Center">
+                <StackPanel Grid.Row="0" VerticalAlignment="Center" Margin="0,0,18,0">
                     <TextBlock Text="SKILLY"
                                FontFamily="{StaticResource HeadingFont}"
                                FontWeight="SemiBold"
@@ -243,30 +211,30 @@
                                LineStackingStrategy="BlockLineHeight" />
                     <TextBlock Text="SKILL WORKBENCH"
                                FontSize="10"
-                               Foreground="{StaticResource Text50Brush}"
+                               Foreground="{StaticResource Paper60Brush}"
                                Margin="1,3,0,0" />
                 </StackPanel>
-                <WrapPanel Grid.Row="1" Margin="0,12,0,0" VerticalAlignment="Center">
+                <WrapPanel x:Name="HeaderToolbar" Grid.Column="1" Margin="0" VerticalAlignment="Center">
                     <TextBlock x:Name="SourceLabel"
-                               Text="SKILL SOURCE"
+                               Text="SKILL SOURCE" Margin="0,5,0,5"
                                FontSize="10.5"
-                               Foreground="{StaticResource Text60Brush}"
+                               Foreground="{StaticResource Paper70Brush}"
                                VerticalAlignment="Center" />
                     <ComboBox x:Name="SourceProviderBox"
-                              Style="{StaticResource IndustryComboBox}"
+                              Style="{StaticResource SteelComboBox}"
                               WindowChrome.IsHitTestVisibleInChrome="True"
-                              Width="150"
-                              Margin="14,0,0,0"
+                              Width="140"
+                              Margin="14,5,0,5"
                               ItemsSource="{Binding SourceProviders}"
                               SelectedItem="{Binding SelectedSourceProvider, Mode=TwoWay}"
                               AutomationProperties.Name="Source provider"
                               AutomationProperties.AutomationId="Skilly.SourceProvider"
                               TabIndex="0" />
                     <TextBox x:Name="SourceBox"
-                             Style="{StaticResource IndustryTextBox}"
+                             Style="{StaticResource SteelTextBox}"
                              WindowChrome.IsHitTestVisibleInChrome="True"
                              Width="250"
-                             Margin="14,0,0,0"
+                             Margin="14,5,0,5"
                              FontFamily="{StaticResource MonoFont}"
                              FontSize="12"
                              Text="{Binding SourceText, UpdateSourceTrigger=PropertyChanged}"
@@ -276,7 +244,7 @@
                     <Button x:Name="InspectSourceButton"
                             Style="{StaticResource PrimaryButton}"
                             WindowChrome.IsHitTestVisibleInChrome="True"
-                            Margin="14,0,0,0"
+                            Margin="14,5,0,5"
                             IsEnabled="{Binding CanInspectSource}"
                             Click="OnInspectSource"
                             AutomationProperties.Name="Inspect source"
@@ -296,9 +264,9 @@
                         </StackPanel>
                     </Button>
                     <Button x:Name="RefreshChecksButton"
-                            Style="{StaticResource SecondaryBlueprintButton}"
+                            Style="{StaticResource SteelButton}"
                             WindowChrome.IsHitTestVisibleInChrome="True"
-                            Margin="14,0,0,0"
+                            Margin="14,5,0,5"
                             Click="OnRefreshChecks"
                             AutomationProperties.Name="Refresh checks"
                             AutomationProperties.AutomationId="Skilly.RefreshChecks"
@@ -307,7 +275,7 @@
                             <Viewbox Width="14" Height="14" Margin="0,0,6,0">
                                 <Canvas Width="24" Height="24">
                                     <Path Data="M3,12 a9,9 0 0 1 9,-9 a9.75,9.75 0 0 1 6.74,2.74 L21,8 M21,3 v5 h-5 M21,12 a9,9 0 0 1 -9,9 a9.75,9.75 0 0 1 -6.74,-2.74 L3,16 M3,21 v-5 h5"
-                                          Stroke="{StaticResource TextBrush}"
+                                          Stroke="{StaticResource BgBrush}"
                                           StrokeThickness="1.5"
                                           StrokeStartLineCap="Round"
                                           StrokeEndLineCap="Round"
@@ -318,9 +286,9 @@
                         </StackPanel>
                     </Button>
                     <Button x:Name="UpdateAllButton"
-                            Style="{StaticResource SecondaryBlueprintButton}"
+                            Style="{StaticResource SteelButton}"
                             WindowChrome.IsHitTestVisibleInChrome="True"
-                            Margin="14,0,0,0"
+                            Margin="14,5,0,5"
                             IsEnabled="{Binding CanUpdateAll}"
                             Click="OnUpdateAll"
                             AutomationProperties.Name="Update all Skills"
@@ -330,23 +298,27 @@
                             <Viewbox Width="14" Height="14" Margin="0,0,6,0">
                                 <Canvas Width="24" Height="24">
                                     <Path Data="M21,15 v4 a2,2 0 0 1 -2,2 H5 a2,2 0 0 1 -2,-2 v-4 M7,10 l5,5 5,-5 M12,15 V3"
-                                          Stroke="{StaticResource TextBrush}"
+                                          Stroke="{StaticResource BgBrush}"
                                           StrokeThickness="1.5"
                                           StrokeStartLineCap="Round"
                                           StrokeEndLineCap="Round"
                                           StrokeLineJoin="Round" />
                                 </Canvas>
                             </Viewbox>
-                            <AccessText Text="Update _all" VerticalAlignment="Center" />
+                            <AccessText Text="{Binding UpdatableCount, StringFormat=Update _all ({0})}" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
-                    <Button Content="History" Click="OnShowHistory" Style="{StaticResource GhostButton}" Margin="8,0,0,0" AutomationProperties.AutomationId="Skilly.ShowHistory" />
-                    <CheckBox Content="Details" IsChecked="{Binding ShowDetails, Mode=TwoWay}" VerticalAlignment="Center" Margin="12,0,0,0" AutomationProperties.AutomationId="Skilly.ToggleDetails" />
-                    <CheckBox Content="Review updates" IsChecked="{Binding ReviewUpdatesFirst, Mode=TwoWay}" VerticalAlignment="Center" Margin="12,0,0,0" ToolTip="Show the file preview before applying updates." />
+                    <Button WindowChrome.IsHitTestVisibleInChrome="True" Content="History" Click="OnShowHistory" Style="{StaticResource SteelGhostButton}" Margin="8,5,0,5" AutomationProperties.AutomationId="Skilly.ShowHistory" />
+                    <Border BorderBrush="{StaticResource Paper35Brush}" BorderThickness="1,1,0,1" Margin="12,5,0,5">
+                        <StackPanel Orientation="Horizontal">
+                            <CheckBox Content="Details" Style="{StaticResource SteelToggle}" WindowChrome.IsHitTestVisibleInChrome="True" IsChecked="{Binding ShowDetails, Mode=TwoWay}" AutomationProperties.AutomationId="Skilly.ToggleDetails" />
+                            <CheckBox Content="Review updates" Style="{StaticResource SteelToggle}" WindowChrome.IsHitTestVisibleInChrome="True" IsChecked="{Binding ReviewUpdatesFirst, Mode=TwoWay}" ToolTip="Show the file preview before applying updates." AutomationProperties.AutomationId="Skilly.ToggleReviewUpdates" />
+                        </StackPanel>
+                    </Border>
 
                 </WrapPanel>
-                    <Button Grid.Row="0" HorizontalAlignment="Right" x:Name="CloseWindowButton"
-                            Style="{StaticResource GhostIconButton}"
+                    <Button Grid.Row="0" Grid.Column="2" HorizontalAlignment="Right" x:Name="CloseWindowButton"
+                            Style="{StaticResource SteelCloseButton}"
                             WindowChrome.IsHitTestVisibleInChrome="True"
                             Width="28"
                             Height="28"
@@ -357,7 +329,7 @@
                         <Viewbox Width="14" Height="14">
                             <Canvas Width="24" Height="24">
                                 <Path Data="M18,6 L6,18 M6,6 L18,18"
-                                      Stroke="{StaticResource Text55Brush}"
+                                      Stroke="{StaticResource BgBrush}"
                                       StrokeThickness="1.5"
                                       StrokeStartLineCap="Round"
                                       StrokeEndLineCap="Round" />
@@ -370,7 +342,7 @@
         <!-- ═══ Notice banners ═══ -->
         <Border DockPanel.Dock="Top"
                 Padding="20,8"
-                Background="{StaticResource Accent900Brush}"
+                Background="{StaticResource Accent800Brush}"
                 Visibility="{Binding RecoveryRequired, Converter={StaticResource BoolToVisibility}}"
                 AutomationProperties.Name="Recovery Required read-only notice"
                 AutomationProperties.AutomationId="Skilly.RecoveryNotice">
@@ -421,8 +393,8 @@
         <Border DockPanel.Dock="Top" Padding="20,8" Background="{StaticResource Accent100Brush}"
                 Visibility="{Binding MaintenanceBusy, Converter={StaticResource BoolToVisibility}}">
             <DockPanel>
-                <Button DockPanel.Dock="Right" Content="Stop after current operation" Click="OnStopUpdates" Margin="12,0,0,0" AutomationProperties.AutomationId="Skilly.StopUpdates" />
-                <ProgressBar DockPanel.Dock="Left" Width="140" Height="12" Margin="0,0,12,0" Maximum="{Binding ProgressMaximum}" Value="{Binding ProgressValue}" />
+                <Button DockPanel.Dock="Right" Style="{StaticResource RowActionButton}" Content="Stop after current operation" Click="OnStopUpdates" Margin="12,0,0,0" AutomationProperties.AutomationId="Skilly.StopUpdates" />
+                <ProgressBar Style="{StaticResource IndustryProgress}" DockPanel.Dock="Left" Width="140" Height="8" Margin="0,0,12,0" Maximum="{Binding ProgressMaximum}" Value="{Binding ProgressValue}" />
                 <TextBlock Text="{Binding OperationProgress}" TextWrapping="Wrap" VerticalAlignment="Center" AutomationProperties.AutomationId="Skilly.UpdateProgress" />
             </DockPanel>
         </Border>
@@ -466,31 +438,33 @@
         <!-- ═══ Content row ═══ -->
         <Grid Margin="20,16">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="145" />
-                <ColumnDefinition Width="16" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="{Binding DetailsGap}" />
                 <ColumnDefinition Width="{Binding DetailsWidth}" />
             </Grid.ColumnDefinitions>
 
-            <!-- Filter rail -->
-            <ContentControl Grid.Column="0" Style="{StaticResource BlueprintPanel}" Padding="8,12">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Top"
-                               Style="{StaticResource Kicker}"
-                               Text="FILTERS"
-                               Margin="10,2,10,10" />
+            <!-- Skills list -->
+            <ContentControl Grid.Column="0" Style="{StaticResource BlueprintPanel}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <WrapPanel Grid.Row="0" Margin="14,12,14,4">
                     <ListBox x:Name="FilterRail"
                              ItemsSource="{Binding Filters}"
                              SelectedItem="{Binding SelectedFilter, Mode=TwoWay}"
-                             Background="Transparent"
-                             BorderThickness="0"
+                             Background="Transparent" Margin="0,0,12,8"
+                             BorderThickness="1,1,0,1" BorderBrush="{StaticResource DividerBrush}"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              AutomationProperties.Name="Inventory filters"
                              AutomationProperties.AutomationId="Skilly.FilterRail"
                              TabIndex="5">
+                        <ListBox.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ListBox.ItemsPanel>
                         <ListBox.ItemContainerStyle>
-                            <Style TargetType="ListBoxItem" BasedOn="{StaticResource FilterRailContainer}">
+                            <Style TargetType="ListBoxItem" BasedOn="{StaticResource FilterSegment}">
                                 <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
                             </Style>
                         </ListBox.ItemContainerStyle>
@@ -500,34 +474,38 @@
                                     <TextBlock DockPanel.Dock="Right"
                                                Text="{Binding Count}"
                                                FontFamily="{StaticResource MonoFont}"
-                                               FontSize="11"
+                                               FontSize="10.5"
                                                FontWeight="Normal"
-                                               Foreground="{StaticResource Text60Brush}"
+                                               Opacity="0.65"
                                                VerticalAlignment="Center"
                                                Margin="8,0,0,0" />
-                                    <TextBlock Text="{Binding Name}" FontSize="13" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding Name}" FontSize="12.5" VerticalAlignment="Center" />
                                 </DockPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                </DockPanel>
-            </ContentControl>
 
-            <!-- Skills list -->
-            <ContentControl Grid.Column="2" Style="{StaticResource BlueprintPanel}">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-
-                    <WrapPanel Grid.Row="0" Margin="14,12,14,10">
-                        <TextBlock
-                                   Style="{StaticResource Kicker}"
-                                   Text="SKILLS"
-                                   VerticalAlignment="Center" />
-                        <Grid  Width="200" Margin="10,0,0,0">
+                        <StackPanel
+                                    Orientation="Horizontal"
+                                    VerticalAlignment="Center"
+                                    Margin="0,0,12,8">
+                            <CheckBox Style="{StaticResource IndustryCheckBox}"
+                                      IsChecked="{Binding GroupByLibrary, Mode=TwoWay}"
+                                      AutomationProperties.Name="Group by Skill Library"
+                                      AutomationProperties.AutomationId="Skilly.GroupByLibrary"
+                                      TabIndex="7" />
+                            <TextBlock Text="Group by Library"
+                                       FontSize="11.5"
+                                       Foreground="{StaticResource Text60Brush}"
+                                       VerticalAlignment="Center"
+                                       Margin="7,0,0,0" />
+                        </StackPanel>
+                        <TextBlock Text="{Binding ListSummary}"
+                                   FontSize="11.5"
+                                   Foreground="{StaticResource Text45Brush}"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,12,8" />
+                        <Grid  Width="220" MaxWidth="240" Margin="0,0,0,8">
                             <TextBox x:Name="SearchBox"
                                      Style="{StaticResource IndustryTextBox}"
                                      MinHeight="31"
@@ -552,26 +530,6 @@
                                 </TextBlock.Style>
                             </TextBlock>
                         </Grid>
-                        <StackPanel
-                                    Orientation="Horizontal"
-                                    VerticalAlignment="Center"
-                                    Margin="0,0,12,0">
-                            <CheckBox Style="{StaticResource IndustryCheckBox}"
-                                      IsChecked="{Binding GroupByLibrary, Mode=TwoWay}"
-                                      AutomationProperties.Name="Group by Skill Library"
-                                      AutomationProperties.AutomationId="Skilly.GroupByLibrary"
-                                      TabIndex="7" />
-                            <TextBlock Text="Group by Library"
-                                       FontSize="11.5"
-                                       Foreground="{StaticResource Text60Brush}"
-                                       VerticalAlignment="Center"
-                                       Margin="7,0,0,0" />
-                        </StackPanel>
-                        <TextBlock Text="{Binding ListSummary}"
-                                   FontSize="11.5"
-                                   Foreground="{StaticResource Text45Brush}"
-                                   VerticalAlignment="Center"
-                                   Margin="12,0" />
                     </WrapPanel>
 
                     <ScrollViewer Grid.Row="1" Grid.RowSpan="2" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
@@ -585,20 +543,26 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="{Binding DataContext.SkillColumnWidth, RelativeSource={RelativeSource AncestorType=Window}}" MinWidth="160" />
                                 <ColumnDefinition Width="{Binding DataContext.ManagementWidth, RelativeSource={RelativeSource AncestorType=Window}}" />
-                                <ColumnDefinition Width="{Binding DataContext.HealthWidth, RelativeSource={RelativeSource AncestorType=Window}}" />
-                                <ColumnDefinition Width="{Binding DataContext.UpdateWidth, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                <ColumnDefinition Width="{Binding DataContext.StatusWidth, RelativeSource={RelativeSource AncestorType=Window}}" />
                                 <ColumnDefinition Width="{Binding DataContext.ExposuresWidth, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                <ColumnDefinition Width="{Binding DataContext.ActionWidth, RelativeSource={RelativeSource AncestorType=Window}}" />
                             </Grid.ColumnDefinitions>
-                            <Thumb Grid.Column="0" Width="6" HorizontalAlignment="Right" Cursor="SizeWE" DragDelta="OnResizeColumn" Background="{StaticResource DividerBrush}" Panel.ZIndex="2" AutomationProperties.Name="Resize Skill column" />
-                            <Thumb Grid.Column="1" Width="6" HorizontalAlignment="Right" Cursor="SizeWE" DragDelta="OnResizeColumn" Background="{StaticResource DividerBrush}" Panel.ZIndex="2" AutomationProperties.Name="Resize Management column" />
-                            <Thumb Grid.Column="2" Width="6" HorizontalAlignment="Right" Cursor="SizeWE" DragDelta="OnResizeColumn" Background="{StaticResource DividerBrush}" Panel.ZIndex="2" AutomationProperties.Name="Resize Health column" />
-                            <Thumb Grid.Column="3" Width="6" HorizontalAlignment="Right" Cursor="SizeWE" DragDelta="OnResizeColumn" Background="{StaticResource DividerBrush}" Panel.ZIndex="2" AutomationProperties.Name="Resize Update column" />
-                            <Thumb Grid.Column="4" Width="6" HorizontalAlignment="Right" Cursor="SizeWE" DragDelta="OnResizeColumn" Background="{StaticResource DividerBrush}" Panel.ZIndex="2" AutomationProperties.Name="Resize Exposures column" />
-                            <Button Grid.Column="0" Style="{StaticResource SortHeaderButton}" Content="SKILL" Tag="Name" Click="OnSortHeaderClick" />
-                            <Button Grid.Column="1" Style="{StaticResource SortHeaderButton}" Content="MANAGEMENT" Tag="Management" Click="OnSortHeaderClick" />
-                            <Button Grid.Column="2" Style="{StaticResource SortHeaderButton}" Content="HEALTH" Tag="Health" Click="OnSortHeaderClick" />
-                            <Button Grid.Column="3" Style="{StaticResource SortHeaderButton}" Content="UPDATE" Tag="UpdateStatus" Click="OnSortHeaderClick" />
-                            <Button Grid.Column="4" Style="{StaticResource SortHeaderButton}" Content="EXPOSURES" Tag="Exposures" Click="OnSortHeaderClick" />
+                            <Thumb Grid.Column="0" Style="{StaticResource ColumnResizeThumb}" Width="6" HorizontalAlignment="Right" Cursor="SizeWE" DragDelta="OnResizeColumn" Background="{StaticResource DividerBrush}" Panel.ZIndex="2" AutomationProperties.Name="Resize Skill column" />
+                            <Thumb Grid.Column="1" Style="{StaticResource ColumnResizeThumb}" Width="6" HorizontalAlignment="Right" Cursor="SizeWE" DragDelta="OnResizeColumn" Background="{StaticResource DividerBrush}" Panel.ZIndex="2" AutomationProperties.Name="Resize Management column" />
+                            <Thumb Grid.Column="2" Style="{StaticResource ColumnResizeThumb}" Width="6" HorizontalAlignment="Right" Cursor="SizeWE" DragDelta="OnResizeColumn" Background="{StaticResource DividerBrush}" Panel.ZIndex="2" AutomationProperties.Name="Resize Status column" />
+                            <Thumb Grid.Column="3" Style="{StaticResource ColumnResizeThumb}" Width="6" HorizontalAlignment="Right" Cursor="SizeWE" DragDelta="OnResizeColumn" Background="{StaticResource DividerBrush}" Panel.ZIndex="2" AutomationProperties.Name="Resize Exposures column" />
+                            <Thumb Grid.Column="4" Style="{StaticResource ColumnResizeThumb}" Width="6" HorizontalAlignment="Right" Cursor="SizeWE" DragDelta="OnResizeColumn" Background="{StaticResource DividerBrush}" Panel.ZIndex="2" AutomationProperties.Name="Resize Action column" />
+                            <Button Grid.Column="0" Style="{StaticResource SortHeaderButton}" Content="{Binding NameHeader}" Tag="Name" Click="OnSortHeaderClick" />
+                            <Button Grid.Column="1" Style="{StaticResource SortHeaderButton}" Content="{Binding ManagementHeader}" Tag="Management" Click="OnSortHeaderClick" />
+                            <Button Grid.Column="2" Style="{StaticResource SortHeaderButton}" Content="{Binding StatusHeader}" Tag="Status" Click="OnSortHeaderClick" ToolTip="Sort deviations first. Right-click for Health or Update sorting.">
+                                <Button.ContextMenu><ContextMenu>
+                                    <MenuItem Header="Sort by Status" Tag="Status" Click="OnSortHeaderClick" />
+                                    <MenuItem Header="Sort by Health" Tag="Health" Click="OnSortHeaderClick" />
+                                    <MenuItem Header="Sort by Update" Tag="UpdateStatus" Click="OnSortHeaderClick" />
+                                </ContextMenu></Button.ContextMenu>
+                            </Button>
+                            <Button Grid.Column="3" Style="{StaticResource SortHeaderButton}" Content="{Binding ExposuresHeader}" Tag="Exposures" Click="OnSortHeaderClick" />
+
                         </Grid>
                     </Border>
 
@@ -608,6 +572,7 @@
                              SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
                              SelectionMode="Extended"
                              SelectionChanged="OnSkillListSelectionChanged"
+                             PreviewMouseLeftButtonDown="OnSkillListMouseDown"
                              Background="Transparent"
                              BorderThickness="0"
                              HorizontalContentAlignment="Stretch"
@@ -619,15 +584,15 @@
                              TabIndex="8">
                         <ListBox.Resources>
                             <DataTemplate DataType="{x:Type vm:InventoryRow}">
-                                <Grid Margin="{Binding DataContext.MemberIndent, RelativeSource={RelativeSource AncestorType=Window}}">
+                                <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="{Binding DataContext.SkillColumnWidth, RelativeSource={RelativeSource AncestorType=Window}}" MinWidth="160" />
                                 <ColumnDefinition Width="{Binding DataContext.ManagementWidth, RelativeSource={RelativeSource AncestorType=Window}}" />
-                                <ColumnDefinition Width="{Binding DataContext.HealthWidth, RelativeSource={RelativeSource AncestorType=Window}}" />
-                                <ColumnDefinition Width="{Binding DataContext.UpdateWidth, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                <ColumnDefinition Width="{Binding DataContext.StatusWidth, RelativeSource={RelativeSource AncestorType=Window}}" />
                                 <ColumnDefinition Width="{Binding DataContext.ExposuresWidth, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                <ColumnDefinition Width="{Binding DataContext.ActionWidth, RelativeSource={RelativeSource AncestorType=Window}}" />
                                     </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="{Binding DataContext.MemberIndent, RelativeSource={RelativeSource AncestorType=Window}}">
                                         <TextBlock Text="{Binding Name}"
                                                    FontWeight="SemiBold"
                                                    FontSize="13.5"
@@ -639,9 +604,12 @@
                                                    Margin="0,1,0,0" />
                                     </StackPanel>
                                     <ContentControl Grid.Column="1" Content="{Binding}" ContentTemplate="{StaticResource ManagementTag}" Focusable="False" Margin="0,0,8,0" />
-                                    <ContentControl Grid.Column="2" Content="{Binding}" ContentTemplate="{StaticResource HealthCell}" Focusable="False" Margin="0,0,8,0" />
-                                    <ContentControl Grid.Column="3" Content="{Binding}" ContentTemplate="{StaticResource UpdateCell}" Focusable="False" Margin="0,0,8,0" />
-                                    <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <ContentControl Grid.Column="2" Content="{Binding}" ContentTemplate="{StaticResource StatusCell}" Focusable="False" Margin="0,0,8,0" />
+                                    <StackPanel Grid.Column="4" HorizontalAlignment="Right" VerticalAlignment="Center" IsEnabled="{Binding DataContext.MutationsAllowed, RelativeSource={RelativeSource AncestorType=Window}}">
+                                        <Button Content="Update" Style="{StaticResource RowActionButton}" Click="OnRowUpdate" Visibility="{Binding CanUpdate, Converter={StaticResource BoolToVisibility}}" AutomationProperties.AutomationId="Skilly.RowUpdate" AutomationProperties.Name="{Binding Name, StringFormat=Update {0}}" />
+                                        <Button Content="Adopt" Style="{StaticResource RowActionButton}" Click="OnRowAdopt" Visibility="{Binding CanAdopt, Converter={StaticResource BoolToVisibility}}" AutomationProperties.AutomationId="Skilly.RowAdopt" AutomationProperties.Name="{Binding Name, StringFormat=Adopt {0}}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
                                         <ItemsControl ItemsSource="{Binding ExposureCells}" Focusable="False" VerticalAlignment="Center">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
@@ -682,6 +650,7 @@
                                 <DockPanel>
                                     <Button DockPanel.Dock="Right"
                                             Style="{StaticResource GhostButton}"
+                                            FontFamily="{StaticResource BodyFont}" Foreground="{StaticResource Accent700Brush}"
                                             FontSize="12"
                                             Margin="8,3,10,3"
                                             VerticalAlignment="Center"
@@ -791,11 +760,11 @@
                 </Grid>
             </ContentControl>
 
-            <Thumb Grid.Column="3" Cursor="SizeWE" DragDelta="OnResizeDetails" Background="Transparent"
+            <Thumb Grid.Column="1" Cursor="SizeWE" DragDelta="OnResizeDetails" Background="Transparent"
                    Visibility="{Binding ShowDetails, Converter={StaticResource BoolToVisibility}}"
                    AutomationProperties.Name="Resize details pane" />
             <!-- Details pane -->
-            <ContentControl Grid.Column="4" Style="{StaticResource BlueprintPanel}" Visibility="{Binding ShowDetails, Converter={StaticResource BoolToVisibility}}">
+            <ContentControl Grid.Column="2" Style="{StaticResource BlueprintPanel}" Visibility="{Binding ShowDetails, Converter={StaticResource BoolToVisibility}}">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top"
                                Style="{StaticResource Kicker}"
@@ -814,10 +783,11 @@
                                        Visibility="{Binding HasNoSelection, Converter={StaticResource BoolToVisibility}}" />
 
                             <StackPanel Visibility="{Binding HasSelection, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Text="{Binding SelectedRow.RootLabel}" FontFamily="{StaticResource MonoFont}" FontSize="10.5" Foreground="{StaticResource Text50Brush}" Margin="0,3,0,3" />
                                 <TextBlock Text="{Binding SelectedRow.Name}"
                                            FontFamily="{StaticResource HeadingFont}"
                                            FontWeight="SemiBold"
-                                           FontSize="28"
+                                           FontSize="30"
                                            TextWrapping="Wrap"
                                            LineHeight="30"
                                            LineStackingStrategy="BlockLineHeight" />
@@ -834,27 +804,56 @@
                                            LineStackingStrategy="BlockLineHeight"
                                            Margin="0,10,0,0" />
 
-                                <WrapPanel Margin="0,8,0,0">
+                                <WrapPanel Margin="-8,8,-8,0">
                                     <Button Content="Open _folder" Click="OnOpenSkillFolder" IsEnabled="{Binding SelectedRow.CanOpenFolder}"
-                                            Style="{StaticResource GhostButton}" AutomationProperties.AutomationId="Skilly.OpenFolder" />
+                                            Style="{StaticResource QuickActionButton}" AutomationProperties.AutomationId="Skilly.OpenFolder" />
                                     <Button Content="Open _source" Click="OnOpenSkillSource" IsEnabled="{Binding SelectedRow.CanOpenSource}"
                                             ToolTip="Open the recorded HTTPS source in your browser, when available."
-                                            Style="{StaticResource GhostButton}" AutomationProperties.AutomationId="Skilly.OpenSource" />
+                                            Style="{StaticResource QuickActionButton}" AutomationProperties.AutomationId="Skilly.OpenSource" />
                                     <Button Content="Copy _path" Click="OnCopySkillPath"
-                                            Style="{StaticResource GhostButton}" AutomationProperties.AutomationId="Skilly.CopyPath" />
+                                            Style="{StaticResource QuickActionButton}" AutomationProperties.AutomationId="Skilly.CopyPath" />
                                     <Button Content="Read SKILL._md" Click="OnReadSkillMarkdown" IsEnabled="{Binding SelectedRow.CanReadSkillMarkdown}"
-                                            Style="{StaticResource GhostButton}" AutomationProperties.AutomationId="Skilly.ReadSkillMarkdown" />
+                                            Style="{StaticResource QuickActionButton}" AutomationProperties.AutomationId="Skilly.ReadSkillMarkdown" />
                                 </WrapPanel>
+
+                                <Border Style="{StaticResource SectionHeader}"><TextBlock Style="{StaticResource SectionKicker}" Text="HARNESS EXPOSURES" /></Border>
+                                <ItemsControl ItemsSource="{Binding SelectedRow.ExposureRows}" Focusable="False" AutomationProperties.AutomationId="Skilly.ExposureDiagram">
+                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="4" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate><DataTemplate>
+                                        <StackPanel Margin="0,0,6,0" ToolTip="{Binding Detail}" AutomationProperties.Name="{Binding Harness}">
+                                            <Grid Height="44" x:Name="Cell" Opacity="0.4">
+                                                <Rectangle x:Name="CellBg" Fill="Transparent" Stroke="{StaticResource Accent700Brush}" StrokeThickness="1" />
+                                                <TextBlock x:Name="CellText" Text="{Binding Abbreviation}" FontFamily="{StaticResource HeadingFont}" FontWeight="SemiBold" FontSize="16" Foreground="{StaticResource Accent700Brush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Grid>
+                                            <TextBlock Text="{Binding Label}" FontSize="10" Foreground="{StaticResource Text60Brush}" HorizontalAlignment="Center" Margin="0,4,0,0" />
+                                        </StackPanel>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding IsExposed}" Value="True">
+                                                <Setter TargetName="Cell" Property="Opacity" Value="1" /><Setter TargetName="CellBg" Property="Fill" Value="{StaticResource AccentBrush}" /><Setter TargetName="CellText" Property="Foreground" Value="{StaticResource BgBrush}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding HasProblem}" Value="True">
+                                                <Setter TargetName="Cell" Property="Opacity" Value="1" /><Setter TargetName="CellBg" Property="Fill" Value="{StaticResource Accent900Brush}" />
+                                                <Setter TargetName="CellBg" Property="Stroke" Value="{StaticResource Accent900Brush}" /><Setter TargetName="CellBg" Property="StrokeDashArray" Value="3 2" />
+                                                <Setter TargetName="CellText" Property="Foreground" Value="{StaticResource BgBrush}" />
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate></ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <ItemsControl ItemsSource="{Binding SelectedRow.ExposureRows}" Focusable="False">
+                                    <ItemsControl.ItemTemplate><DataTemplate>
+                                        <TextBlock Text="{Binding Detail}" FontSize="11.5" Foreground="{StaticResource Accent800Brush}" TextWrapping="Wrap" Margin="0,5,0,0" Visibility="{Binding HasProblem, Converter={StaticResource BoolToVisibility}}" />
+                                    </DataTemplate></ItemsControl.ItemTemplate>
+                                </ItemsControl>
 
                                 <Border Style="{StaticResource SectionHeader}">
                                     <TextBlock Style="{StaticResource SectionKicker}" Text="PROVENANCE" />
                                 </Border>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="110" />
+                                        <ColumnDefinition Width="104" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
@@ -863,20 +862,22 @@
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
-                                    <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource DetailLabel}" Text="Provenance" />
-                                    <TextBlock Grid.Row="0" Grid.Column="1" Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.Provenance}" />
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource DetailLabel}" Text="Source" />
-                                    <TextBlock Grid.Row="1" Grid.Column="1" Style="{StaticResource DetailValueMono}" Text="{Binding SelectedRow.Source}" />
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Style="{StaticResource DetailLabel}" Text="Skill path" />
-                                    <TextBlock Grid.Row="2" Grid.Column="1" Style="{StaticResource DetailValueMono}" Text="{Binding SelectedRow.SourceSkillPath}" />
-                                    <TextBlock Grid.Row="3" Grid.Column="0" Style="{StaticResource DetailLabel}" Text="Tracking Rule" />
-                                    <TextBlock Grid.Row="3" Grid.Column="1" Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.TrackingRule}" />
-                                    <TextBlock Grid.Row="4" Grid.Column="0" Style="{StaticResource DetailLabel}" Text="Installed rev" />
-                                    <TextBlock Grid.Row="4" Grid.Column="1" Style="{StaticResource DetailValueMono}" Text="{Binding SelectedRow.InstalledRevision}" />
-                                    <TextBlock Grid.Row="5" Grid.Column="0" Style="{StaticResource DetailLabel}" Text="Available rev" />
-                                    <TextBlock Grid.Row="5" Grid.Column="1" Style="{StaticResource DetailValueMono}" Text="{Binding SelectedRow.AvailableRevision}" />
-                                    <TextBlock Grid.Row="6" Grid.Column="0" Style="{StaticResource DetailLabel}" Text="Last checked" />
-                                    <TextBlock Grid.Row="6" Grid.Column="1" Style="{StaticResource DetailValueMono}" Text="{Binding SelectedRow.LastChecked}" />
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource DetailLabel}" Text="Library" />
+                                    <TextBlock Grid.Row="0" Grid.Column="1" Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.LibraryDetail}" />
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource DetailLabel}" Text="Provenance" />
+                                    <TextBlock Grid.Row="1" Grid.Column="1" Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.Provenance}" />
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Style="{StaticResource DetailLabel}" Text="Source" />
+                                    <TextBlock Grid.Row="2" Grid.Column="1" Style="{StaticResource DetailValueMono}" Text="{Binding SelectedRow.Source}" />
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Style="{StaticResource DetailLabel}" Text="Skill path" />
+                                    <TextBlock Grid.Row="3" Grid.Column="1" Style="{StaticResource DetailValueMono}" Text="{Binding SelectedRow.SourceSkillPath}" />
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Style="{StaticResource DetailLabel}" Text="Tracking Rule" />
+                                    <TextBlock Grid.Row="4" Grid.Column="1" Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.TrackingRule}" />
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Style="{StaticResource DetailLabel}" Text="Installed rev" />
+                                    <TextBlock Grid.Row="5" Grid.Column="1" Style="{StaticResource DetailValueMono}" Text="{Binding SelectedRow.InstalledRevision}" />
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Style="{StaticResource DetailLabel}" Text="Available rev" />
+                                    <TextBlock Grid.Row="6" Grid.Column="1" Style="{StaticResource DetailValueMono}" Text="{Binding SelectedRow.AvailableRevision}" />
+                                    <TextBlock Grid.Row="7" Grid.Column="0" Style="{StaticResource DetailLabel}" Text="Last checked" />
+                                    <TextBlock Grid.Row="7" Grid.Column="1" Style="{StaticResource DetailValueMono}" Text="{Binding SelectedRow.LastChecked}" />
                                 </Grid>
 
                                 <Border Style="{StaticResource SectionHeader}">
@@ -906,13 +907,16 @@
                                     <TextBlock Grid.Row="2" Grid.Column="1" Style="{StaticResource DetailValue}" Text="{Binding SelectedRow.UpdateStatus}" />
                                     <TextBlock Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
                                                FontSize="11.5"
-                                               Foreground="#8A4B08"
+                                               Foreground="{StaticResource Accent800Brush}"
                                                TextWrapping="Wrap"
                                                Margin="0,0,0,5"
                                                Text="{Binding SelectedRow.CheckNotice}"
                                                Visibility="{Binding SelectedRow.HasCheckNotice, Converter={StaticResource BoolToVisibility}}" />
-                                    <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Style="{StaticResource DetailValue}" Margin="0,6,0,5"
-                                               Text="{Binding SelectedRow.ActionState, StringFormat='Next step: {0}'}" />
+                                    <Border Grid.Row="4" Grid.ColumnSpan="2" BorderBrush="{StaticResource DividerBrush}" BorderThickness="1" Padding="10,8" Margin="0,8,0,0">
+                                        <StackPanel><TextBlock Style="{StaticResource SectionKicker}" FontSize="12" Text="NEXT STEP" Margin="0,0,0,4" />
+                                            <TextBlock Text="{Binding SelectedRow.ActionState}" FontSize="12" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
                                 </Grid>
 
                                 <Border Style="{StaticResource SectionHeader}">
@@ -967,38 +971,6 @@
                                             AutomationProperties.Name="Remove Local Folder for Unmanaged Installation"
                                             AutomationProperties.AutomationId="Skilly.RemoveLocalFolder" />
                                 </Grid>
-
-                                <Border Style="{StaticResource SectionHeader}">
-                                    <TextBlock Style="{StaticResource SectionKicker}" Text="HARNESS EXPOSURES" />
-                                </Border>
-                                <ItemsControl ItemsSource="{Binding SelectedRow.ExposureRows}" Focusable="False">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Border BorderBrush="{StaticResource Text08Brush}"
-                                                    BorderThickness="0,0,0,1"
-                                                    Padding="0,7">
-                                                <StackPanel>
-                                                    <DockPanel>
-                                                        <ContentControl DockPanel.Dock="Right"
-                                                                        Content="{Binding}"
-                                                                        ContentTemplate="{StaticResource ExposureModeTag}"
-                                                                        Focusable="False"
-                                                                        Margin="8,0,0,0" />
-                                                        <TextBlock Text="{Binding Harness}"
-                                                                   FontWeight="SemiBold"
-                                                                   FontSize="12.5"
-                                                                   VerticalAlignment="Center" />
-                                                    </DockPanel>
-                                                    <TextBlock Text="{Binding Detail}"
-                                                               FontSize="11"
-                                                               Foreground="{StaticResource Text55Brush}"
-                                                               TextWrapping="Wrap"
-                                                               Margin="0,2,0,0" />
-                                                </StackPanel>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
 
                                 <Border Style="{StaticResource SectionHeader}">
                                     <TextBlock Style="{StaticResource SectionKicker}" Text="LOCAL PATH" />
