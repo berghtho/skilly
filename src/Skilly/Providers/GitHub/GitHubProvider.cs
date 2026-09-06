@@ -134,12 +134,22 @@ public sealed class GitHubProvider(
         }
     }
 
-    public ProviderResult<UpdateResult> Update(State.ManagementRecord record, CancellationToken cancellationToken = default)
+    public ProviderResult<UpdatePreview> PreviewUpdate(State.ManagementRecord record)
     {
         try
         {
             client.EnsureAuthenticated(record.Provenance.Host);
-            var result = updater.Update(record, cancellationToken);
+            return ProviderResult<UpdatePreview>.Success(updater.Preview(record), "Read-only update preview ready.");
+        }
+        catch (Exception exception) { return ProviderResult<UpdatePreview>.Failure(exception.Message); }
+    }
+
+    public ProviderResult<UpdateResult> Update(State.ManagementRecord record, CancellationToken cancellationToken = default, UpdatePreview? preview = null)
+    {
+        try
+        {
+            client.EnsureAuthenticated(record.Provenance.Host);
+            var result = updater.Update(record, cancellationToken, preview);
             return ProviderResult<UpdateResult>.Success(
                 result,
                 $"Updated and verified GitHub Skill at {result.InstalledRevision}.");

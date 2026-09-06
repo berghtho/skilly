@@ -16,6 +16,7 @@ public sealed record SourceSkill(
     string ContentIdentity = "",
     IReadOnlyDictionary<string, string>? BlobIdentities = null)
 {
+    public string? SkillMarkdown { get; init; }
     public int FileCount => FilePaths.Count;
 
     public bool MatchesAlias(string candidate)
@@ -79,7 +80,8 @@ public sealed class SourceInspector(GhClient client, RollingLog log)
                 throw;
             }
 
-            var metadata = SkillMdReader.Parse(System.Text.Encoding.UTF8.GetString(skillMdBytes));
+            var skillMarkdown = System.Text.Encoding.UTF8.GetString(skillMdBytes);
+            var metadata = SkillMdReader.Parse(skillMarkdown);
             var relativeFiles = folder.Length == 0
                 ? blobs
                 : blobs.Where(path => path.StartsWith(folder + "/", StringComparison.Ordinal)).ToList();
@@ -124,7 +126,7 @@ public sealed class SourceInspector(GhClient client, RollingLog log)
                 metadataError,
                 files,
                 contentIdentity,
-                blobIdentities));
+                blobIdentities) { SkillMarkdown = SkillMarkdownPreview.FromText(skillMarkdown) });
         }
 
         log.Info($"Inspection found {skills.Count} Source Skill(s) below '{(resolvedReference.RequestedPath ?? "(root)")}' at commit {commit.Sha}.");

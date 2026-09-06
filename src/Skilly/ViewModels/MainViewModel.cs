@@ -107,6 +107,11 @@ public sealed class InventoryRow
 
     public string Source => Record?.Provenance.OriginalReference ?? Attribution?.OriginalReference ?? "Not recorded";
 
+    public string? SourceUrl => Infrastructure.SkillNavigation.SourceUrl(Source);
+    public bool CanOpenSource => SourceUrl is not null;
+    public bool CanOpenFolder => System.IO.Directory.Exists(Entry.LocalPath);
+    public bool CanReadSkillMarkdown => System.IO.File.Exists(System.IO.Path.Combine(Entry.LocalPath, "SKILL.md"));
+
     public string SourceSkillPath => Record?.Provenance.SourceSkillPath ?? Attribution?.SourceSkillPath ?? "Not recorded";
 
     public string TrackingRule => Record is not null
@@ -225,7 +230,15 @@ public sealed class InventoryRow
     public bool CanRemoveLocalFolder => Entry.ManagementStatus == ManagementStatus.Unmanaged
                                         && Entry.Kind == EntryKind.RealFolder;
 
-    public string ActionState => CanAdopt
+    public string ActionState => Entry.Health switch
+    {
+        InstallationHealth.Collision => $"Compare the conflicting paths listed above. Keep the intended Skill Installation and move the conflicting folder manually, then Refresh checks. Skilly will not overwrite it. Local path: {Entry.LocalPath}",
+        InstallationHealth.ExposureProblem => CanManagedReinstall
+            ? "Inspect the affected Harness Exposure below. Managed Reinstall can restore provider content and exposures after you review the replacement paths. It replaces content; preserve any local work first."
+            : "Inspect the affected Harness Exposure and its target below. Resolve the missing or conflicting reference manually, then Refresh checks.",
+        InstallationHealth.InvalidMetadata => $"Read SKILL.md and the metadata error above. Correct the file outside Skilly, then Refresh checks. Local path: {Entry.LocalPath}",
+        InstallationHealth.Missing => $"Restore the recorded installation from your backup, then Refresh checks. Skilly cannot safely update a missing installation. Expected path: {Entry.LocalPath}",
+        _ => CanAdopt
             ? "Direct Adoption is available. It records verified Provenance and preserves Skill content."
             : CanUpdate
             ? "A verified direct update is available."
@@ -233,9 +246,19 @@ public sealed class InventoryRow
             ? "Normal update is blocked because this Skill Installation is Locally Modified. Managed Reinstall is available."
             : Entry.Health == InstallationHealth.LocallyModified
             ? "Normal update is blocked because this Skill Installation is Locally Modified. Its owning provider does not support Managed Reinstall."
-            : Check?.IsStale == true
-                ? "Refresh checks successfully before updating."
-                : "No direct update is available.";
+                : Entry.ManagementStatus == ManagementStatus.Unmanaged
+                    ? "Inspect the original Skill Library to check for verified Adoption. Skilly needs matching source content before it can manage this installation."
+                    : Check?.Status == State.UpdateStatus.SourceUnavailable
+                        ? "Check the source address, network and provider authentication outside Skilly, then Refresh checks. See the check diagnostic above."
+                        : Check?.Status == State.UpdateStatus.CheckFailed
+                            ? "Resolve the provider error above, then Refresh checks. Installed content is unchanged."
+                            : Check?.IsStale == true
+                                ? "Refresh checks successfully before updating."
+                            : Check?.Status == State.UpdateStatus.Pinned
+                                ? "This installation tracks an immutable revision. No moving-source update is expected."
+                                : Check is null ? "Run Refresh checks to compare this installation with its source."
+                                    : "No direct update is available.",
+    };
 
     public string ExposuresSummary { get; }
 
@@ -310,6 +333,56 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly HashSet<string> _collapsedLibraries = new(StringComparer.OrdinalIgnoreCase);
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    private bool _maintenanceBusy;
+    private bool _showDetails = true;
+    private double _detailsWidth = 352;
+    private string _operationProgress = string.Empty;
+    private int _progressValue;
+    private int _progressMaximum = 1;
+    private GridLength _skillColumnWidth = new(1, GridUnitType.Star);
+    private double _managementWidth = 130, _healthWidth = 120, _updateWidth = 120, _exposuresWidth = 90;
+    public ObservableCollection<Infrastructure.OperationEntry> OperationHistory { get; } = [];
+    public bool ReviewUpdatesFirst { get; set; } = true;
+    public bool MaintenanceBusy
+    {
+        get => _maintenanceBusy;
+        set
+        {
+            if (!SetProperty(ref _maintenanceBusy, value)) return;
+            OnPropertyChanged(nameof(MutationsAllowed)); OnPropertyChanged(nameof(CanUpdateAll)); OnPropertyChanged(nameof(CanInspectSource));
+        }
+    }
+    public string OperationProgress { get => _operationProgress; set => SetProperty(ref _operationProgress, value); }
+    public int ProgressValue { get => _progressValue; set => SetProperty(ref _progressValue, value); }
+    public int ProgressMaximum { get => _progressMaximum; set => SetProperty(ref _progressMaximum, value); }
+    public bool ShowDetails
+    {
+        get => _showDetails;
+        set { if (!SetProperty(ref _showDetails, value)) return; OnPropertyChanged(nameof(DetailsWidth)); OnPropertyChanged(nameof(DetailsGap)); }
+    }
+    public GridLength DetailsWidth => new(ShowDetails ? _detailsWidth : 0);
+    public GridLength DetailsGap => new(ShowDetails ? 12 : 0);
+    public void ResizeDetails(double delta) { _detailsWidth = Math.Clamp(_detailsWidth - delta, 260, 600); OnPropertyChanged(nameof(DetailsWidth)); }
+    public GridLength SkillColumnWidth => _skillColumnWidth;
+    public double ManagementWidth => _managementWidth;
+    public double HealthWidth => _healthWidth;
+    public double UpdateWidth => _updateWidth;
+    public double ExposuresWidth => _exposuresWidth;
+    public double InventoryMinimumWidth => (_skillColumnWidth.IsStar ? 160 : _skillColumnWidth.Value) + _managementWidth + _healthWidth + _updateWidth + _exposuresWidth + 28;
+    public void ResizeColumn(int index, double actualWidth, double delta)
+    {
+        var width = Math.Clamp(actualWidth + delta, index == 0 ? 160 : 85, 650);
+        switch (index)
+        {
+            case 0: _skillColumnWidth = new GridLength(width); break;
+            case 1: _managementWidth = width; break;
+            case 2: _healthWidth = width; break;
+            case 3: _updateWidth = width; break;
+            case 4: _exposuresWidth = width; break;
+        }
+        foreach (var property in new[] { nameof(SkillColumnWidth), nameof(ManagementWidth), nameof(HealthWidth), nameof(UpdateWidth), nameof(ExposuresWidth), nameof(InventoryMinimumWidth) }) OnPropertyChanged(property);
+    }
 
     public MainViewModel()
     {
@@ -422,7 +495,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public bool CanInspectSource => !_inspectionInProgress && !string.IsNullOrWhiteSpace(_sourceText);
+    public bool CanInspectSource => !MaintenanceBusy && !_inspectionInProgress && !string.IsNullOrWhiteSpace(_sourceText);
 
     public IReadOnlyList<string> SourceProviders { get; } = ["GitHub", SkillsCliClient.Package, ApmClient.Provider];
 
@@ -448,7 +521,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public bool RecoveryRequired => _recoveryRequired;
 
-    public bool MutationsAllowed => !_recoveryRequired;
+    public bool MutationsAllowed => !_recoveryRequired && !MaintenanceBusy;
 
     public string RecoveryDiagnostic => _recoveryDiagnostic;
 

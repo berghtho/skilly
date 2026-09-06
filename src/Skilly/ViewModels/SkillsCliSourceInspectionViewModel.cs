@@ -5,7 +5,7 @@ using Skilly.Providers.SkillsCli;
 
 namespace Skilly.ViewModels;
 
-public sealed class SelectableSkillsCliSourceSkill : INotifyPropertyChanged
+public sealed class SelectableSkillsCliSourceSkill : INotifyPropertyChanged, IBrowsableSourceSkill
 {
     private bool _isSelected;
 
@@ -36,6 +36,8 @@ public sealed class SelectableSkillsCliSourceSkill : INotifyPropertyChanged
     public bool CanToggle => Skill.MetadataValid && !Skill.AlreadyInstalled;
 
     public bool IsInstalled => Skill.AlreadyInstalled;
+    public string SearchContent => $"{Skill.SkillPath}\n{Alias}\n{Skill.Description}";
+    public string PreviewText => $"{Skill.SkillPath}\n{Skill.Description}\n\nThe skills provider lists descriptions but does not supply SKILL.md content during inspection.";
 
     public string Alias => Skill.DeclaredName;
 
@@ -56,12 +58,14 @@ public sealed class SkillsCliSourceInspectionViewModel : INotifyPropertyChanged
         Inspection = inspection;
         _mutationsAllowed = mutationsAllowed;
         Skills = [.. inspection.Skills.Select(static skill => new SelectableSkillsCliSourceSkill(skill))];
+        Browser = new SourceSkillBrowser(Skills);
         foreach (var item in Skills)
         {
             item.PropertyChanged += (_, _) =>
             {
                 OnPropertyChanged(nameof(SelectedCount));
                 OnPropertyChanged(nameof(CanInstall));
+                Browser.SelectionChanged();
             };
         }
         var installedCount = Skills.Count(static item => item.IsInstalled);
@@ -73,6 +77,7 @@ public sealed class SkillsCliSourceInspectionViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
     public SkillsCliInspection Inspection { get; }
     public ObservableCollection<SelectableSkillsCliSourceSkill> Skills { get; }
+    public SourceSkillBrowser Browser { get; }
     public string Source => Inspection.NormalizedSource;
     public string Heading => Inspection.NormalizedSource;
     public string DiscoveryLine => $"{Skills.Count} Source Skill(s) discovered — read-only scan; nothing is installed until you confirm.";
@@ -119,6 +124,7 @@ public sealed class SkillsCliSourceInspectionViewModel : INotifyPropertyChanged
 
     public void SelectAll(bool selected)
     {
+        if (selected) { Browser.SelectVisible(); return; }
         foreach (var item in Skills.Where(static item => item.CanToggle)) item.IsSelected = selected;
     }
 
@@ -133,9 +139,11 @@ public sealed class SkillsCliSourceInspectionViewModel : INotifyPropertyChanged
                 : $"'{candidate}' is ambiguous; select one exact Source Skill.";
             return false;
         }
-        if (matches[0].Skill.AlreadyInstalled)
+        if (!matches[0].CanToggle)
         {
-            Status = $"'{candidate}' is already installed; uninstall it first to reinstall. Nothing changed.";
+            Status = matches[0].IsInstalled
+                ? $"'{candidate}' is already installed or its destination is occupied. Inspect the local installation in the Workbench. Nothing changed."
+                : $"'{candidate}' cannot be selected: {matches[0].Installability}. Nothing changed.";
             return false;
         }
         matches[0].IsSelected = true;

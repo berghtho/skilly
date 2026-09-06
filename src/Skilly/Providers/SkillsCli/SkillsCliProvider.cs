@@ -180,8 +180,21 @@ public sealed class SkillsCliProvider(
         }
     }
 
-    public ProviderResult<SkillsCliUpdateResult> Update(ManagementRecord record, CancellationToken cancellationToken = default)
-        => Wrap(() => UpdateCore(record, cancellationToken), "Updated through the pinned skills provider and reconciled provider and Skilly authority.");
+    public ProviderResult<UpdatePreview> PreviewUpdate(ManagementRecord requested)
+        => Wrap(() =>
+        {
+            var record = RequireManagedRecord(requested.InstallationId, requireHealthy: true);
+            RequireFreshUpdate(record);
+            VerifyCurrentProviderEvidence(record);
+            var target = AcquireReplacement(record, includePreview: true);
+            if (target.PayloadHash != record.LatestCheck!.AvailablePayloadHash || target.Evidence.SkillFolderHash != record.LatestCheck.AvailableRevision)
+                throw new ProviderFailure("Source content changed after Check. Refresh checks before preview.");
+            return new UpdatePreview("skills:" + record.InstallationId, "skills",
+                [PreviewFiles.ForSkill(record, target.Evidence.SkillFolderHash, target.PayloadHash, target.Files!)]);
+        }, "Read-only update preview ready.");
+
+    public ProviderResult<SkillsCliUpdateResult> Update(ManagementRecord record, CancellationToken cancellationToken = default, UpdatePreview? preview = null)
+        => Wrap(() => UpdateCore(record, cancellationToken, preview), "Updated through the pinned skills provider and reconciled provider and Skilly authority.");
 
     public ProviderResult<SkillsCliManagedReinstallPlan> PlanManagedReinstall(ManagementRecord record)
         => Wrap(() => PlanManagedReinstallCore(record), "Verified the exact skills provider replacement path and revision. Nothing changed.");
@@ -288,7 +301,7 @@ public sealed class SkillsCliProvider(
         }
     }
 
-    private SkillsCliUpdateResult UpdateCore(ManagementRecord requested, CancellationToken cancellationToken)
+    private SkillsCliUpdateResult UpdateCore(ManagementRecord requested, CancellationToken cancellationToken, UpdatePreview? preview = null)
     {
         var state = RequireWritableState();
         var record = FindRecord(state, requested.InstallationId);
@@ -297,6 +310,8 @@ public sealed class SkillsCliProvider(
         VerifyManagedTopology(record);
         VerifyCurrentProviderEvidence(record);
         var check = record.LatestCheck!;
+        preview?.VerifyStarting(record);
+        preview?.VerifyTarget(record.CanonicalPath, check.AvailablePayloadHash!);
         var paths = new List<MutationPaths> { new(record.CanonicalPath, record.IntendedClaudeJunctionPath!) };
         var pending = CreatePending(MutationType.Update, [record.InstallationId], paths, [record.InstalledPayloadHash]);
         pending.TargetPayloadHash = check.AvailablePayloadHash;
@@ -704,7 +719,7 @@ public sealed class SkillsCliProvider(
         }
     }
 
-    private ReplacementAcquisition AcquireReplacement(ManagementRecord record)
+    private ReplacementAcquisition AcquireReplacement(ManagementRecord record, bool includePreview = false)
     {
         var temporaryRoot = Path.Combine(Path.GetDirectoryName(stateStore.FilePath)!, "provider-reinstall-plan-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryRoot);
@@ -722,7 +737,8 @@ public sealed class SkillsCliProvider(
             VerifyListedSkill(client.ListGlobal(environment), canonical);
             var evidence = FindLockEntry(temporaryLock.Read(), name, Path.GetFileName(record.CanonicalPath));
             VerifySourceEvidence(record.Provenance.OriginalReference, evidence);
-            return new ReplacementAcquisition(evidence, PayloadHasher.HashFolder(canonical));
+            var hash = PayloadHasher.HashFolder(canonical);
+            return new ReplacementAcquisition(evidence, hash, includePreview ? PreviewFiles.ReadVerifiedFolder(canonical, hash) : null);
         }
         finally
         {
@@ -1018,7 +1034,7 @@ public sealed class SkillsCliProvider(
 
     private sealed record MutationPaths(string Canonical, string Claude);
 
-    private sealed record ReplacementAcquisition(SkillsCliLockEntry Evidence, string PayloadHash);
+    private sealed record ReplacementAcquisition(SkillsCliLockEntry Evidence, string PayloadHash, IReadOnlyList<PreviewFile>? Files = null);
 
     private sealed record SnapshotPath(
         string Canonical,

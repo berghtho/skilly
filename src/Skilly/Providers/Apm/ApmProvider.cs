@@ -55,7 +55,10 @@ public sealed class ApmProvider(
                             throw new ProviderFailure($"APM inspection produced invalid SKILL.md metadata at '{path}': {metadata.Error}");
                         var evidence = isolatedApm.FindForSkill(Path.GetFileName(path));
                         VerifyCanonicalOnly(evidence, temporaryRoot);
-                        return (Skill: new ApmSourceSkill(Path.GetFileName(path), metadata.Description ?? string.Empty), Evidence: evidence);
+                        return (Skill: new ApmSourceSkill(Path.GetFileName(path), metadata.Description ?? string.Empty)
+                        {
+                            SkillMarkdown = SkillMarkdownPreview.ReadFile(Path.Combine(path, "SKILL.md")),
+                        }, Evidence: evidence);
                     }).ToList()
                 : [];
             var skills = discovered.Select(item => item.Skill with
@@ -133,8 +136,65 @@ public sealed class ApmProvider(
         }
     }
 
-    public ProviderResult<ApmUpdateResult> Update(ManagementRecord record, CancellationToken cancellationToken = default)
-        => Wrap(() => UpdateCore(record, cancellationToken), "Updated through APM with affirmative noninteractive consent and reconciled every postcondition.");
+    public ProviderResult<UpdatePreview> PreviewUpdate(ManagementRecord requested)
+        => Wrap(() => PreviewUpdateCore(requested), "Read-only APM package preview ready.");
+
+    private UpdatePreview PreviewUpdateCore(ManagementRecord requested)
+    {
+        client.RequireSupportedVersion();
+        var state = RequireWritableState();
+        var record = FindRecord(state, requested.InstallationId);
+        RequireFreshUpdate(record);
+        VerifyAllManagedApmState(state);
+        var records = PackageRecords(state, record.Provenance.Repository);
+        var before = ReadOnlyFingerprint();
+        var root = Path.Combine(Path.GetDirectoryName(stateStore.FilePath)!, "apm-update-preview-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var selections = records.Select(candidate => candidate.Provenance.ProviderSkillName)
+                .Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name!).ToList();
+            ApmClient.RequireExit(client.Install(record.Provenance.OriginalReference, selections, IsolatedEnvironment(root)), "Isolated APM update preview acquisition");
+            var isolated = new ApmGlobalState(root);
+            var canonical = Path.Combine(root, ".agents", "skills");
+            var claude = Path.Combine(root, ".claude", "skills");
+            if (Directory.Exists(claude) && Directory.EnumerateFileSystemEntries(claude).Any())
+                throw new ProviderFailure("APM preview produced a separate Claude copy.");
+            var targets = Directory.Exists(canonical) ? Directory.EnumerateDirectories(canonical).ToDictionary(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase) : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var names = records.Select(candidate => Path.GetFileName(candidate.CanonicalPath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var changedMembership = !names.SetEquals(targets.Keys);
+            var previews = new List<SkillUpdatePreview>();
+            foreach (var name in names.Union(targets.Keys, StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase))
+            {
+                var current = records.SingleOrDefault(candidate => string.Equals(Path.GetFileName(candidate.CanonicalPath), name, StringComparison.OrdinalIgnoreCase));
+                if (!targets.TryGetValue(name, out var path))
+                {
+                    previews.Add(new SkillUpdatePreview(current!.InstallationId, name, current.CanonicalPath, current.InstalledRevision, "Removed",
+                        current.InstalledPayloadHash, string.Empty, PreviewFiles.Compare(PreviewFiles.ReadFolder(current.CanonicalPath), [])));
+                    continue;
+                }
+                var evidence = isolated.FindForSkill(name);
+                VerifyCanonicalWithoutClaude(new MutationPaths(path, Path.Combine(claude, name)));
+                VerifyCanonicalOnly(evidence, root);
+                VerifyRequestedSource(ApmGlobalState.NormalizeSource(record.Provenance.OriginalReference), evidence);
+                if (!MatchesAvailable(record.LatestCheck!.AvailableRevision!, evidence))
+                    throw new ProviderFailure("APM source revision changed after Check. Refresh checks before preview.");
+                var hash = PayloadHasher.HashFolder(path);
+                var files = PreviewFiles.ReadVerifiedFolder(path, hash);
+                previews.Add(current is not null
+                    ? PreviewFiles.ForSkill(current, evidence.Revision, hash, files)
+                    : new SkillUpdatePreview("new:" + name, name, PathsFor(name).Canonical, "Not installed", evidence.Revision,
+                        string.Empty, hash, PreviewFiles.Compare([], files)));
+            }
+            if (before != ReadOnlyFingerprint()) throw new ProviderFailure("APM preview changed user state. Update is blocked.");
+            return new UpdatePreview("apm:" + record.Provenance.Repository, ApmClient.ProviderId, previews,
+                changedMembership ? "This APM update adds or removes Skills. Review the file changes; the current managed updater cannot safely reconcile this membership change, so Apply is blocked." : null);
+        }
+        finally { DeleteDirectorySafe(root); }
+    }
+
+    public ProviderResult<ApmUpdateResult> Update(ManagementRecord record, CancellationToken cancellationToken = default, UpdatePreview? preview = null)
+        => Wrap(() => UpdateCore(record, cancellationToken, preview), "Updated through APM with affirmative noninteractive consent and reconciled every postcondition.");
 
     public ProviderResult<ApmManagedReinstallPlan> PlanManagedReinstall(ManagementRecord record)
         => Wrap(() => PlanManagedReinstallCore(record), "Verified the exact APM replacement paths and revision. Nothing changed.");
@@ -254,7 +314,7 @@ public sealed class ApmProvider(
         }
     }
 
-    private ApmUpdateResult UpdateCore(ManagementRecord requested, CancellationToken cancellationToken)
+    private ApmUpdateResult UpdateCore(ManagementRecord requested, CancellationToken cancellationToken, UpdatePreview? preview = null)
     {
         client.RequireSupportedVersion();
         var state = RequireWritableState();
@@ -263,7 +323,16 @@ public sealed class ApmProvider(
         VerifyAllManagedApmState(state);
         var startingRecords = CloneRecords(state.Records);
         var paths = AllApmPaths(state);
-        var pending = CreatePending(MutationType.Update, [record.InstallationId], paths);
+        var packageRecords = PackageRecords(state, record.Provenance.Repository);
+        var targetedIds = packageRecords.Select(candidate => candidate.InstallationId).ToHashSet(StringComparer.Ordinal);
+        var startingFolders = CanonicalFolderNames();
+        if (preview is not null)
+        {
+            if (!targetedIds.SetEquals(preview.Skills.Select(skill => skill.InstallationId)))
+                throw new ProviderFailure("The APM package membership changed after preview.");
+            foreach (var candidate in packageRecords) preview.VerifyStarting(candidate);
+        }
+        var pending = CreatePending(MutationType.Update, packageRecords.Select(candidate => candidate.InstallationId).ToList(), paths);
         pending.TargetRevision = record.LatestCheck!.AvailableRevision;
         pending.TargetContentIdentity = record.LatestCheck.AvailableContentIdentity;
         state.PendingOperation = pending;
@@ -288,10 +357,24 @@ public sealed class ApmProvider(
                 throw new ProviderFailure("APM update reported success but neither lock revision nor selected Skill payload changed.");
             if (!MatchesAvailable(record.LatestCheck.AvailableRevision!, evidence))
                 throw new ProviderFailure("APM update did not produce the revision reported by the read-only outdated Check.");
-            SavePhase(state, pending, PendingOperationPhase.Verified);
-            RefreshAllApmEvidence(state, OperationOutcome.Updated);
-            foreach (var candidate in state.Records.Where(IsApmRecord))
+            if (preview is not null)
             {
+                if (!startingFolders.SetEquals(CanonicalFolderNames()))
+                    throw new ProviderFailure("APM changed the Skill set after preview. The operation will be restored.");
+                foreach (var candidate in packageRecords)
+                {
+                    preview.VerifyTarget(candidate.CanonicalPath, PayloadHasher.HashFolder(candidate.CanonicalPath));
+                    var expected = preview.Skills.Single(skill => skill.InstallationId == candidate.InstallationId);
+                    if (_apm.FindForSkill(Path.GetFileName(candidate.CanonicalPath)).Revision != expected.TargetRevision)
+                        throw new ProviderFailure("APM installed a different revision than the reviewed preview.");
+                }
+                VerifyUnchangedApmRecords(state, startingRecords, targetedIds);
+            }
+            SavePhase(state, pending, PendingOperationPhase.Verified);
+            RefreshAllApmEvidence(state);
+            foreach (var candidate in packageRecords)
+            {
+                candidate.LastOperationOutcome = OperationOutcome.Updated;
                 candidate.LatestCheck = new CheckSnapshot
                 {
                     Status = UpdateStatus.Current,

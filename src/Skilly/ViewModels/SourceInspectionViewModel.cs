@@ -5,13 +5,14 @@ using Skilly.Providers.GitHub;
 
 namespace Skilly.ViewModels;
 
-public sealed class SelectableSourceSkill : INotifyPropertyChanged
+public sealed class SelectableSourceSkill : INotifyPropertyChanged, IBrowsableSourceSkill
 {
     private bool _isSelected;
 
-    public SelectableSourceSkill(SourceSkill skill)
+    public SelectableSourceSkill(SourceSkill skill, bool destinationExists = false)
     {
         Skill = skill;
+        IsInstalled = destinationExists;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -23,7 +24,7 @@ public sealed class SelectableSourceSkill : INotifyPropertyChanged
         get => _isSelected;
         set
         {
-            if (_isSelected == value || !Skill.MetadataValid)
+            if (_isSelected == value || !CanToggle)
             {
                 return;
             }
@@ -36,19 +37,21 @@ public sealed class SelectableSourceSkill : INotifyPropertyChanged
 
     public bool IsChecked
     {
-        get => IsSelected;
+        get => IsInstalled || IsSelected;
         set => IsSelected = value;
     }
 
-    public bool CanToggle => Skill.MetadataValid;
+    public bool CanToggle => Skill.MetadataValid && !IsInstalled;
 
-    public bool IsInstalled => false;
+    public bool IsInstalled { get; }
+    public string SearchContent => $"{Skill.SkillPath}\n{Alias}\n{Skill.Description}";
+    public string PreviewText => $"{Skill.SkillPath}\n{Skill.Description}\n\n{Skill.SkillMarkdown ?? "SKILL.md content is unavailable for this inspection."}";
 
     public string Alias => Skill.DeclaredName is null || Skill.DeclaredName == Skill.FolderName
         ? Skill.FolderName
         : $"{Skill.FolderName} (declared: {Skill.DeclaredName})";
 
-    public string Installability => Skill.MetadataValid ? "Installable" : $"Invalid metadata: {Skill.MetadataError}";
+    public string Installability => IsInstalled ? "Already present locally" : Skill.MetadataValid ? "Installable" : $"Invalid metadata: {Skill.MetadataError}";
 }
 
 public sealed class SourceInspectionViewModel : INotifyPropertyChanged
@@ -58,17 +61,19 @@ public sealed class SourceInspectionViewModel : INotifyPropertyChanged
     private bool _isBusy;
     private readonly bool _mutationsAllowed;
 
-    public SourceInspectionViewModel(SourceInspection inspection, bool mutationsAllowed = true)
+    public SourceInspectionViewModel(SourceInspection inspection, bool mutationsAllowed = true, ISet<string>? occupiedFolders = null)
     {
         _mutationsAllowed = mutationsAllowed;
         Inspection = inspection;
-        Skills = [.. inspection.Skills.Select(static skill => new SelectableSourceSkill(skill))];
+        Skills = [.. inspection.Skills.Select(skill => new SelectableSourceSkill(skill, occupiedFolders?.Contains(skill.FolderName) == true))];
+        Browser = new SourceSkillBrowser(Skills);
         foreach (var item in Skills)
         {
             item.PropertyChanged += (_, _) =>
             {
                 OnPropertyChanged(nameof(SelectedCount));
                 OnPropertyChanged(nameof(CanInstall));
+                Browser.SelectionChanged();
             };
         }
 
@@ -80,6 +85,7 @@ public sealed class SourceInspectionViewModel : INotifyPropertyChanged
     public SourceInspection Inspection { get; }
 
     public ObservableCollection<SelectableSourceSkill> Skills { get; }
+    public SourceSkillBrowser Browser { get; }
 
     public string Source => Inspection.Reference.Normalized;
 
@@ -146,7 +152,8 @@ public sealed class SourceInspectionViewModel : INotifyPropertyChanged
 
     public void SelectAll(bool selected)
     {
-        foreach (var item in Skills.Where(static item => item.Skill.MetadataValid))
+        if (selected) { Browser.SelectVisible(); return; }
+        foreach (var item in Skills.Where(static item => item.CanToggle))
         {
             item.IsSelected = selected;
         }
@@ -170,9 +177,9 @@ public sealed class SourceInspectionViewModel : INotifyPropertyChanged
 
         var match = matches[0];
 
-        if (!match.Skill.MetadataValid)
+        if (!match.CanToggle)
         {
-            Status = $"'{candidate}' identifies a Source Skill with invalid metadata and cannot be selected.";
+            Status = $"'{candidate}' cannot be selected: {match.Installability}. Inspect the local installation in the Workbench if present.";
             return false;
         }
 

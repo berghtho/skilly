@@ -21,6 +21,7 @@ public sealed class AccessibilityTests(PackagedAppFixture fixture)
         try
         {
             var window = AutomationElement.FromHandle(handle);
+            PrepareEnabledSourceActions(window);
 
             AssertElement(window, "Skilly.FilterRail", "Inventory filters", expectKeyboardFocusable: true);
             AssertElement(window, "Skilly.SkillList", "Skill list", expectKeyboardFocusable: true);
@@ -52,6 +53,7 @@ public sealed class AccessibilityTests(PackagedAppFixture fixture)
 
         try
         {
+            PrepareEnabledSourceActions(window);
             var provider = FindById(window, "Skilly.SourceProvider")!;
             AssertTakesKeyboardFocus(FindById(window, "Skilly.SourceReference")!);
             AssertTakesKeyboardFocus(FindById(window, "Skilly.InspectSource")!);
@@ -112,6 +114,16 @@ public sealed class AccessibilityTests(PackagedAppFixture fixture)
         {
             instance.CloseMainWindowAndWait();
         }
+    }
+
+    private static void PrepareEnabledSourceActions(AutomationElement window)
+    {
+        // Inspect is intentionally disabled for an empty source; test focus after valid input.
+        var source = FindById(window, "Skilly.SourceReference")!;
+        ((ValuePattern)source.GetCurrentPattern(ValuePattern.Pattern)).SetValue("https://github.com/acme/library");
+        WaitUntil(() => FindById(window, "Skilly.InspectSource")!.Current.IsEnabled
+                        && FindById(window, "Skilly.RefreshChecks")!.Current.IsEnabled,
+            TimeSpan.FromMinutes(1), "Source actions did not become ready for keyboard focus testing.");
     }
 
     private static void AssertElement(AutomationElement root, string automationId, string expectedName, bool expectKeyboardFocusable)
