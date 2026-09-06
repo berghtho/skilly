@@ -12,7 +12,23 @@ public sealed class GitHubUpdater(
     StateStore stateStore,
     RollingLog log)
 {
-    public UpdateResult Update(ManagementRecord requestedRecord, CancellationToken cancellationToken = default)
+    public UpdatePreview Preview(ManagementRecord requested)
+    {
+        var state = stateStore.Load();
+        if (state.PendingOperation is not null) throw new ProviderFailure("A pending mutation blocks preview.");
+        var record = state.Records.Single(candidate => candidate.InstallationId == requested.InstallationId);
+        var check = record.LatestCheck;
+        if (check?.Status != UpdateStatus.UpdateAvailable || check.IsStale || check.Failure is not null || string.IsNullOrWhiteSpace(check.AvailableRevision))
+            throw new ProviderFailure("Refresh checks before preparing an update preview.");
+        VerifyInstalledPreconditions(record);
+        var payload = checker.FetchPayload(record, check.AvailableRevision);
+        if (payload.Hash != check.AvailablePayloadHash || payload.ContentIdentity != check.AvailableContentIdentity)
+            throw new ProviderFailure("Source content changed after Check. Refresh checks before preview.");
+        return new UpdatePreview("github:" + record.InstallationId, "github",
+            [PreviewFiles.ForSkill(record, check.AvailableRevision, payload.Hash, PreviewFiles.FromPayload(payload.Files))]);
+    }
+
+    public UpdateResult Update(ManagementRecord requestedRecord, CancellationToken cancellationToken = default, UpdatePreview? preview = null)
     {
         var state = stateStore.Load();
         if (state.PendingOperation is not null)
@@ -41,6 +57,7 @@ public sealed class GitHubUpdater(
         }
 
         var currentHash = VerifyInstalledPreconditions(record);
+        preview?.VerifyStarting(record);
 
         var payload = checker.FetchPayload(record, check.AvailableRevision);
         if (!string.Equals(payload.Hash, check.AvailablePayloadHash, StringComparison.OrdinalIgnoreCase)
@@ -50,6 +67,7 @@ public sealed class GitHubUpdater(
         }
 
         currentHash = VerifyInstalledPreconditions(record);
+        preview?.VerifyTarget(record.CanonicalPath, payload.Hash);
 
         var canonicalParent = Path.GetDirectoryName(record.CanonicalPath)!;
         var operationId = Guid.NewGuid().ToString("N");

@@ -7,6 +7,7 @@ namespace Skilly.Providers.Apm;
 
 public sealed record ApmSourceSkill(string Name, string Description, string? ProviderSelectionName = null)
 {
+    public string? SkillMarkdown { get; init; }
     public string FileCount => "Not reported";
     public string SkillPath => Name;
     public string FolderName => Name;

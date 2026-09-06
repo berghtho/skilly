@@ -5,10 +5,10 @@ using Skilly.Providers.Apm;
 
 namespace Skilly.ViewModels;
 
-public sealed class SelectableApmSourceSkill : INotifyPropertyChanged
+public sealed class SelectableApmSourceSkill : INotifyPropertyChanged, IBrowsableSourceSkill
 {
     private bool _isSelected;
-    public SelectableApmSourceSkill(ApmSourceSkill skill) => Skill = skill;
+    public SelectableApmSourceSkill(ApmSourceSkill skill, bool destinationExists = false) { Skill = skill; IsInstalled = destinationExists; }
     public event PropertyChangedEventHandler? PropertyChanged;
     public ApmSourceSkill Skill { get; }
     public bool IsSelected
@@ -16,17 +16,19 @@ public sealed class SelectableApmSourceSkill : INotifyPropertyChanged
         get => _isSelected;
         set
         {
-            if (_isSelected == value || !Skill.MetadataValid) return;
+            if (_isSelected == value || !CanToggle) return;
             _isSelected = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsChecked)));
         }
     }
-    public bool IsChecked { get => IsSelected; set => IsSelected = value; }
-    public bool CanToggle => Skill.MetadataValid;
-    public bool IsInstalled => false;
+    public bool IsChecked { get => IsInstalled || IsSelected; set => IsSelected = value; }
+    public bool CanToggle => Skill.MetadataValid && !IsInstalled;
+    public bool IsInstalled { get; }
+    public string SearchContent => $"{Skill.SkillPath}\n{Alias}\n{Skill.Description}";
+    public string PreviewText => $"{Skill.SkillPath}\n{Skill.Description}\n\n{Skill.SkillMarkdown ?? "SKILL.md content is unavailable for this inspection."}";
     public string Alias => Skill.DeclaredName;
-    public string Installability => Skill.MetadataValid ? "Installable" : $"Invalid APM identity: {Skill.MetadataError}";
+    public string Installability => IsInstalled ? "Already present locally" : Skill.MetadataValid ? "Installable" : $"Invalid APM identity: {Skill.MetadataError}";
 }
 
 public sealed class ApmSourceInspectionViewModel : INotifyPropertyChanged
@@ -36,18 +38,20 @@ public sealed class ApmSourceInspectionViewModel : INotifyPropertyChanged
     private bool _isBusy;
     private readonly bool _mutationsAllowed;
 
-    public ApmSourceInspectionViewModel(ApmInspection inspection, bool mutationsAllowed = true)
+    public ApmSourceInspectionViewModel(ApmInspection inspection, bool mutationsAllowed = true, ISet<string>? occupiedFolders = null)
     {
         Inspection = inspection;
         _mutationsAllowed = mutationsAllowed;
-        Skills = [.. inspection.Skills.Select(skill => new SelectableApmSourceSkill(skill))];
-        foreach (var item in Skills) item.PropertyChanged += (_, _) => { OnPropertyChanged(nameof(SelectedCount)); OnPropertyChanged(nameof(CanInstall)); };
+        Skills = [.. inspection.Skills.Select(skill => new SelectableApmSourceSkill(skill, occupiedFolders?.Contains(skill.FolderName) == true))];
+        Browser = new SourceSkillBrowser(Skills);
+        foreach (var item in Skills) item.PropertyChanged += (_, _) => { OnPropertyChanged(nameof(SelectedCount)); OnPropertyChanged(nameof(CanInstall)); Browser.SelectionChanged(); };
         _status = $"Read-only APM inspection found {Skills.Count} Source Skill(s) in an isolated home. User state was not changed.";
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public ApmInspection Inspection { get; }
     public ObservableCollection<SelectableApmSourceSkill> Skills { get; }
+    public SourceSkillBrowser Browser { get; }
     public string Source => Inspection.NormalizedSource;
     public string Heading => Inspection.NormalizedSource;
     public string DiscoveryLine => $"{Skills.Count} Source Skill(s) discovered — read-only scan; nothing is installed until you confirm.";
@@ -73,7 +77,8 @@ public sealed class ApmSourceInspectionViewModel : INotifyPropertyChanged
     }
     public void SelectAll(bool selected)
     {
-        foreach (var item in Skills.Where(item => item.Skill.MetadataValid)) item.IsSelected = selected;
+        if (selected) { Browser.SelectVisible(); return; }
+        foreach (var item in Skills.Where(item => item.CanToggle)) item.IsSelected = selected;
     }
     public bool SelectExact()
     {
@@ -82,6 +87,11 @@ public sealed class ApmSourceInspectionViewModel : INotifyPropertyChanged
         if (matches.Count != 1)
         {
             Status = matches.Count == 0 ? $"No exact APM Source Skill name matches '{candidate}'. Nothing changed." : $"'{candidate}' is ambiguous; select one exact Source Skill.";
+            return false;
+        }
+        if (!matches[0].CanToggle)
+        {
+            Status = $"'{candidate}' cannot be selected: {matches[0].Installability}. Inspect the local installation in the Workbench if present.";
             return false;
         }
         matches[0].IsSelected = true;

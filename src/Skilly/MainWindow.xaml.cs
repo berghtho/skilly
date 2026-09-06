@@ -24,6 +24,9 @@ public partial class MainWindow : Window
     private readonly SemaphoreSlim _maintenanceGate = new(1, 1);
     private CancellationTokenSource? _mutationCancellation;
     private volatile bool _mutationInProgress;
+    private readonly Infrastructure.OperationHistoryStore _historyStore;
+    private bool _stopAfterCurrent;
+    private bool _closing;
 
     public MainWindow(
         Infrastructure.RollingLog log,
@@ -32,7 +35,8 @@ public partial class MainWindow : Window
         SkillsCliProvider skillsProvider,
         ApmProvider apmProvider,
         ProviderCheckRunner checkRunner,
-        Func<IReadOnlyList<AdoptionEvidence>?, InventorySnapshot> refreshInventory)
+        Func<IReadOnlyList<AdoptionEvidence>?, InventorySnapshot> refreshInventory,
+        Infrastructure.OperationHistoryStore? historyStore = null)
     {
         InitializeComponent();
         _log = log;
@@ -43,6 +47,15 @@ public partial class MainWindow : Window
         _checkRunner = checkRunner;
         _refreshInventory = refreshInventory;
         DataContext = viewModel;
+        _historyStore = historyStore ?? new Infrastructure.OperationHistoryStore(System.IO.Path.Combine(Infrastructure.SkillyPaths.ApplicationRoot, "operation-history.json"));
+        foreach (var entry in _historyStore.Load()) viewModel.OperationHistory.Add(entry);
+        Width = Math.Min(Width, SystemParameters.WorkArea.Width);
+        Height = Math.Min(Height, SystemParameters.WorkArea.Height);
+        if (Width < 1180) viewModel.ShowDetails = false;
+        SizeChanged += (_, args) =>
+        {
+            if (args.WidthChanged && args.NewSize.Width < 1180 && args.PreviousSize.Width >= 1180) viewModel.ShowDetails = false;
+        };
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
         Loaded += OnLoaded;
         StateChanged += OnStateChanged;
@@ -64,6 +77,60 @@ public partial class MainWindow : Window
     }
 
     private void OnCloseWindow(object sender, RoutedEventArgs e) => Close();
+
+    private void OnResizeColumn(object sender, System.Windows.Controls.Primitives.DragDeltaEventArgs e)
+    {
+        var thumb = (System.Windows.Controls.Primitives.Thumb)sender;
+        var grid = (Grid)thumb.Parent;
+        var index = Grid.GetColumn(thumb);
+        ((ViewModels.MainViewModel)DataContext).ResizeColumn(index, grid.ColumnDefinitions[index].ActualWidth, e.HorizontalChange);
+    }
+
+    private void OnResizeDetails(object sender, System.Windows.Controls.Primitives.DragDeltaEventArgs e)
+        => ((ViewModels.MainViewModel)DataContext).ResizeDetails(e.HorizontalChange);
+
+    private void OnOpenSkillFolder(object sender, RoutedEventArgs e)
+        => NavigateSelected(row =>
+        {
+            if (!System.IO.Directory.Exists(row.Entry.LocalPath)) throw new System.IO.DirectoryNotFoundException("The Skill folder is missing. Refresh checks.");
+            var start = new System.Diagnostics.ProcessStartInfo("explorer.exe") { UseShellExecute = true };
+            start.ArgumentList.Add(System.IO.Path.GetFullPath(row.Entry.LocalPath));
+            System.Diagnostics.Process.Start(start);
+        });
+
+    private void OnOpenSkillSource(object sender, RoutedEventArgs e)
+        => NavigateSelected(row =>
+        {
+            var url = row.SourceUrl ?? throw new InvalidOperationException("This source has no supported HTTPS address.");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        });
+
+    private void OnCopySkillPath(object sender, RoutedEventArgs e)
+        => NavigateSelected(row =>
+        {
+            Clipboard.SetText(row.Entry.LocalPath);
+            ((ViewModels.MainViewModel)DataContext).Announce("Skill path copied.");
+        });
+
+    private void OnReadSkillMarkdown(object sender, RoutedEventArgs e)
+        => NavigateSelected(row =>
+        {
+            var path = System.IO.Path.Combine(row.Entry.LocalPath, "SKILL.md");
+            var text = SkillMarkdownPreview.ReadFile(path);
+            new SkillDocumentWindow(path, text) { Owner = this }.ShowDialog();
+        });
+
+    private void NavigateSelected(Action<ViewModels.InventoryRow> action)
+    {
+        var viewModel = (ViewModels.MainViewModel)DataContext;
+        if (viewModel.SelectedRow is not { } row) return;
+        try { action(row); }
+        catch (Exception exception)
+        {
+            _log.Error("Skill navigation failed.", exception);
+            viewModel.Announce($"Could not open or copy the selected Skill: {exception.Message}");
+        }
+    }
 
     // A chromeless maximized window overhangs the screen by the resize border.
     private void OnStateChanged(object? sender, EventArgs e)
@@ -114,7 +181,7 @@ public partial class MainWindow : Window
             var inspection = inspectionResult.Value!;
             var discoveryResult = await Task.Run(() => _githubProvider.DiscoverAdoptions(inspection, _refreshInventory(null)));
             var discovery = discoveryResult.Succeeded ? discoveryResult.Value! : new AdoptionDiscovery([], [discoveryResult.Diagnostics]);
-            var dialog = new SourceInspectionWindow(inspection, _githubProvider, viewModel.MutationsAllowed) { Owner = this };
+            var dialog = new SourceInspectionWindow(inspection, _githubProvider, viewModel.MutationsAllowed, OccupiedSkillFolders()) { Owner = this };
             var installed = dialog.ShowDialog() == true;
             await dialog.OperationCompletion;
             if (installed)
@@ -165,7 +232,7 @@ public partial class MainWindow : Window
             }
             viewModel.SetApmReadiness(_apmProvider.GetReadiness());
             var inspection = result.Value!;
-            var dialog = new SourceInspectionWindow(inspection, _apmProvider, viewModel.MutationsAllowed) { Owner = this };
+            var dialog = new SourceInspectionWindow(inspection, _apmProvider, viewModel.MutationsAllowed, OccupiedSkillFolders()) { Owner = this };
             var installed = dialog.ShowDialog() == true;
             await dialog.OperationCompletion;
             _adoptionEvidence = [];
@@ -232,6 +299,12 @@ public partial class MainWindow : Window
         }
     }
 
+    private ISet<string> OccupiedSkillFolders()
+        => _refreshInventory(null).Entries
+            .Where(entry => entry.RootKind is RootKind.CanonicalAgents or RootKind.ClaudeSkills
+                && entry.Health != InstallationHealth.Missing)
+            .Select(entry => entry.FolderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
     private void OnSkillListSelectionChanged(object sender, SelectionChangedEventArgs e)
         => ((ViewModels.MainViewModel)DataContext).SelectedRows =
             SkillList.SelectedItems.OfType<ViewModels.InventoryRow>().ToList();
@@ -295,220 +368,194 @@ public partial class MainWindow : Window
 
     private async void OnUpdateSelected(object sender, RoutedEventArgs e)
     {
-        var viewModel = (ViewModels.MainViewModel)DataContext;
-        var record = viewModel.SelectedRow?.Entry.ManagementRecord;
-        if (record is null || viewModel.SelectedRow?.CanUpdate != true || !viewModel.MutationsAllowed)
-        {
-            viewModel.Announce("Direct update is unavailable for the selected Skill. Nothing changed.");
-            return;
-        }
-        if (!await _maintenanceGate.WaitAsync(0))
-        {
-            viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
-            return;
-        }
-
-        BeginMutation();
-        viewModel.Announce("Updating the selected Skill through its owning provider from verified source content.");
-        try
-        {
-            var result = await RunProviderUpdate(record);
-            if (!result.Succeeded)
-            {
-                viewModel.LoadInventory(RefreshInventory());
-                ApplyRecoveryMode(viewModel);
-                viewModel.Announce($"Provider update failed. {result.Diagnostics}");
-                return;
-            }
-
-            viewModel.LoadInventory(RefreshInventory());
-            var revision = result.Value!.InstalledRevision;
-            viewModel.Announce($"Updated the selected Skill to {revision[..Math.Min(12, revision.Length)]} and verified provider evidence, content, state, and Claude exposure.");
-        }
-        catch (Exception exception)
-        {
-            _log.Error("Provider update failed.", exception);
-            viewModel.LoadInventory(RefreshInventory());
-            viewModel.Announce($"Provider update failed. {exception.Message}");
-        }
-        finally
-        {
-            EndMutation();
-            _maintenanceGate.Release();
-        }
-    }
-
-    private Task<ProviderResult<UpdateResult>> RunProviderUpdate(State.ManagementRecord record)
-    {
-        var skillsOwned = string.Equals(record.Provenance.SourceProvider, "skills", StringComparison.Ordinal);
-        var apmOwned = string.Equals(record.Provenance.SourceProvider, ApmClient.ProviderId, StringComparison.Ordinal);
-        return skillsOwned
-            ? Task.Run(() =>
-            {
-                var providerResult = _skillsProvider.Update(record, _mutationCancellation!.Token);
-                return providerResult.Succeeded
-                    ? ProviderResult<UpdateResult>.Success(
-                        new UpdateResult(providerResult.Value!.InstallationId, providerResult.Value.InstalledRevision),
-                        providerResult.Diagnostics)
-                    : ProviderResult<UpdateResult>.Failure(providerResult.Diagnostics);
-            })
-            : apmOwned
-                ? Task.Run(() =>
-                {
-                    var providerResult = _apmProvider.Update(record, _mutationCancellation!.Token);
-                    return providerResult.Succeeded
-                        ? ProviderResult<UpdateResult>.Success(new UpdateResult(providerResult.Value!.InstallationId, providerResult.Value.InstalledRevision), providerResult.Diagnostics)
-                        : ProviderResult<UpdateResult>.Failure(providerResult.Diagnostics);
-                })
-                : Task.Run(() => _githubProvider.Update(record, _mutationCancellation!.Token));
+        var vm = (ViewModels.MainViewModel)DataContext;
+        if (vm.SelectedRow is { CanUpdate: true, Entry.ManagementRecord: { } record })
+            await RunUpdateBatch([record], "Update Skill");
     }
 
     private async void OnUpdateAll(object sender, RoutedEventArgs e)
     {
-        var viewModel = (ViewModels.MainViewModel)DataContext;
-        var targets = viewModel.UpdatableRows.Select(static row => row.Entry.ManagementRecord!).ToList();
-        if (targets.Count == 0 || !viewModel.MutationsAllowed)
-        {
-            viewModel.Announce("No Skill has a verified direct update available. Nothing changed.");
-            return;
-        }
-        if (!await _maintenanceGate.WaitAsync(0))
-        {
-            viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
-            return;
-        }
-
-        BeginMutation();
-        viewModel.Announce($"Updating {targets.Count} Skill(s) through their owning providers from verified source content.");
-        var updated = 0;
-        try
-        {
-            foreach (var record in targets)
-            {
-                var result = await RunProviderUpdate(record);
-                if (!result.Succeeded)
-                {
-                    viewModel.LoadInventory(RefreshInventory());
-                    ApplyRecoveryMode(viewModel);
-                    viewModel.Announce(
-                        $"Update all stopped at '{record.CanonicalPath}' after {updated} Skill(s) were updated. "
-                        + $"{result.Diagnostics} The remaining Skill(s) were not touched.");
-                    return;
-                }
-
-                updated++;
-            }
-
-            viewModel.LoadInventory(RefreshInventory());
-            viewModel.Announce($"Updated {updated} Skill(s) through their owning providers and verified provider evidence, content, state, and Harness Exposures.");
-        }
-        catch (Exception exception)
-        {
-            _log.Error("Update all failed.", exception);
-            viewModel.LoadInventory(RefreshInventory());
-            ApplyRecoveryMode(viewModel);
-            viewModel.Announce($"Update all failed after {updated} Skill(s) were updated. {exception.Message} The remaining Skill(s) were not touched.");
-        }
-        finally
-        {
-            EndMutation();
-            _maintenanceGate.Release();
-        }
+        var vm = (ViewModels.MainViewModel)DataContext;
+        await RunUpdateBatch(vm.UpdatableRows.Select(row => row.Entry.ManagementRecord!).ToList(), "Update all");
     }
 
     private async void OnUpdateLibrary(object sender, RoutedEventArgs e)
     {
-        var viewModel = (ViewModels.MainViewModel)DataContext;
-        if ((sender as FrameworkElement)?.DataContext is not ViewModels.LibraryGroupRow group || group.Key is null)
-        {
-            return;
-        }
+        var vm = (ViewModels.MainViewModel)DataContext;
+        if ((sender as FrameworkElement)?.DataContext is not ViewModels.LibraryGroupRow { Key: { } key } group) return;
+        await RunUpdateBatch(vm.LibraryMembers(key).Where(row => row.CanUpdate)
+            .Select(row => row.Entry.ManagementRecord!).ToList(), "Update Library " + group.Label);
+    }
 
-        var members = viewModel.LibraryMembers(group.Key);
-        var targets = members
-            .Where(static row => row.CanUpdate && row.Entry.ManagementRecord is not null)
-            .Select(static row => row.Entry.ManagementRecord!)
-            .ToList();
-        if (targets.Count == 0 || !viewModel.MutationsAllowed)
-        {
-            viewModel.Announce($"No Skill in Skill Library {group.Label} has a verified direct update available. Nothing changed.");
-            return;
-        }
-        if (!await _maintenanceGate.WaitAsync(0))
-        {
-            viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
-            return;
-        }
-
-        BeginMutation();
-        viewModel.Announce($"Updating Skill Library {group.Label}: {targets.Count} Skill(s) through the owning provider from verified source content.");
-        var before = LibraryMemberStates(members);
-        var updated = 0;
+    private async Task RunUpdateBatch(IReadOnlyList<State.ManagementRecord> requested, string operation)
+    {
+        var vm = (ViewModels.MainViewModel)DataContext;
+        if (!vm.MutationsAllowed || requested.Count == 0) { vm.Announce("No eligible update is available."); return; }
+        if (!await _maintenanceGate.WaitAsync(0)) { vm.Announce("Another maintenance operation is running."); return; }
+        var targets = requested.GroupBy(record => record.Provenance.SourceProvider == ApmClient.ProviderId
+            ? "apm:" + record.Provenance.Repository : record.Provenance.SourceProvider + ":" + record.InstallationId,
+            StringComparer.OrdinalIgnoreCase).Select(group => group.First()).ToList();
+        var prepared = new List<(State.ManagementRecord Record, UpdatePreview Preview)>();
+        var runId = Guid.NewGuid().ToString("N");
+        var started = DateTimeOffset.Now;
+        var completed = 0;
+        _stopAfterCurrent = false;
+        vm.MaintenanceBusy = true;
+        RefreshChecksButton.IsEnabled = false;
+        vm.ProgressValue = 0;
+        vm.ProgressMaximum = targets.Count;
         try
         {
-            // Microsoft APM updates the whole dependency in one operation; every other provider updates per Skill.
-            if (string.Equals(targets[0].Provenance.SourceProvider, ApmClient.ProviderId, StringComparison.Ordinal))
+            var apmPackages = requested.Where(record => record.Provenance.SourceProvider == ApmClient.ProviderId)
+                .Select(record => record.Provenance.Repository).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var known = requested.Concat(RefreshInventory().Entries.Select(entry => entry.ManagementRecord)
+                .OfType<State.ManagementRecord>().Where(record => record.Provenance.SourceProvider == ApmClient.ProviderId
+                    && apmPackages.Contains(record.Provenance.Repository))).DistinctBy(record => record.InstallationId).ToList();
+            foreach (var record in known.AsEnumerable().Reverse())
+                QueueHistory(new Infrastructure.OperationEntry(runId, started, operation,
+                    System.IO.Path.GetFileName(record.CanonicalPath), record.CanonicalPath, "Pending", "Preparing update preview."));
+            SaveHistory();
+            foreach (var record in targets)
             {
-                var result = await RunProviderUpdate(targets[0]);
+                vm.OperationProgress = $"Preparing preview {prepared.Count + 1}/{targets.Count}: {System.IO.Path.GetFileName(record.CanonicalPath)}";
+                vm.Announce(vm.OperationProgress);
+                var result = await Task.Run(() => record.Provenance.SourceProvider switch
+                {
+                    "github" => _githubProvider.PreviewUpdate(record),
+                    "skills" => _skillsProvider.PreviewUpdate(record),
+                    ApmClient.ProviderId => _apmProvider.PreviewUpdate(record),
+                    _ => ProviderResult<UpdatePreview>.Failure("Unsupported update provider."),
+                });
+                if (_closing || _stopAfterCurrent) { vm.Announce("Update preparation stopped. Installed content was not changed."); return; }
                 if (!result.Succeeded)
                 {
-                    viewModel.LoadInventory(RefreshInventory());
-                    ApplyRecoveryMode(viewModel);
-                    viewModel.Announce($"Skill Library update failed. {result.Diagnostics}");
+                    foreach (var affected in known.Where(candidate => candidate.InstallationId == record.InstallationId
+                        || (record.Provenance.SourceProvider == ApmClient.ProviderId && candidate.Provenance.SourceProvider == ApmClient.ProviderId
+                            && candidate.Provenance.Repository.Equals(record.Provenance.Repository, StringComparison.OrdinalIgnoreCase))))
+                        QueueHistory(new Infrastructure.OperationEntry(runId, started, operation,
+                            System.IO.Path.GetFileName(affected.CanonicalPath), affected.CanonicalPath, "Preview failed", result.Diagnostics, DateTimeOffset.Now));
+                    SaveHistory();
+                    vm.Announce("Update preview failed. " + result.Diagnostics);
                     return;
                 }
-
-                updated = targets.Count;
+                prepared.Add((record, result.Value!));
+                foreach (var skill in result.Value!.Skills)
+                    QueueHistory(new Infrastructure.OperationEntry(runId, started, operation,
+                        skill.Name, skill.LocalPath, "Pending", $"{skill.InstalledRevision} → {skill.TargetRevision}"));
+                SaveHistory();
+                vm.ProgressValue = prepared.Count;
             }
-            else
+            var previews = prepared.Select(item => item.Preview).ToList();
+            if (vm.ReviewUpdatesFirst || previews.Any(preview => !preview.CanApply))
             {
-                foreach (var record in targets)
+                vm.OperationProgress = "Review the changes before applying.";
+                if (new UpdatePreviewWindow(previews) { Owner = this }.ShowDialog() != true)
+                { vm.Announce("Update cancelled. Installed content was not changed."); return; }
+            }
+            if (_closing) return;
+            vm.ProgressValue = 0;
+            vm.ProgressMaximum = previews.Sum(preview => preview.Skills.Count);
+            SaveHistory();
+            BeginMutation();
+            foreach (var item in prepared)
+            {
+                if (_stopAfterCurrent || _closing) break;
+                var names = string.Join(", ", item.Preview.Skills.Select(skill => skill.Name));
+                var range = item.Preview.Skills.Count == 1 ? $"{completed + 1}" : $"{completed + 1}-{completed + item.Preview.Skills.Count}";
+                vm.OperationProgress = $"Updating Skills {range}/{vm.ProgressMaximum}: {names}";
+                vm.Announce(vm.OperationProgress);
+                SetHistoryResult(runId, item.Preview.Skills, "Running", vm.OperationProgress);
+                var result = await RunProviderUpdate(item.Record, item.Preview);
+                if (!result.Succeeded)
                 {
-                    var result = await RunProviderUpdate(record);
-                    if (!result.Succeeded)
-                    {
-                        viewModel.LoadInventory(RefreshInventory());
-                        ApplyRecoveryMode(viewModel);
-                        viewModel.Announce(
-                            $"Skill Library update stopped at '{record.CanonicalPath}' after {updated} Skill(s) were updated. "
-                            + $"{result.Diagnostics} The remaining Skill(s) were not touched.");
-                        return;
-                    }
-
-                    updated++;
+                    SetHistoryResult(runId, item.Preview.Skills, "Failed", result.Diagnostics);
+                    vm.Announce($"Stopped after {completed}/{vm.ProgressMaximum} Skills. {result.Diagnostics} See History for each result.");
+                    return;
                 }
+                completed += item.Preview.Skills.Count;
+                vm.ProgressValue = completed;
+                SetHistoryResult(runId, item.Preview.Skills, "Updated", "Reviewed content and provider postconditions verified.");
             }
-
-            viewModel.LoadInventory(RefreshInventory());
-            var after = LibraryMemberStates(viewModel.LibraryMembers(group.Key));
-            var changes = Skills.LibraryChangeDiff.Compute(before, after);
-            viewModel.Announce(changes.HasChanges
-                ? $"Updated Skill Library {group.Label} ({updated} Skill(s)); its membership changed: {changes.AddedSkills.Count} Skill(s) added, {changes.RemovedSkills.Count} removed."
-                : $"Updated Skill Library {group.Label} ({updated} Skill(s)) and verified provider evidence, content, state, and Harness Exposures.");
-            if (changes.HasChanges)
-            {
-                new LibraryChangesWindow(group.Label, updated, changes) { Owner = this }.ShowDialog();
-            }
+            vm.Announce($"Updated {completed}/{vm.ProgressMaximum} Skills. " + (completed < vm.ProgressMaximum ? "Remaining updates were not run. " : string.Empty) + "See History for each result.");
         }
         catch (Exception exception)
         {
-            _log.Error("Skill Library update failed.", exception);
-            viewModel.LoadInventory(RefreshInventory());
-            ApplyRecoveryMode(viewModel);
-            viewModel.Announce($"Skill Library update failed after {updated} Skill(s) were updated. {exception.Message}");
+            _log.Error("Update workflow failed.", exception);
+            foreach (var item in prepared) SetHistoryResult(runId, item.Preview.Skills, "Failed", exception.Message, onlyRunning: true);
+            vm.Announce($"Update stopped after {completed} Skills. {exception.Message} See History for details.");
         }
         finally
         {
+            for (var index = 0; index < vm.OperationHistory.Count; index++)
+            {
+                var row = vm.OperationHistory[index];
+                if (row.RunId == runId && row.Status == "Pending") vm.OperationHistory[index] = row with
+                { Status = "Not run", Detail = "Batch stopped before this Skill was changed.", FinishedAt = DateTimeOffset.Now };
+            }
+            SaveHistory();
             EndMutation();
+            var finalMessage = vm.Status.Message;
+            try { vm.LoadInventory(RefreshInventory()); ApplyRecoveryMode(vm); if (!vm.RecoveryRequired) vm.Announce(finalMessage); }
+            catch (Exception exception) { _log.Error("Inventory refresh after update failed.", exception); vm.Announce("Refresh inventory failed: " + exception.Message); }
+            vm.MaintenanceBusy = false;
+            RefreshChecksButton.IsEnabled = true;
             _maintenanceGate.Release();
+            if (_historyStore.Notice is { } notice) vm.Announce(vm.Status.Message + " " + notice);
         }
     }
 
-    private static List<Skills.LibraryMemberState> LibraryMemberStates(IReadOnlyList<ViewModels.InventoryRow> members)
-        => [.. members.Select(static row => new Skills.LibraryMemberState(
-            row.Entry.LocalPath,
-            row.Name,
-            row.Entry.Health != InstallationHealth.Missing))];
+    private async Task<ProviderResult<UpdateResult>> RunProviderUpdate(State.ManagementRecord record, UpdatePreview preview)
+    {
+        if (record.Provenance.SourceProvider == "github")
+            return await Task.Run(() => _githubProvider.Update(record, _mutationCancellation!.Token, preview));
+        if (record.Provenance.SourceProvider == "skills")
+        {
+            var result = await Task.Run(() => _skillsProvider.Update(record, _mutationCancellation!.Token, preview));
+            return result.Succeeded ? ProviderResult<UpdateResult>.Success(new UpdateResult(result.Value!.InstallationId, result.Value.InstalledRevision), result.Diagnostics)
+                : ProviderResult<UpdateResult>.Failure(result.Diagnostics);
+        }
+        var apmResult = await Task.Run(() => _apmProvider.Update(record, _mutationCancellation!.Token, preview));
+        return apmResult.Succeeded ? ProviderResult<UpdateResult>.Success(new UpdateResult(apmResult.Value!.InstallationId, apmResult.Value.InstalledRevision), apmResult.Diagnostics)
+            : ProviderResult<UpdateResult>.Failure(apmResult.Diagnostics);
+    }
+
+    private void SetHistoryResult(string runId, IReadOnlyList<SkillUpdatePreview> skills, string status, string detail, bool onlyRunning = false)
+    {
+        var vm = (ViewModels.MainViewModel)DataContext;
+        var paths = skills.Select(skill => skill.LocalPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < vm.OperationHistory.Count; index++)
+        {
+            var row = vm.OperationHistory[index];
+            if (row.RunId != runId || !paths.Contains(row.Path) || (onlyRunning && row.Status != "Running")) continue;
+            var skill = skills.Single(skill => string.Equals(skill.LocalPath, row.Path, StringComparison.OrdinalIgnoreCase));
+            vm.OperationHistory[index] = row with { Status = status, Detail = $"{skill.InstalledRevision} → {skill.TargetRevision}\n{detail}", FinishedAt = status == "Running" ? null : DateTimeOffset.Now };
+        }
+        SaveHistory();
+    }
+
+    private void SaveHistory()
+    {
+        _historyStore.Save(((ViewModels.MainViewModel)DataContext).OperationHistory);
+        if (_historyStore.Notice is { } notice) _log.Error(notice);
+    }
+
+    private void QueueHistory(Infrastructure.OperationEntry entry)
+    {
+        var rows = ((ViewModels.MainViewModel)DataContext).OperationHistory;
+        for (var index = 0; index < rows.Count; index++)
+            if (rows[index].RunId == entry.RunId && string.Equals(rows[index].Path, entry.Path, StringComparison.OrdinalIgnoreCase))
+            { rows[index] = entry; return; }
+        rows.Insert(0, entry);
+    }
+
+    private void OnShowHistory(object sender, RoutedEventArgs e)
+        => new OperationHistoryWindow(((ViewModels.MainViewModel)DataContext).OperationHistory, _historyStore.Notice) { Owner = this }.Show();
+
+    private void OnStopUpdates(object sender, RoutedEventArgs e)
+    {
+        _stopAfterCurrent = true;
+        ((ViewModels.MainViewModel)DataContext).Announce("Stopping after the current provider operation. Remaining updates will not run.");
+    }
 
     private async void OnAdoptSelected(object sender, RoutedEventArgs e)
     {
@@ -768,6 +815,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
+        _closing = true;
         if (_mutationInProgress)
         {
             _mutationCancellation?.Cancel();

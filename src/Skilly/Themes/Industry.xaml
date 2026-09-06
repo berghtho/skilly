@@ -18,17 +18,17 @@
     <!-- text tints -->
     <SolidColorBrush x:Key="Text75Brush" Color="#BF1D1F20" />
     <SolidColorBrush x:Key="Text65Brush" Color="#A61D1F20" />
-    <SolidColorBrush x:Key="Text60Brush" Color="#991D1F20" />
-    <SolidColorBrush x:Key="Text55Brush" Color="#8C1D1F20" />
-    <SolidColorBrush x:Key="Text50Brush" Color="#801D1F20" />
-    <SolidColorBrush x:Key="Text45Brush" Color="#731D1F20" />
-    <SolidColorBrush x:Key="Text40Brush" Color="#661D1F20" />
-    <SolidColorBrush x:Key="Text35Brush" Color="#591D1F20" />
+    <SolidColorBrush x:Key="Text60Brush" Color="#B81D1F20" />
+    <SolidColorBrush x:Key="Text55Brush" Color="#B81D1F20" />
+    <SolidColorBrush x:Key="Text50Brush" Color="#B81D1F20" />
+    <SolidColorBrush x:Key="Text45Brush" Color="#B31D1F20" />
+    <SolidColorBrush x:Key="Text40Brush" Color="#AD1D1F20" />
+    <SolidColorBrush x:Key="Text35Brush" Color="#AD1D1F20" />
     <SolidColorBrush x:Key="Text14Brush" Color="#241D1F20" />
     <SolidColorBrush x:Key="Text08Brush" Color="#141D1F20" />
     <SolidColorBrush x:Key="Text07Brush" Color="#121D1F20" />
     <SolidColorBrush x:Key="Text05Brush" Color="#0D1D1F20" />
-    <SolidColorBrush x:Key="CornerMarkBrush" Color="#8C1D1F20" />
+    <SolidColorBrush x:Key="CornerMarkBrush" Color="#B81D1F20" />
     <!-- accent tints -->
     <SolidColorBrush x:Key="AccentTint08Brush" Color="#145980A6" />
     <SolidColorBrush x:Key="AccentTint10Brush" Color="#1A5980A6" />

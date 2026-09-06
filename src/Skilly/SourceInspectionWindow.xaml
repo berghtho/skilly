@@ -3,9 +3,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Inspect Skill Library"
         Width="840"
-        Height="640"
+        Height="820"
         MinWidth="700"
-        MinHeight="480"
+        MinHeight="720"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         Background="{StaticResource BgBrush}"
@@ -87,6 +87,15 @@
                        Text="{Binding DiscoveryLine}"
                        Margin="0,10,0,8" />
 
+            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8" IsEnabled="{Binding CanSelect}">
+                <TextBlock Text="Search paths, names and descriptions" Margin="0,0,0,4" />
+                <TextBox Style="{StaticResource IndustryTextBox}"
+                         Text="{Binding Browser.SearchText, UpdateSourceTrigger=PropertyChanged}"
+                         AutomationProperties.Name="Search Source Skills"
+                         AutomationProperties.AutomationId="Skilly.SourceSearch" />
+                <TextBlock Text="{Binding Browser.ResultSummary}" Margin="0,4,0,0" TextWrapping="Wrap" />
+            </StackPanel>
+
             <!-- Column header -->
             <Border DockPanel.Dock="Top"
                     BorderBrush="{StaticResource DividerBrush}"
@@ -95,10 +104,10 @@
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="34" />
-                        <ColumnDefinition Width="*" MinWidth="220" />
-                        <ColumnDefinition Width="150" />
-                        <ColumnDefinition Width="56" />
-                        <ColumnDefinition Width="200" />
+                        <ColumnDefinition Width="*" MinWidth="120" />
+                        <ColumnDefinition Width="120" />
+                        <ColumnDefinition Width="90" />
+                        <ColumnDefinition Width="180" />
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="1" Style="{StaticResource ColumnKicker}" Text="SOURCE SKILL PATH" />
                     <TextBlock Grid.Column="2" Style="{StaticResource ColumnKicker}" Text="ALIAS" />
@@ -138,7 +147,7 @@
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
                         <Button Style="{StaticResource GhostButton}"
-                                Content="Select _all"
+                                Content="Select _visible"
                                 FontSize="12.5"
                                 Click="OnSelectAll"
                                 IsEnabled="{Binding CanSelect}"
@@ -171,13 +180,23 @@
                 </DockPanel>
             </StackPanel>
 
-            <!-- Discovered Source Skills -->
-            <ScrollViewer VerticalScrollBarVisibility="Auto"
+            <DockPanel>
+            <TextBox DockPanel.Dock="Bottom" Height="120" Margin="0,8,0,0"
+                     Text="{Binding Browser.PreviewText, Mode=OneWay}" IsReadOnly="True"
+                     TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                     Background="{StaticResource BgBrush}" Foreground="{StaticResource TextBrush}"
+                     AutomationProperties.Name="Source Skill description and SKILL.md preview"
+                     AutomationProperties.AutomationId="Skilly.SourcePreview" />
+            <!-- Row focus previews content; only checkboxes select installation. -->
+            <ListBox ScrollViewer.VerticalScrollBarVisibility="Auto"
+                          Background="Transparent" BorderThickness="0"
                           IsEnabled="{Binding CanSelect}"
+                          ItemsSource="{Binding Browser.VisibleSkills}"
+                          SelectedItem="{Binding Browser.PreviewSkill, Mode=TwoWay}"
+                          HorizontalContentAlignment="Stretch"
                           AutomationProperties.Name="Discovered Source Skills"
                           AutomationProperties.AutomationId="Skilly.SourceSkills">
-                <ItemsControl ItemsSource="{Binding Skills}" Focusable="False">
-                    <ItemsControl.ItemTemplate>
+                    <ListBox.ItemTemplate>
                         <DataTemplate>
                             <Border BorderBrush="{StaticResource Text08Brush}"
                                     BorderThickness="0,0,0,1"
@@ -185,23 +204,27 @@
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="34" />
-                                        <ColumnDefinition Width="*" MinWidth="220" />
-                                        <ColumnDefinition Width="150" />
-                                        <ColumnDefinition Width="56" />
-                                        <ColumnDefinition Width="200" />
+                                        <ColumnDefinition Width="*" MinWidth="120" />
+                                        <ColumnDefinition Width="120" />
+                                        <ColumnDefinition Width="90" />
+                                        <ColumnDefinition Width="180" />
                                     </Grid.ColumnDefinitions>
                                     <CheckBox Grid.Column="0"
                                               Style="{StaticResource IndustryCheckBox}"
                                               IsChecked="{Binding IsChecked, Mode=TwoWay}"
                                               IsEnabled="{Binding CanToggle}"
                                               AutomationProperties.Name="{Binding Skill.SkillPath}" />
-                                    <TextBlock Grid.Column="1"
+                                    <StackPanel Grid.Column="1">
+                                    <TextBlock
                                                FontFamily="{StaticResource MonoFont}"
                                                FontSize="11.5"
                                                Text="{Binding Skill.SkillPath}"
                                                TextTrimming="CharacterEllipsis"
                                                VerticalAlignment="Center"
                                                Margin="0,0,8,0" />
+                                    <TextBlock Text="{Binding Skill.Description}" TextTrimming="CharacterEllipsis"
+                                               ToolTip="{Binding Skill.Description}" FontSize="12" Margin="0,3,8,0" />
+                                    </StackPanel>
                                     <TextBlock Grid.Column="2"
                                                FontSize="12.5"
                                                Text="{Binding Alias}"
@@ -214,7 +237,7 @@
                                                Foreground="{StaticResource Text75Brush}"
                                                Text="{Binding Skill.FileCount}"
                                                VerticalAlignment="Center" />
-                                    <Grid Grid.Column="4" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                    <Grid Grid.Column="4" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{Binding Installability}">
                                         <TextBlock x:Name="InstallablePlain"
                                                    FontSize="12"
                                                    Foreground="{StaticResource Text55Brush}"
@@ -245,9 +268,9 @@
                                 </DataTrigger>
                             </DataTemplate.Triggers>
                         </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
+                    </ListBox.ItemTemplate>
+            </ListBox>
+            </DockPanel>
         </DockPanel>
     </ContentControl>
 </Window>

@@ -16,7 +16,7 @@ public sealed class PackagedGitHubWorkflowTests(PackagedAppFixture fixture)
     public PackagedAppFixture Fixture { get; } = fixture;
 
     [InteractiveUiFact]
-    public void Workbench_installs_selected_GitHub_Skill_and_exposes_observable_postconditions()
+    public async Task Workbench_installs_previews_cancels_and_updates_GitHub_Skill_with_persisted_history()
     {
         using var source = new GitHubProviderFixture();
         using var profile = new IsolatedProfile();
@@ -99,6 +99,44 @@ public sealed class PackagedGitHubWorkflowTests(PackagedAppFixture fixture)
                 TimeSpan.FromSeconds(20),
                 "Installed Skill did not appear in the Workbench inventory.");
             Assert.Contains("Installed 1 Skill(s)", status.Current.Name);
+
+            File.AppendAllText(Path.Combine(source.FixtureRoot, "files", "skills", "alpha", "SKILL.md"), "\nReviewed in the packaged app.\n");
+            source.SetCommit(GitHubProviderFixture.LaterCommitSha);
+            ((InvokePattern)Find(main, "Skilly.RefreshChecks").GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+            var update = Find(main, "Skilly.UpdateAll");
+            WaitUntil(() => update.Current.IsEnabled, TimeSpan.FromSeconds(30), "Update all remained unavailable after refresh.");
+            var oldHash = PayloadHasher.HashFolder(canonical);
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                var updating = Task.Run(() => ((InvokePattern)update.GetCurrentPattern(InvokePattern.Pattern)).Invoke());
+                var preview = WaitForWindow(app.Process.Id, ["Review updates"], TimeSpan.FromSeconds(30),
+                    () => status.Current.Name + ReadLogs(profile.LogsDirectory));
+                var diff = Find(preview, "Skilly.PreviewDiff");
+                Assert.Contains("Reviewed in the packaged app.", ((ValuePattern)diff.GetCurrentPattern(ValuePattern.Pattern)).Current.Value);
+                Assert.Equal(oldHash, PayloadHasher.HashFolder(canonical));
+                if (attempt == 0)
+                {
+                    var cancel = preview.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button))
+                        .Cast<AutomationElement>().Single(element => element.Current.Name == "Cancel");
+                    ((InvokePattern)cancel.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                    await updating.WaitAsync(TimeSpan.FromSeconds(10));
+                    WaitUntil(() => update.Current.IsEnabled && status.Current.Name.Contains("cancelled"), TimeSpan.FromSeconds(10), "Preview cancellation did not finish.");
+                    Assert.Equal(oldHash, PayloadHasher.HashFolder(canonical));
+                }
+                else
+                {
+                    ((InvokePattern)Find(preview, "Skilly.ApplyReviewedUpdates").GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                    await updating.WaitAsync(TimeSpan.FromSeconds(10));
+                    WaitUntil(() => status.Current.Name.Contains("Updated 1/1 Skills"), TimeSpan.FromSeconds(40), "Reviewed update did not complete.",
+                        () => status.Current.Name + ReadLogs(profile.LogsDirectory));
+                    Assert.NotEqual(oldHash, PayloadHasher.HashFolder(canonical));
+                    var history = new OperationHistoryStore(Path.Combine(profile.SkillyRoot, "operation-history.json")).Load();
+                    Assert.Equal(2, history.Count);
+                    Assert.Equal("Updated", history[0].Status);
+                    Assert.Equal("Not run", history[1].Status);
+                    Assert.Contains(GitHubProviderFixture.LaterCommitSha, history[0].Detail);
+                }
+            }
         }
         finally
         {

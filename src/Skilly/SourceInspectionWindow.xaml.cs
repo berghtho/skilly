@@ -20,20 +20,20 @@ public partial class SourceInspectionWindow : Window
     private readonly CancellationTokenSource _cancellation = new();
     private TaskCompletionSource? _operationCompletion;
 
-    public SourceInspectionWindow(SourceInspection inspection, GitHubProvider provider, bool mutationsAllowed = true)
+    public SourceInspectionWindow(SourceInspection inspection, GitHubProvider provider, bool mutationsAllowed = true, ISet<string>? occupiedFolders = null)
     {
         InitializeComponent();
         _githubProvider = provider;
-        _viewModel = new SourceInspectionViewModel(inspection, mutationsAllowed);
+        _viewModel = new SourceInspectionViewModel(inspection, mutationsAllowed, occupiedFolders);
         DataContext = _viewModel;
         AttachLiveStatus(_viewModel);
     }
 
-    public SourceInspectionWindow(ApmInspection inspection, ApmProvider provider, bool mutationsAllowed = true)
+    public SourceInspectionWindow(ApmInspection inspection, ApmProvider provider, bool mutationsAllowed = true, ISet<string>? occupiedFolders = null)
     {
         InitializeComponent();
         _apmProvider = provider;
-        _apmViewModel = new ApmSourceInspectionViewModel(inspection, mutationsAllowed);
+        _apmViewModel = new ApmSourceInspectionViewModel(inspection, mutationsAllowed, occupiedFolders);
         DataContext = _apmViewModel;
         AttachLiveStatus(_apmViewModel);
     }
