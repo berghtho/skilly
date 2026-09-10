@@ -24,6 +24,16 @@ Click a selected row again to clear its details. Ctrl/Shift selection still supp
 
 Windows 11 x64 only. Portable, self-contained `Skilly.exe`.
 
+## Share Skill sets
+
+Use **Export set** to name a set and select complete Skill folders. The dialog starts with your selected rows, or all Skills if no rows are selected. **Select all** includes Skills hidden by the current inventory filter. Save the `.skilly.zip` file and send it to another Skilly user. Scripts, references, assets, and other files inside each selected folder are included; check those folders for private files before sharing.
+
+Use **Import set** to review the archive and choose Skills to install. Existing names in any supported discovery root are shown as skipped and never overwritten. New Skills are installed in `~/.agents/skills` with a Claude Code junction, making them available to all four Harnesses. Import works offline and does not run bundled scripts or provider commands.
+
+Imported snapshots are **Unmanaged**. They contain the shared file versions; Skilly does not add source credentials or Management Records. Automatic source updates require a later provider-verified Adoption. Invalid metadata, symbolic links, junctions, unsafe paths, unexpected files, and checksum failures reject the archive before installation. Interrupted imports are reconciled at startup; modified or ambiguous content requires recovery instead of being deleted.
+
+The version 1 archive contains `skill-set.json` and files under `skills/<folder-name>/`. Limits are 1,000 Skills, 10,000 files, 64 MiB per file, and 512 MiB of payload. Empty directories are omitted. Checksums detect corrupt payloads; they do not authenticate the sender.
+
 The source inspector searches paths, names, and descriptions. Select a row to preview it; check its box to install it. **Select visible** selects only search results, while **Select none** clears the entire selection. Selections outside the current search remain counted. Existing local destinations stay visible but cannot be selected for installation.
 
 GitHub and Microsoft APM inspections include a read-only SKILL.md preview. The `skills` provider supplies descriptions only. Installed Skills have shortcuts to open their folder or supported HTTPS source, copy their path, and read SKILL.md without launching an editor. Health details explain the next step for collisions, missing files, metadata errors, and broken Harness Exposures.

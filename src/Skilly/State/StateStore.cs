@@ -91,6 +91,12 @@ public sealed class PendingOperation
 
     public List<string> TemporaryPaths { get; set; } = [];
 
+    public List<SkillSetImportTarget> SkillSetTargets { get; set; } = [];
+
+    public List<string> CreatedSkillSetFolders { get; set; } = [];
+
+    public List<string> CreatedSkillSetExposures { get; set; } = [];
+
     public PendingOperationPhase Phase { get; set; }
 
     public string? TargetRevision { get; set; }
@@ -117,7 +123,10 @@ public enum MutationType
     Uninstall,
     RemoveLocalFolder,
     Adoption,
+    ImportSkillSet,
 }
+
+public sealed record SkillSetImportTarget(string FolderName, string PayloadHash);
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum OperationOutcome

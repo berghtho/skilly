@@ -209,6 +209,61 @@ public sealed class SkillUsabilityUiTests
                 Assert.Equal(beforeAdoption, PayloadHasher.HashFolder(adoption.CanonicalPath("alpha")));
                 Assert.Equal(Skilly.State.OperationOutcome.Adopted, Assert.Single(adoption.StateStore.Load().Records).LastOperationOutcome);
                 adoptWindow.Close();
+                // Sharing dialogs use real archive payloads and the same import workflow as the toolbar.
+                using var setSource = new InventoryFixture();
+                using var setReceiver = new InventoryFixture();
+                setSource.WriteSkill(".agents/skills", "shared-review", "Shared review", "Review the complete change and its supporting files.");
+                setSource.WriteSkill(".agents/skills", "existing-skill", "Existing Skill", "An installed Skill is skipped on import.");
+                setReceiver.WriteSkill(".agents/skills", "existing-skill", "Existing Skill", "Keep this local version.");
+                var sourceSets = new SkillSetArchive(new Skilly.State.StateStore(github.Log, setSource.Root("state.json")), setSource.Home);
+                var receiverStore = new Skilly.State.StateStore(github.Log, setReceiver.Root("state.json"));
+                var receiverSets = new SkillSetArchive(receiverStore, setReceiver.Home);
+                var archivePath = setSource.Root("team.skilly.zip");
+                sourceSets.Export(archivePath, "Team review Skills", new InventoryScanner().Scan(setSource.Home).Entries);
+                using var setPreview = receiverSets.Open(archivePath);
+                var exportWindow = new SkillSetWindow("Team review Skills", [
+                    new SkillSetChoice("one", "shared-review", "Review changes and supporting files.", "Canonical Skill", null, true),
+                    new SkillSetChoice("two", "existing-skill", "A complete local snapshot.", "Canonical Skill", null, true)], false);
+                Render(exportWindow, "skill-set-export.png");
+                Find<Button>(exportWindow, "Skilly.SetSelectNone").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.False(Find<Button>(exportWindow, "Skilly.ApplySet").IsEnabled);
+                Find<Button>(exportWindow, "Skilly.SetSelectAll").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.Equal(2, exportWindow.SelectedIds.Count);
+                Find<TextBox>(exportWindow, "Skilly.SetName").Text = "";
+                Assert.False(Find<Button>(exportWindow, "Skilly.ApplySet").IsEnabled);
+                exportWindow.Close();
+                var setWindow = new SkillSetWindow(setPreview.Name, setPreview.Skills.Select(skill => new SkillSetChoice(
+                    skill.FolderName, skill.Name, skill.Description, $"{skill.FileCount} files", skill.Conflict, true)).ToList(), true);
+                Render(setWindow, "skill-set-import.png");
+                var skillTitle = Descendants(setWindow.Content as DependencyObject ?? setWindow).OfType<TextBlock>().Single(block => block.Text == "Shared review");
+                Assert.True(skillTitle.ActualWidth > 100 && skillTitle.ActualHeight > 10);
+                Assert.Equal("shared-review", Assert.Single(setWindow.SelectedIds));
+                Assert.False(Find<CheckBox>(setWindow, "Skilly.SetSkill.existing-skill").IsEnabled);
+                setWindow.Width = 580; setWindow.Height = 430;
+                Render(setWindow, "skill-set-import-minimum.png");
+                Assert.True(skillTitle.ActualWidth > 100 && skillTitle.ActualHeight > 10);
+                var importSelection = setWindow.SelectedIds;
+                setWindow.Close();
+                var receiverModel = new MainViewModel();
+                receiverModel.LoadInventory(new InventoryScanner().Scan(setReceiver.Home));
+                var sharingMain = new MainWindow(github.Log, receiverModel, github.Provider, skills.Provider, apm.Provider,
+                    new ProviderCheckRunner(github.Provider, github.StateStore), _ => new InventoryScanner().Scan(setReceiver.Home, receiverStore.Load()),
+                    new Skilly.Infrastructure.OperationHistoryStore(setReceiver.Root("history.json")), receiverSets);
+                Render(sharingMain, "skill-set-toolbar.png");
+                Assert.True(Find<Button>(sharingMain, "Skilly.ImportSet").IsEnabled);
+                Assert.True(Find<Button>(sharingMain, "Skilly.ExportSet").IsEnabled);
+                receiverModel.InspectionInProgress = true; Pump();
+                Assert.False(Find<Button>(sharingMain, "Skilly.ImportSet").IsEnabled);
+                receiverModel.InspectionInProgress = false;
+                var importWorkflow = typeof(MainWindow).GetMethod("ImportReviewedSkillSet", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                RunWorkflow((Task)importWorkflow.Invoke(sharingMain, [setPreview, importSelection])!);
+                Assert.Contains("Imported 1 Skill(s) as Unmanaged", receiverModel.Status.Message);
+                Assert.Equal(2, receiverModel.AllEntries.Count);
+                Assert.Empty(receiverStore.Load().Records);
+                receiverModel.EnterRecoveryRequired("test recovery"); Pump();
+                Assert.False(Find<Button>(sharingMain, "Skilly.ImportSet").IsEnabled);
+                Assert.False(Find<Button>(sharingMain, "Skilly.ExportSet").IsEnabled);
+                sharingMain.Close();
                 app.Shutdown();
             }
             catch (Exception exception) { failure = exception; }

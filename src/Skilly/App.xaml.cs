@@ -64,6 +64,7 @@ public partial class App : Application
         var githubProvider = new GitHubProvider(ghClient, inspector, installer, checker, updater, lifecycle, adoptionVerifier);
         var skillsProvider = new SkillsCliProvider(new SkillsCliClient(processRunner), stateStore, _log, home);
         var apmProvider = new ApmProvider(new ApmClient(processRunner), stateStore, _log, home);
+        var skillSets = new SkillSetArchive(stateStore, home);
         PendingOperation? pending = null;
         try
         {
@@ -73,7 +74,9 @@ public partial class App : Application
         {
             // The provider recovery path below reports the durable-state failure without resetting authority.
         }
-        var recovery = skillsProvider.OwnsPendingOperation(pending)
+        var recovery = pending?.OperationType == MutationType.ImportSkillSet
+            ? skillSets.RecoverPendingImport()
+            : skillsProvider.OwnsPendingOperation(pending)
             ? skillsProvider.RecoverPendingOperation()
             : apmProvider.OwnsPendingOperation(pending)
                 ? apmProvider.RecoverPendingOperation()
@@ -99,7 +102,7 @@ public partial class App : Application
             viewModel.EnterRecoveryRequired(recovery.Message);
         }
 
-        _mainWindow = new MainWindow(_log, viewModel, githubProvider, skillsProvider, apmProvider, checkRunner, RefreshInventory);
+        _mainWindow = new MainWindow(_log, viewModel, githubProvider, skillsProvider, apmProvider, checkRunner, RefreshInventory, skillSets: skillSets);
         MainWindow = _mainWindow;
         _mainWindow.Show();
         _ = RefreshProviderReadiness(viewModel, githubProvider, skillsProvider, apmProvider);

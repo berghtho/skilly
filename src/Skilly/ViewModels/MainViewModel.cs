@@ -368,6 +368,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (!SetProperty(ref _maintenanceBusy, value)) return;
             OnPropertyChanged(nameof(MutationsAllowed)); OnPropertyChanged(nameof(CanUpdateAll)); OnPropertyChanged(nameof(CanInspectSource));
+            OnPropertyChanged(nameof(CanShareSets)); OnPropertyChanged(nameof(CanExportSet));
         }
     }
     public string OperationProgress { get => _operationProgress; set => SetProperty(ref _operationProgress, value); }
@@ -507,6 +508,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (SetProperty(ref _inspectionInProgress, value))
             {
                 OnPropertyChanged(nameof(CanInspectSource));
+                OnPropertyChanged(nameof(CanShareSets)); OnPropertyChanged(nameof(CanExportSet));
             }
         }
     }
@@ -538,6 +540,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool RecoveryRequired => _recoveryRequired;
 
     public bool MutationsAllowed => !_recoveryRequired && !MaintenanceBusy;
+
+    public bool CanShareSets => MutationsAllowed && !InspectionInProgress;
+    public bool CanExportSet => CanShareSets && _allRows.Any(row => row.Entry.Kind == EntryKind.RealFolder && row.CanReadSkillMarkdown);
+    public IReadOnlyList<InventoryEntry> AllEntries => _allRows.Select(row => row.Entry).ToList();
 
     public string RecoveryDiagnostic => _recoveryDiagnostic;
 
@@ -619,6 +625,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(RecoveryDiagnostic));
         OnPropertyChanged(nameof(CanUpdateAll));
         SetStatus(diagnostic);
+        OnPropertyChanged(nameof(CanShareSets)); OnPropertyChanged(nameof(CanExportSet));
     }
 
     public void LoadInventory(InventorySnapshot snapshot)
@@ -628,6 +635,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Filters = BuildFilters(_allRows);
         OnPropertyChanged(nameof(CanUpdateAll));
         OnPropertyChanged(nameof(UpdatableCount));
+        OnPropertyChanged(nameof(CanExportSet));
         ApplyView();
         if (selectedPath is not null)
         {

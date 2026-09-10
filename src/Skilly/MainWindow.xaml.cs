@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private readonly Infrastructure.OperationHistoryStore _historyStore;
     private bool _stopAfterCurrent;
     private bool _closing;
+    private readonly SkillSetArchive? _skillSets;
 
     public MainWindow(
         Infrastructure.RollingLog log,
@@ -36,7 +37,8 @@ public partial class MainWindow : Window
         ApmProvider apmProvider,
         ProviderCheckRunner checkRunner,
         Func<IReadOnlyList<AdoptionEvidence>?, InventorySnapshot> refreshInventory,
-        Infrastructure.OperationHistoryStore? historyStore = null)
+        Infrastructure.OperationHistoryStore? historyStore = null,
+        SkillSetArchive? skillSets = null)
     {
         InitializeComponent();
         _log = log;
@@ -46,6 +48,7 @@ public partial class MainWindow : Window
         _managedReinstall = new ManagedReinstallDispatcher(githubProvider, skillsProvider, apmProvider);
         _checkRunner = checkRunner;
         _refreshInventory = refreshInventory;
+        _skillSets = skillSets;
         DataContext = viewModel;
         _historyStore = historyStore ?? new Infrastructure.OperationHistoryStore(System.IO.Path.Combine(Infrastructure.SkillyPaths.ApplicationRoot, "operation-history.json"));
         foreach (var entry in _historyStore.Load()) viewModel.OperationHistory.Add(entry);

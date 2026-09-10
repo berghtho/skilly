@@ -309,6 +309,8 @@
                         </StackPanel>
                     </Button>
                     <Button WindowChrome.IsHitTestVisibleInChrome="True" Content="History" Click="OnShowHistory" Style="{StaticResource SteelGhostButton}" Margin="8,5,0,5" AutomationProperties.AutomationId="Skilly.ShowHistory" />
+                    <Button WindowChrome.IsHitTestVisibleInChrome="True" Content="Export set" Click="OnExportSkillSet" IsEnabled="{Binding CanExportSet}" Style="{StaticResource SteelGhostButton}" Margin="8,5,0,5" AutomationProperties.AutomationId="Skilly.ExportSet" ToolTip="Share complete Skill folders in a ZIP archive." />
+                    <Button WindowChrome.IsHitTestVisibleInChrome="True" Content="Import set" Click="OnImportSkillSet" IsEnabled="{Binding CanShareSets}" Style="{StaticResource SteelGhostButton}" Margin="8,5,0,5" AutomationProperties.AutomationId="Skilly.ImportSet" ToolTip="Review and import a shared Skill set." />
                     <Border BorderBrush="{StaticResource Paper35Brush}" BorderThickness="1,1,0,1" Margin="12,5,0,5">
                         <StackPanel Orientation="Horizontal">
                             <CheckBox Content="Details" Style="{StaticResource SteelToggle}" WindowChrome.IsHitTestVisibleInChrome="True" IsChecked="{Binding ShowDetails, Mode=TwoWay}" AutomationProperties.AutomationId="Skilly.ToggleDetails" />
