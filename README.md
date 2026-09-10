@@ -4,42 +4,104 @@
 
 **One home for every agent Skill.**
 
-Skilly is a portable Windows app for managing global agent Skills across OpenCode, Codex, Claude Code, and GitHub Copilot.
+Find, install, update, and share Skills across **OpenCode, Codex, Claude Code, and GitHub Copilot** from one Windows app. Keep a single copy of each Skill, see where it came from, and review what changes before updating.
 
-> **Status:** Pre-release. [View the v1 spec](https://github.com/berghtho/skilly/issues/19).
+A Skill is a folder of instructions and optional scripts, references, or assets that gives your coding agent a reusable workflow. Skilly helps you keep that collection organized as it grows.
 
-![Skilly workbench](assets/skilly-workbench.png)
+**Windows 11 · x64 · Portable · Pre-release**
 
-The workbench uses a steel-blue header, segmented inventory filters, condensed headings, and square blueprint panels. The Status column highlights health problems, available updates, and failed checks. Update or adopt a Skill directly from its row; inspect Provenance and the four Harness Exposures in the details pane. Review updates, History, Skill Library changes, and SKILL.md share the same styling. Skilly ships its typefaces (Barlow and Barlow Condensed, OFL) inside the executable.
+[Try Skilly](#try-skilly) · [Features](#what-you-can-do) · [Share Skill sets](#share-skill-sets) · [Feedback](https://github.com/berghtho/skilly/issues)
 
-Click a selected row again to clear its details. Ctrl/Shift selection still supports batch Adoption; a row action selects only that Skill. Click Status to sort deviations first, or right-click it to sort by Health or Update separately.
+![Skilly workbench showing installed Skills, available updates, source details, and exposure to four coding agents](assets/skilly-workbench.png)
 
-## v1
+*Screenshots show the current app with an example library. Sources, revisions, and update content are illustrative.*
 
-- Install, inspect, update, adopt, and remove Skills.
-- Keep one canonical installation exposed to all four Harnesses.
-- Track Provenance, health, and updates without unsafe overwrites.
-- Use `skills@1.5.23`, Microsoft APM, or authenticated GitHub via `gh`.
-- Stay local: no account, cloud backend, daemon, or credential storage.
+## Try Skilly
 
-Windows 11 x64 only. Portable, self-contained `Skilly.exe`.
+There is no packaged release yet. You can build a portable executable with **Git** and the **.NET 10 SDK** on Windows 11 x64. Run these commands in PowerShell:
+
+```powershell
+git clone https://github.com/berghtho/skilly.git
+cd skilly
+dotnet publish src/Skilly/Skilly.csproj -c Release -r win-x64 --self-contained true -o artifacts/publish
+.\artifacts\publish\Skilly.exe
+```
+
+The resulting `Skilly.exe` is self-contained: no separate .NET runtime or installer is needed to run it. Skilly has no account, cloud backend, or background daemon.
+
+On first launch, Skilly discovers your existing global Skills. Select one to read its `SKILL.md`, inspect its source and status, or open its folder. Already have a `.skilly.zip` from a teammate? Choose **Import set** to review and add it offline.
+
+## What you can do
+
+| Feature | What it does |
+| --- | --- |
+| **Browse before installing** | Inspect a source, search by name, path, or description, and choose only the Skills you want. GitHub and Microsoft APM sources include a `SKILL.md` preview. |
+| **Manage one collection** | See installed Skills, source information, health, and availability across all four agents in one workbench. Filter, sort, and select multiple rows. |
+| **Review updates** | Compare installed and available files, including scripts, before applying an update. Track batch progress and per-Skill results in History. |
+| **Bring existing Skills along** | Discover manually installed Skills and adopt them into managed updates when Skilly can verify their source. |
+| **Share complete sets** | Bundle selected Skill folders into a ZIP, then import a whole toolkit or just the pieces you need. |
+
+### Install from your sources
+
+Choose a provider, enter a source, and inspect it. Select a row to preview it; check its box to include it in the installation. Existing local destinations remain visible and cannot be overwritten by an install.
+
+Skilly uses the tools already on your machine. You only need the prerequisites for the provider you choose:
+
+| Provider | Prerequisites |
+| --- | --- |
+| **GitHub** | Git and GitHub CLI (`gh`), authenticated with `gh auth login`. Uses your existing access for private repositories. |
+| **skills** | Git, Node.js, npm, and npx. Skilly invokes the pinned `skills@1.5.23` CLI. |
+| **Microsoft APM** | The Microsoft `apm-cli` executable (`apm`) on your PATH. |
+
+Skilly checks provider readiness and reports missing or incompatible tools. It does not install those prerequisites or store your source credentials.
+
+## Review changes before updating
+
+See which files were added, changed, or removed, then inspect the diff or either file version. For APM packages, the review includes every affected Skill.
+
+![Update review showing a SKILL.md diff alongside the affected Skill and changed files](assets/skilly-update-preview.png)
+
+Locally modified content is protected from routine updates. Skilly checks the installed and available content again when applying, so a stale preview cannot silently authorize a different update. During a batch, **Stop after current** finishes the active provider operation and leaves the rest untouched.
 
 ## Share Skill sets
 
-Use **Export set** to name a set and select complete Skill folders. The dialog starts with your selected rows, or all Skills if no rows are selected. **Select all** includes Skills hidden by the current inventory filter. Save the `.skilly.zip` file and send it to another Skilly user. Scripts, references, assets, and other files inside each selected folder are included; check those folders for private files before sharing.
+Give a teammate your review, testing, and research toolkit in one file.
 
-Use **Import set** to review the archive and choose Skills to install. Existing names in any supported discovery root are shown as skipped and never overwritten. New Skills are installed in `~/.agents/skills` with a Claude Code junction, making them available to all four Harnesses. Import works offline and does not run bundled scripts or provider commands.
+1. Choose **Export set**, name the set, and select your Skills. Save the `.skilly.zip` file.
+2. Share the file. It includes complete Skill folders: instructions, scripts, references, and assets. Check those folders for private files first.
+3. In Skilly, choose **Import set**, review the contents, and select what to add. Existing names are skipped; nothing is overwritten.
 
-Imported snapshots are **Unmanaged**. They contain the shared file versions; Skilly does not add source credentials or Management Records. Automatic source updates require a later provider-verified Adoption. Invalid metadata, symbolic links, junctions, unsafe paths, unexpected files, and checksum failures reject the archive before installation. Interrupted imports are reconciled at startup; modified or ambiguous content requires recovery instead of being deleted.
+| Choose what to share | Review what to import |
+| --- | --- |
+| ![Export dialog with six Skills selected for a team development toolkit](assets/skilly-export.png) | ![Import dialog with five Skills selected and an existing Skill skipped](assets/skilly-import.png) |
 
-The version 1 archive contains `skill-set.json` and files under `skills/<folder-name>/`. Limits are 1,000 Skills, 10,000 files, 64 MiB per file, and 512 MiB of payload. Empty directories are omitted. Checksums detect corrupt payloads; they do not authenticate the sender.
+Imports work offline and do not execute bundled scripts or provider commands. New Skills are available to all four agents. They start as **Unmanaged** snapshots of the shared files; source updates require a later, verified Adoption. Sharing a set does not transfer account settings, credentials, or management records.
 
-The source inspector searches paths, names, and descriptions. Select a row to preview it; check its box to install it. **Select visible** selects only search results, while **Select none** clears the entire selection. Selections outside the current search remain counted. Existing local destinations stay visible but cannot be selected for installation.
+<details>
+<summary>Archive format and validation</summary>
 
-GitHub and Microsoft APM inspections include a read-only SKILL.md preview. The `skills` provider supplies descriptions only. Installed Skills have shortcuts to open their folder or supported HTTPS source, copy their path, and read SKILL.md without launching an editor. Health details explain the next step for collisions, missing files, metadata errors, and broken Harness Exposures.
+The version 1 archive contains `skill-set.json` and files under `skills/<folder-name>/`. Limits are 1,000 Skills, 10,000 files, 64 MiB per file, and 512 MiB of payload. Empty directories are omitted.
 
-Updates show a file comparison before applying, including scripts and every affected Skill in an APM package. Installed and available content are checked again when applying. APM changes that add or remove Skills are shown but cannot yet be applied by the managed updater. **Review updates** controls whether the confirmation opens; content checks always run.
+Skilly rejects invalid metadata, symbolic links, junctions, unsafe paths, unexpected files, and checksum failures before installation. Checksums detect corruption; they do not authenticate the sender. Only import files from sources you trust.
 
-Update progress counts affected Skills. **Stop after current** finishes the active provider operation and leaves remaining updates untouched. **History** keeps up to 1,000 per-Skill results locally within 4 MB; interrupted runs are recorded without automatic retries. The workbench wraps its toolbar on smaller screens, supports resizable columns, and lets you collapse or resize details.
+Interrupted imports are reconciled at startup. Modified or ambiguous content requires recovery instead of being deleted.
 
-[Implementation issues](https://github.com/berghtho/skilly/issues?q=is%3Aissue+is%3Aopen+label%3Aready-for-agent) · [Domain vocabulary](CONTEXT.md)
+</details>
+
+## How your Skills are organized
+
+New installations live in `~/.agents/skills`, with a Claude Code junction exposing the same files there too. Skilly also discovers supported legacy locations. Source tracking, operation history, and management state stay local.
+
+Skilly currently manages **global Skills on Windows 11 x64**. Project-level Skills are outside its scope. APM updates that add or remove Skills from a package can be previewed, but cannot yet be applied by the managed updater.
+
+## Development and feedback
+
+To run from source during development:
+
+```powershell
+dotnet run --project src/Skilly
+```
+
+See [release validation](docs/release-validation.md) for build checks and optional live tests, and [CONTEXT.md](CONTEXT.md) for the domain model.
+
+Tried Skilly? [Report a problem or suggest an improvement](https://github.com/berghtho/skilly/issues). Include your provider and the action you were taking so the behavior is easy to reproduce.
