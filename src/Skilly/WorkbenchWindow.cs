@@ -12,6 +12,7 @@ internal static class WorkbenchWindow
 {
     public static DockPanel Shell(Window window, string kicker, string title, string? path = null)
     {
+        window.SetResourceReference(Window.IconProperty, "BrandIcon");
         window.SetResourceReference(Window.BackgroundProperty, "BgBrush");
         window.SetResourceReference(Window.ForegroundProperty, "TextBrush");
         window.SetResourceReference(Window.FontFamilyProperty, "BodyFont");

@@ -32,6 +32,18 @@ public sealed class AccessibilityTests(PackagedAppFixture fixture)
             AssertElement(window, "Skilly.InspectSource", "Inspect source", expectKeyboardFocusable: true);
             AssertElement(window, "Skilly.RefreshChecks", "Refresh checks", expectKeyboardFocusable: true);
             AssertElement(window, "Skilly.UpdateAll", "Update all Skills", expectKeyboardFocusable: false);
+            AssertElement(window, "Skilly.ShowHistory", "Operation history", expectKeyboardFocusable: true);
+            AssertElement(window, "Skilly.ExportSet", "Export Skill set", expectKeyboardFocusable: false);
+            AssertElement(window, "Skilly.ImportSet", "Import Skill set", expectKeyboardFocusable: true);
+            AssertElement(window, "Skilly.ToggleDetails", "Skill details", expectKeyboardFocusable: true);
+            AssertElement(window, "Skilly.ToggleReviewUpdates", "Review updates before applying", expectKeyboardFocusable: true);
+            Assert.Equal("Alt+I", FindById(window, "Skilly.InspectSource")!.Current.AccessKey);
+            Assert.Equal("Alt+R", FindById(window, "Skilly.RefreshChecks")!.Current.AccessKey);
+            Assert.Equal("Alt+A", FindById(window, "Skilly.UpdateAll")!.Current.AccessKey);
+            foreach (var id in new[] { "Skilly.ToggleDetails", "Skilly.ToggleReviewUpdates" })
+            {
+                Assert.True(FindById(window, id)!.TryGetCurrentPattern(TogglePattern.Pattern, out _));
+            }
             AssertElement(window, "Skilly.Search", "Search skills", expectKeyboardFocusable: true);
 
             AssertElement(window, "Skilly.StatusMessage", string.Empty, expectKeyboardFocusable: false);
