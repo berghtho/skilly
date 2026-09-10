@@ -42,6 +42,7 @@ public partial class MainWindow : Window
         SkillSetArchive? skillSets = null)
     {
         InitializeComponent();
+        // WPF derives the automation access key from registration. XAML exposes the full Alt combination as AcceleratorKey.
         AccessKeyManager.Register("i", InspectSourceButton);
         AccessKeyManager.Register("r", RefreshChecksButton);
         AccessKeyManager.Register("a", UpdateAllButton);

@@ -304,20 +304,20 @@
                             WindowChrome.IsHitTestVisibleInChrome="True"
                             ToolTip="Inspect source (Alt+I)" ToolTipService.ShowOnDisabled="True" ToolTipService.InitialShowDelay="300"
                             IsEnabled="{Binding CanInspectSource}" Click="OnInspectSource"
-                            AutomationProperties.Name="Inspect source" AutomationProperties.AccessKey="Alt+I"
+                            AutomationProperties.Name="Inspect source" AutomationProperties.AcceleratorKey="Alt+I"
                             AutomationProperties.AutomationId="Skilly.InspectSource" TabIndex="2">
                         <Path Style="{StaticResource ToolbarGlyph}" Data="M3,11 A8,8 0 1 0 19,11 A8,8 0 1 0 3,11 M21,21 L16.7,16.7" />
                     </Button>
                     <Button x:Name="RefreshChecksButton" Style="{StaticResource ToolbarIconButton}"
                             Click="OnRefreshChecks" ToolTip="Refresh checks (Alt+R)"
-                            AutomationProperties.Name="Refresh checks" AutomationProperties.AccessKey="Alt+R"
+                            AutomationProperties.Name="Refresh checks" AutomationProperties.AcceleratorKey="Alt+R"
                             AutomationProperties.AutomationId="Skilly.RefreshChecks" TabIndex="3">
                         <Path Style="{StaticResource ToolbarGlyph}" Data="M3,12 a9,9 0 0 1 9,-9 a9.75,9.75 0 0 1 6.74,2.74 L21,8 M21,3 v5 h-5 M21,12 a9,9 0 0 1 -9,9 a9.75,9.75 0 0 1 -6.74,-2.74 L3,16 M3,21 v-5 h5" />
                     </Button>
                     <Button x:Name="UpdateAllButton" Style="{StaticResource ToolbarIconButton}"
                             IsEnabled="{Binding CanUpdateAll}" Click="OnUpdateAll"
                             ToolTip="{Binding UpdatableCount, StringFormat=Update all Skills ({0}) - Alt+A}"
-                            AutomationProperties.Name="Update all Skills" AutomationProperties.AccessKey="Alt+A"
+                            AutomationProperties.Name="Update all Skills" AutomationProperties.AcceleratorKey="Alt+A"
                             AutomationProperties.AutomationId="Skilly.UpdateAll" TabIndex="4">
                         <Path Style="{StaticResource ToolbarGlyph}" Data="M21,15 v4 a2,2 0 0 1 -2,2 H5 a2,2 0 0 1 -2,-2 v-4 M7,10 l5,5 5,-5 M12,15 V3" />
                     </Button>
