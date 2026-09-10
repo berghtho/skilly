@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.ComponentModel;
 using System.Windows.Automation;
 using System.Windows.Automation.Peers;
+using System.Windows.Input;
 using Skilly.Providers.GitHub;
 using Skilly.Providers.SkillsCli;
 using Skilly.Providers;
@@ -41,6 +42,10 @@ public partial class MainWindow : Window
         SkillSetArchive? skillSets = null)
     {
         InitializeComponent();
+        // WPF derives the automation access key from registration. XAML exposes the full Alt combination as AcceleratorKey.
+        AccessKeyManager.Register("i", InspectSourceButton);
+        AccessKeyManager.Register("r", RefreshChecksButton);
+        AccessKeyManager.Register("a", UpdateAllButton);
         _log = log;
         _githubProvider = githubProvider;
         _skillsProvider = skillsProvider;
@@ -64,6 +69,9 @@ public partial class MainWindow : Window
         StateChanged += OnStateChanged;
         Closed += (_, _) =>
         {
+            AccessKeyManager.Unregister("i", InspectSourceButton);
+            AccessKeyManager.Unregister("r", RefreshChecksButton);
+            AccessKeyManager.Unregister("a", UpdateAllButton);
             viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _log.Info("Workbench window closed; shutdown proceeding.");
         };
@@ -83,7 +91,7 @@ public partial class MainWindow : Window
 
     private void OnShellSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        var stacked = e.NewSize.Width < 1400;
+        var stacked = e.NewSize.Width < 1120;
         Grid.SetRow(HeaderToolbar, stacked ? 1 : 0);
         Grid.SetColumn(HeaderToolbar, stacked ? 0 : 1);
         Grid.SetColumnSpan(HeaderToolbar, stacked ? 3 : 1);

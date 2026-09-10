@@ -1,6 +1,8 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
+    <BitmapImage x:Key="BrandIcon" UriSource="/Skilly;component/Branding/skilly-icon.png" />
+
     <!-- ═══ Industry design tokens ═══ -->
 
     <Color x:Key="BgColor">#F2F2F3</Color>

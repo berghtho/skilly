@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <Resource Include="Fonts\**\*.ttf" />
+    <Resource Include="..\..\assets\branding\snap-v1\skilly-icon.png" Link="Branding\skilly-icon.png" />
   </ItemGroup>
 
 </Project>

@@ -1,4 +1,4 @@
-![Skilly banner](assets/skilly-banner.png)
+<img src="assets/branding/snap-v1/skilly-logo.png" alt="Skilly" width="640" />
 
 # Skilly
 
@@ -15,6 +15,15 @@ A Skill is a folder of instructions and optional scripts, references, or assets 
 ![Skilly workbench showing installed Skills, available updates, source details, and exposure to four coding agents](assets/skilly-workbench.png)
 
 *Screenshots show the current app with an example library. Sources, revisions, and update content are illustrative.*
+
+Hover over a toolbar icon for its action name. Selected Details and Review updates controls have a blue background. Inspect, Refresh, and Update all also support Alt+I, Alt+R, and Alt+A.
+
+<details>
+<summary>Compact workbench</summary>
+
+![Skilly at its minimum window size, with all toolbar actions visible](assets/skilly-workbench-compact.png)
+
+</details>
 
 ## Try Skilly
 
