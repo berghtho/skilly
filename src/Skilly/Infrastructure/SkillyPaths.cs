@@ -4,7 +4,7 @@ namespace Skilly.Infrastructure;
 
 public static class SkillyPaths
 {
-    public const int StateSchemaVersion = 4;
+    public const int StateSchemaVersion = 5;
 
     public static string LocalAppDataRoot
     {

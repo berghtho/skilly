@@ -13,10 +13,35 @@ public static class Junction
     private const int FsctlSetReparsePoint = 0x000900A4;
     private const int ReparseTagMountPoint = unchecked((int)0xA0000003);
 
-    public static void Create(string junctionPath, string targetPath)
+    public static void Create(string junctionPath, string targetPath, bool requireNew = false)
     {
-        Directory.CreateDirectory(junctionPath);
+        if (requireNew)
+        {
+            if (!CreateDirectoryNative(junctionPath, IntPtr.Zero))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), $"Could not reserve new junction path '{junctionPath}'.");
+        }
+        else Directory.CreateDirectory(junctionPath);
 
+        try { SetTarget(junctionPath, targetPath); }
+        catch
+        {
+            if (requireNew)
+            {
+                try
+                {
+                    var directory = new DirectoryInfo(junctionPath);
+                    if (directory.Exists && !directory.Attributes.HasFlag(FileAttributes.ReparsePoint)
+                        && !directory.EnumerateFileSystemInfos().Any()) directory.Delete();
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+            throw;
+        }
+    }
+
+    private static void SetTarget(string junctionPath, string targetPath)
+    {
         var fullTarget = Path.GetFullPath(targetPath);
         var substituteName = @"\??\" + fullTarget;
         var substituteBytes = System.Text.Encoding.Unicode.GetBytes(substituteName);
@@ -68,6 +93,10 @@ public static class Junction
             Marshal.FreeHGlobal(buffer);
         }
     }
+
+    [DllImport("kernel32.dll", EntryPoint = "CreateDirectoryW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateDirectoryNative(string path, IntPtr securityAttributes);
 
     public static bool IsJunctionTo(string candidatePath, string targetPath)
     {
