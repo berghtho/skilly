@@ -90,6 +90,120 @@ public sealed class SkillsCliProviderFixture : IDisposable
 public sealed class SkillsCliProviderTests
 {
     [Fact]
+    public void Uninstall_accepts_verified_removal_after_cli_shutdown_crash_even_when_source_is_retired()
+    {
+        using var fixture = new SkillsCliProviderFixture();
+        var inspection = fixture.Provider.Inspect(SkillsCliProviderFixture.Source).ValueOrThrow();
+        fixture.Provider.Install(inspection, inspection.Skills).ValueOrThrow();
+        var state = fixture.StateStore.Load();
+        var records = state.Records;
+        var record = records.Single(record => record.Provenance.ProviderSkillName == "alpha");
+        var sibling = records.Single(record => record.Provenance.ProviderSkillName == "beta");
+        var siblingEvidence = new SkillsCliLock(fixture.ProviderLockPath).Read()["beta"].Evidence;
+        Directory.Delete(Path.Combine(fixture.SourceRoot, "skills", "alpha"), recursive: true);
+        record.LatestCheck = new CheckSnapshot { Status = UpdateStatus.SourceUnavailable,
+            InstalledRevision = record.InstalledRevision, CheckedAt = DateTimeOffset.Now, Warning = "No longer listed by the source." };
+        fixture.StateStore.Save(state);
+        var row = new InventoryRow(new InventoryScanner().Scan(fixture.Home, state).Entries.Single(entry => entry.LocalPath == record.CanonicalPath));
+        Assert.True(row.CanUninstall);
+        Assert.Contains("Update Library", row.ActionState);
+        fixture.Set("FAKE_SKILLS_REMOVE_FAILURE", "after-complete");
+
+        var result = fixture.Provider.Uninstall(record);
+
+        Assert.True(result.Succeeded, result.Diagnostics);
+        Assert.False(Directory.Exists(record.CanonicalPath));
+        Assert.False(Directory.Exists(record.IntendedClaudeJunctionPath));
+        Assert.Equal(sibling.InstallationId, Assert.Single(fixture.StateStore.Load().Records).InstallationId);
+        Assert.Null(fixture.StateStore.Load().PendingOperation);
+        var evidence = Assert.Single(new SkillsCliLock(fixture.ProviderLockPath).Read());
+        Assert.Equal("beta", evidence.Key);
+        Assert.Equal(siblingEvidence, evidence.Value.Evidence);
+        Assert.Equal(sibling.InstalledPayloadHash, PayloadHasher.HashFolder(sibling.CanonicalPath));
+        Assert.True(Junction.IsJunctionTo(sibling.IntendedClaudeJunctionPath!, sibling.CanonicalPath));
+        Assert.DoesNotContain(new InventoryScanner().Scan(fixture.Home, fixture.StateStore.Load()).Entries,
+            entry => string.Equals(entry.LocalPath, record.CanonicalPath, StringComparison.OrdinalIgnoreCase));
+        Assert.False(Directory.Exists(Path.Combine(Path.GetDirectoryName(fixture.StatePath)!, "recovery")));
+    }
+
+    [Theory]
+    [InlineData("before")]
+    [InlineData("after-exposure")]
+    [InlineData("after-content")]
+    public void Incomplete_uninstall_failure_restores_payload_exposure_lock_and_authority(string failure)
+    {
+        using var fixture = new SkillsCliProviderFixture();
+        var inspection = fixture.Provider.Inspect(SkillsCliProviderFixture.Source).ValueOrThrow();
+        fixture.Provider.Install(inspection, inspection.Skills).ValueOrThrow();
+        var records = fixture.StateStore.Load().Records;
+        var record = records.Single(record => record.Provenance.ProviderSkillName == "alpha");
+        var lockBefore = File.ReadAllBytes(fixture.ProviderLockPath);
+        fixture.Set("FAKE_SKILLS_FAIL_OPERATION", failure == "before" ? "remove" : null);
+        fixture.Set("FAKE_SKILLS_REMOVE_FAILURE", failure == "before" ? null : failure);
+
+        var result = fixture.Provider.Uninstall(record);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(lockBefore, File.ReadAllBytes(fixture.ProviderLockPath));
+        Assert.Equal(records.Select(record => record.InstallationId).Order(), fixture.StateStore.Load().Records.Select(record => record.InstallationId).Order());
+        Assert.Null(fixture.StateStore.Load().PendingOperation);
+        Assert.All(records, record =>
+        {
+            Assert.Equal(record.InstalledPayloadHash, PayloadHasher.HashFolder(record.CanonicalPath));
+            Assert.True(Junction.IsJunctionTo(record.IntendedClaudeJunctionPath!, record.CanonicalPath));
+        });
+    }
+
+    [Fact]
+    public void Managed_reinstall_accepts_verified_removal_after_cli_shutdown_crash()
+    {
+        using var fixture = new SkillsCliProviderFixture();
+        var inspection = fixture.Provider.Inspect(SkillsCliProviderFixture.Source).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
+        var record = Assert.Single(fixture.StateStore.Load().Records);
+        fixture.WriteSkill("alpha", "Fresh replacement.");
+        var plan = fixture.Provider.PlanManagedReinstall(record).ValueOrThrow();
+        fixture.Set("FAKE_SKILLS_REMOVE_FAILURE", "after-complete");
+
+        fixture.Provider.ManagedReinstall(plan).ValueOrThrow();
+
+        var replacement = Assert.Single(fixture.StateStore.Load().Records);
+        Assert.Equal(plan.PayloadHash, PayloadHasher.HashFolder(replacement.CanonicalPath));
+        Assert.Equal(OperationOutcome.Reinstalled, replacement.LastOperationOutcome);
+        Assert.True(Junction.IsJunctionTo(replacement.IntendedClaudeJunctionPath!, replacement.CanonicalPath));
+        Assert.Null(fixture.StateStore.Load().PendingOperation);
+    }
+
+    [Fact]
+    public void Removed_skill_replacement_is_concise_and_preserves_local_installation_and_authority()
+    {
+        using var fixture = new SkillsCliProviderFixture();
+        var inspection = fixture.Provider.Inspect(SkillsCliProviderFixture.Source).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills.Single(skill => skill.Name == "alpha")]).ValueOrThrow();
+        var record = fixture.StateStore.Load().Records.Single();
+        var stateBefore = File.ReadAllBytes(fixture.StatePath);
+        var lockBefore = File.ReadAllBytes(fixture.ProviderLockPath);
+        var hashBefore = PayloadHasher.HashFolder(record.CanonicalPath);
+        Directory.Delete(Path.Combine(fixture.SourceRoot, "skills", "alpha"), recursive: true);
+
+        var result = fixture.Provider.PlanManagedReinstall(record);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("no longer offers", result.Diagnostics);
+        Assert.Contains("alpha", result.Diagnostics);
+        Assert.Contains("Uninstall", result.Diagnostics);
+        Assert.Contains("Hide Skill", result.Diagnostics);
+        Assert.Contains("Update Library", result.Diagnostics);
+        Assert.DoesNotContain("Cloning", result.Diagnostics);
+        Assert.DoesNotContain('\u001b', result.Diagnostics);
+        Assert.DoesNotContain('\n', result.Diagnostics);
+        Assert.Equal(stateBefore, File.ReadAllBytes(fixture.StatePath));
+        Assert.Equal(lockBefore, File.ReadAllBytes(fixture.ProviderLockPath));
+        Assert.Equal(hashBefore, PayloadHasher.HashFolder(record.CanonicalPath));
+        Assert.True(Junction.IsJunctionTo(record.IntendedClaudeJunctionPath!, record.CanonicalPath));
+    }
+
+    [Fact]
     public void Replace_install_fetches_fresh_source_content_after_a_failed_check()
     {
         using var fixture = new SkillsCliProviderFixture();

@@ -493,9 +493,7 @@ public sealed class SkillsCliProvider(
             cancellationToken.ThrowIfCancellationRequested();
             SavePhase(state, pending, PendingOperationPhase.MutationStarted);
 
-            SkillsCliClient.RequireExit(client.Uninstall(plan.ProviderSkillName), $"Managed Reinstall removal of '{plan.ProviderSkillName}'");
-            VerifyProviderAbsence(record, plan.ProviderSkillName);
-            cancellationToken.ThrowIfCancellationRequested();
+            RemoveAndVerify(record, plan.ProviderSkillName, cancellationToken);
             SkillsCliClient.RequireExit(client.Install(plan.Source, plan.ProviderSkillName), $"Managed Reinstall acquisition of '{plan.ProviderSkillName}'");
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -559,19 +557,7 @@ public sealed class SkillsCliProvider(
             VerifyManagedTopology(record);
             SavePhase(state, pending, PendingOperationPhase.MutationStarted);
             var name = record.Provenance.ProviderSkillName ?? Path.GetFileName(record.CanonicalPath);
-            var process = client.Uninstall(name);
-            SkillsCliClient.RequireExit(process, $"Uninstall of '{name}'");
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (PathEntryExists(record.CanonicalPath) || PathEntryExists(record.IntendedClaudeJunctionPath!))
-            {
-                throw new ProviderFailure("Provider uninstall reported success but canonical content or the Claude Harness Exposure remains.");
-            }
-            if (_lock.Read().Keys.Any(key => string.Equals(SkillsCliClient.SanitizeName(key), Path.GetFileName(record.CanonicalPath), StringComparison.OrdinalIgnoreCase))
-                || client.ListGlobal().Any(skill => PathsEqual(skill.Path, record.CanonicalPath)))
-            {
-                throw new ProviderFailure("Provider uninstall reported success but provider lock or inventory evidence remains.");
-            }
+            RemoveAndVerify(record, name, cancellationToken);
 
             SavePhase(state, pending, PendingOperationPhase.Verified);
             state.Records.Remove(record);
@@ -775,17 +761,39 @@ public sealed class SkillsCliProvider(
         VerifyListedSkill(inventory, record.CanonicalPath);
     }
 
+    private void RemoveAndVerify(ManagementRecord record, string providerName, CancellationToken cancellationToken)
+    {
+        var process = client.Uninstall(providerName);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!process.Succeeded)
+            log.Error($"Provider removal of '{providerName}' exited with code {process.ExitCode}. {DiagnosticText.Clean(process.CombinedOutput)}");
+        try
+        {
+            VerifyProviderAbsence(record, providerName);
+        }
+        catch (Exception exception) when (!process.Succeeded && exception is not OperationCanceledException)
+        {
+            SkillsCliClient.RequireExit(process, $"Removal of '{providerName}'");
+            throw;
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        // The Windows CLI can crash during shutdown after completing removal. Its exit code
+        // cannot override independently verified absence of content, exposure, lock and inventory.
+        if (!process.Succeeded)
+            log.Info($"Completed removal of '{providerName}' despite provider exit code {process.ExitCode}; content, Claude exposure, provider lock and inventory absence were verified.");
+    }
+
     private void VerifyProviderAbsence(ManagementRecord record, string providerName)
     {
         if (PathEntryExists(record.CanonicalPath) || PathEntryExists(record.IntendedClaudeJunctionPath!))
         {
-            throw new ProviderFailure("The skills provider did not cleanly remove prior content before Managed Reinstall.");
+            throw new ProviderFailure("Provider removal left canonical content or the Claude Harness Exposure behind.");
         }
         if (_lock.Read().Values.Any(entry => string.Equals(entry.Name, providerName, StringComparison.OrdinalIgnoreCase)
                                              || string.Equals(SkillsCliClient.SanitizeName(entry.Name), Path.GetFileName(record.CanonicalPath), StringComparison.OrdinalIgnoreCase))
             || client.ListGlobal().Any(skill => PathsEqual(skill.Path, record.CanonicalPath)))
         {
-            throw new ProviderFailure("The skills provider retained lock or inventory ownership after Managed Reinstall removal.");
+            throw new ProviderFailure("Provider removal left lock or inventory ownership behind.");
         }
     }
 
@@ -797,9 +805,14 @@ public sealed class SkillsCliProvider(
         {
             var environment = IsolatedEnvironment(temporaryRoot);
             var name = record.Provenance.ProviderSkillName ?? Path.GetFileName(record.CanonicalPath);
-            SkillsCliClient.RequireExit(
-                client.Install(record.Provenance.OriginalReference, name, environment),
-                "Isolated Managed Reinstall acquisition");
+            var acquisition = client.Install(record.Provenance.OriginalReference, name, environment);
+            if (!acquisition.Succeeded)
+            {
+                log.Error($"Replacement acquisition failed for '{name}'. {DiagnosticText.Clean(acquisition.CombinedOutput)}");
+                if (SkillsCliClient.ReportsMissingSkill(acquisition, name))
+                    throw new ProviderFailure($"The source no longer offers '{name}'. Local copy kept. Use Uninstall, Hide Skill, or Update Library to choose another Skill.");
+            }
+            SkillsCliClient.RequireExit(acquisition, "Replacement acquisition");
             var canonical = Path.Combine(temporaryRoot, ".agents", "skills", Path.GetFileName(record.CanonicalPath));
             var claude = Path.Combine(temporaryRoot, ".claude", "skills", Path.GetFileName(record.CanonicalPath));
             var temporaryLock = new SkillsCliLock(Path.Combine(temporaryRoot, "state", "skills", ".skill-lock.json"));

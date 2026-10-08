@@ -95,6 +95,17 @@ if (command == "add")
     RequireExactAddArguments(args);
     var source = args[3];
     var selected = args.Skip(Array.IndexOf(args, "--skill") + 1).TakeWhile(arg => !arg.StartsWith('-')).ToList();
+    var missing = selected.Where(name => !Directory.Exists(Path.Combine(sourceRoot, "skills", Sanitize(name)))).ToList();
+    if (missing.Count > 0)
+    {
+        Console.WriteLine("\u001b[38;5;250mSKILLS\u001b[0m");
+        Console.WriteLine("\u001b[?25l│ Cloning repository...\u001b[1G\u001b[J");
+        Console.WriteLine($"■ No matching skills found for: {string.Join(", ", missing)}");
+        Console.WriteLine("│ Available skills:");
+        foreach (var directory in Directory.GetDirectories(Path.Combine(sourceRoot, "skills")))
+            Console.WriteLine("│    " + Path.GetFileName(directory));
+        return 1;
+    }
     foreach (var name in selected) Install(name, source);
     Console.WriteLine($"Installed {string.Join(", ", selected)}");
     return 0;
@@ -118,11 +129,14 @@ if (command == "remove")
     var selected = args[3];
     var folder = Sanitize(selected);
     DeleteEntry(Path.Combine(claudeRoot, folder));
+    if (Environment.GetEnvironmentVariable("FAKE_SKILLS_REMOVE_FAILURE") == "after-exposure") return RemovalShutdownFailure();
     DeleteEntry(Path.Combine(canonicalRoot, folder));
+    if (Environment.GetEnvironmentVariable("FAKE_SKILLS_REMOVE_FAILURE") == "after-content") return RemovalShutdownFailure();
     var entries = ReadLock();
     foreach (var key in entries.Keys.Where(key => Sanitize(key) == folder).ToList()) entries.Remove(key);
     WriteLock(entries);
     Console.WriteLine($"Removed {selected}");
+    if (Environment.GetEnvironmentVariable("FAKE_SKILLS_REMOVE_FAILURE") == "after-complete") return RemovalShutdownFailure();
     return 0;
 }
 
@@ -251,6 +265,12 @@ static bool ShouldFail(string operation)
 
 static bool FalseSuccess(string operation)
     => string.Equals(Environment.GetEnvironmentVariable("FAKE_SKILLS_FALSE_SUCCESS_OPERATION"), operation, StringComparison.Ordinal);
+
+static int RemovalShutdownFailure()
+{
+    Console.Error.WriteLine("Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\\win\\async.c, line 94");
+    return unchecked((int)0xC0000409);
+}
 
 static void RecordInvocation(string[] arguments)
 {

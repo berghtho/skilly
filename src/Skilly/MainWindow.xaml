@@ -431,6 +431,7 @@
 
         <!-- ═══ Status bar ═══ -->
         <StatusBar DockPanel.Dock="Bottom"
+                   Height="30"
                    Background="Transparent"
                    BorderBrush="{StaticResource DividerBrush}"
                    BorderThickness="0,1,0,0"
@@ -454,6 +455,7 @@
                                Margin="12,0,0,0" />
                     <TextBlock x:Name="StatusMessage"
                                Text="{Binding Status.Message}"
+                               ToolTip="{Binding Status.Message}"
                                FontSize="12"
                                Foreground="{StaticResource Text65Brush}"
                                TextTrimming="CharacterEllipsis"

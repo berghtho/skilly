@@ -188,9 +188,14 @@ public sealed class SkillsCliClient
     {
         if (!result.Succeeded)
         {
-            throw new ProviderFailure($"{operation} failed with exit code {result.ExitCode}. {SensitiveDataRedactor.Redact(result.CombinedOutput).Trim()}");
+            throw new ProviderFailure($"{operation} failed with exit code {result.ExitCode}. {DiagnosticText.CliFailure(result)}");
         }
     }
+
+    internal static bool ReportsMissingSkill(ProcessResult result, string name)
+        => !result.Succeeded && Regex.IsMatch(DiagnosticText.Clean(result.CombinedOutput),
+            @"No matching skills found for:[ \t]*" + Regex.Escape(name) + @"[ \t]*(?:\r?\n|$)",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private ProcessResult RunPinned(
         IReadOnlyList<string> arguments,
@@ -225,7 +230,7 @@ public sealed class SkillsCliClient
         => new(false, Package, $"{Package} provider unavailable: {diagnostic}");
 
     private static string StripAnsi(string value)
-        => Regex.Replace(value, "\\x1B(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])", string.Empty, RegexOptions.CultureInvariant);
+        => DiagnosticText.Clean(value);
 
     private static string RemoveClackPrefix(string line)
     {

@@ -271,7 +271,7 @@ public sealed class InventoryRow
                 : Entry.ManagementStatus == ManagementStatus.Unmanaged
                     ? "Inspect the original Skill Library to check for verified Adoption. Skilly needs matching source content before it can manage this installation."
                     : Check?.Status == State.UpdateStatus.SourceUnavailable
-                        ? "See the source diagnostic above. Use Replace install to fetch the recorded source again, Uninstall to remove this installation, or Hide Skill to keep it out of the list."
+                        ? "See the source diagnostic above. Use Uninstall to remove this installation, Hide Skill to keep your local copy out of the list, or Update Library to choose available Skills."
                         : Check?.Status == State.UpdateStatus.CheckFailed
                             ? "Retry Refresh checks, or use Replace install to fetch a clean copy from the recorded source. Installed content is unchanged."
                             : Check?.IsStale == true
@@ -836,7 +836,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void SetStatus(string message)
     {
-        Status = new StatusUpdate(message, DateTimeOffset.Now);
+        Status = new StatusUpdate(DiagnosticText.SingleLine(message), DateTimeOffset.Now);
         OnPropertyChanged(nameof(Status));
     }
 

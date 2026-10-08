@@ -69,6 +69,19 @@ public sealed class SkillUsabilityUiTests
                     new ProviderCheckRunner(github.Provider, github.StateStore), _ => snapshot,
                     new Skilly.Infrastructure.OperationHistoryStore(Path.Combine(skills.Root, "history.json")));
                 Render(main, "workbench-actions.png");
+                mainModel.Announce("Replacement could not be fetched.\n" +
+                    string.Join("\n", Enumerable.Repeat("\u001b[38;5;250m│ Cloning repository...\u001b[0m", 100)) +
+                    "\nNo matching skills found for: resolving-merge-conflicts\nAvailable skills:\n" +
+                    string.Join("\n", Enumerable.Repeat("│    another-skill", 50)));
+                Render(main, "workbench-long-failure-status.png");
+                Assert.DoesNotContain('\u001b', mainModel.Status.Message);
+                Assert.DoesNotContain('\n', mainModel.Status.Message);
+                Assert.True(Find<System.Windows.Controls.Primitives.StatusBar>(main, "OperationStatusBar").ActualHeight <= 40,
+                    "A failed provider's multiline output must not consume the workbench.");
+                Assert.True(Find<ListBox>(main, "Skilly.SkillList").ActualHeight >= 200,
+                    "The skill list must remain usable after a failed replacement.");
+                mainModel.Announce("The source no longer offers 'resolving-merge-conflicts'. Local copy kept. Use Uninstall, Hide Skill, or Update Library to choose another Skill.");
+                Render(main, "workbench-missing-source-status.png");
                 Assert.True(Find<Button>(main, "Skilly.OpenFolder").IsEnabled);
                 Assert.True(Find<Button>(main, "Skilly.ReadSkillMarkdown").IsEnabled);
                 Assert.True(Find<Button>(main, "Skilly.CopyPath").IsEnabled);
