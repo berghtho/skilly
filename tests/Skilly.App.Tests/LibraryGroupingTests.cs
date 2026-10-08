@@ -86,6 +86,43 @@ public sealed class LibraryGroupingTests
         Assert.False(unattributedHeader.CanUpdateLibrary);
     }
 
+    [Theory]
+    [InlineData("github")]
+    [InlineData("skills")]
+    [InlineData("apm")]
+    public void Current_library_can_refresh_to_choose_new_source_skills(string provider)
+    {
+        var record = Record(provider, "acme", "toolbox", "github.com/acme/toolbox", "alpha");
+        record.LatestCheck = new CheckSnapshot
+        {
+            Status = UpdateStatus.Current,
+            InstalledRevision = record.InstalledRevision,
+            CheckedAt = DateTimeOffset.Now,
+        };
+        var model = new MainViewModel { GroupByLibrary = true };
+        model.LoadInventory(Snapshot(Entry("alpha", record)));
+
+        var library = Assert.IsType<LibraryGroupRow>(model.Rows[0]);
+        Assert.Equal(0, library.UpdatableCount);
+        Assert.True(library.CanUpdateLibrary);
+    }
+
+    [Fact]
+    public void Library_refresh_is_disabled_during_inspection_maintenance_and_recovery()
+    {
+        var model = new MainViewModel();
+        Assert.True(model.CanMaintainLibraries);
+        model.InspectionInProgress = true;
+        Assert.False(model.CanMaintainLibraries);
+        model.InspectionInProgress = false;
+        model.MaintenanceBusy = true;
+        Assert.False(model.CanMaintainLibraries);
+        model.MaintenanceBusy = false;
+        Assert.True(model.CanMaintainLibraries);
+        model.EnterRecoveryRequired("Recovery Required");
+        Assert.False(model.CanMaintainLibraries);
+    }
+
     [Fact]
     public void Collapsing_a_library_hides_member_rows_and_survives_inventory_reload()
     {

@@ -101,6 +101,8 @@ Interrupted imports are reconciled at startup. Modified or ambiguous content req
 
 New installations live in `~/.agents/skills`, with a Claude Code junction exposing the same files there too. Skilly also discovers supported legacy locations. Source tracking, operation history, and management state stay local.
 
+Turn on **Group by Library**, then click **Update Library** to refresh the source and choose additional Skills, even when installed Skills are already current. Skills already present locally stay checked and cannot be installed again. After closing the inspector, available updates for installed Skills follow the usual update workflow.
+
 Skilly currently manages **global Skills on Windows 11 x64**. Project-level Skills are outside its scope. APM updates that add or remove Skills from a package can be previewed, but cannot yet be applied by the managed updater.
 
 ## Development and feedback

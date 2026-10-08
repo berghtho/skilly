@@ -369,6 +369,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (!SetProperty(ref _maintenanceBusy, value)) return;
             OnPropertyChanged(nameof(MutationsAllowed)); OnPropertyChanged(nameof(CanUpdateAll)); OnPropertyChanged(nameof(CanInspectSource));
             OnPropertyChanged(nameof(CanShareSets)); OnPropertyChanged(nameof(CanExportSet));
+            OnPropertyChanged(nameof(CanMaintainLibraries));
         }
     }
     public string OperationProgress { get => _operationProgress; set => SetProperty(ref _operationProgress, value); }
@@ -509,6 +510,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 OnPropertyChanged(nameof(CanInspectSource));
                 OnPropertyChanged(nameof(CanShareSets)); OnPropertyChanged(nameof(CanExportSet));
+                OnPropertyChanged(nameof(CanMaintainLibraries));
             }
         }
     }
@@ -540,6 +542,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool RecoveryRequired => _recoveryRequired;
 
     public bool MutationsAllowed => !_recoveryRequired && !MaintenanceBusy;
+
+    public bool CanMaintainLibraries => MutationsAllowed && !InspectionInProgress;
 
     public bool CanShareSets => MutationsAllowed && !InspectionInProgress;
     public bool CanExportSet => CanShareSets && _allRows.Any(row => row.Entry.Kind == EntryKind.RealFolder && row.CanReadSkillMarkdown);
@@ -624,6 +628,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(MutationsAllowed));
         OnPropertyChanged(nameof(RecoveryDiagnostic));
         OnPropertyChanged(nameof(CanUpdateAll));
+        OnPropertyChanged(nameof(CanMaintainLibraries));
         SetStatus(diagnostic);
         OnPropertyChanged(nameof(CanShareSets)); OnPropertyChanged(nameof(CanExportSet));
     }

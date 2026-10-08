@@ -145,6 +145,121 @@ public sealed class PackagedGitHubWorkflowTests(PackagedAppFixture fixture)
     }
 
     [InteractiveUiFact]
+    public async Task Workbench_library_refresh_offers_new_Skills_when_installed_content_is_current()
+    {
+        using var source = new GitHubProviderFixture();
+        source.SetBranch("feature/windows");
+        Assert.True(Skilly.Providers.GitHub.GitHubSourceReference.TryParse(
+            "https://github.com/acme/library/tree/feature/windows/skills", out var reference, out _));
+        var inspection = source.Provider.Inspect(reference).ValueOrThrow();
+        source.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
+        var original = Assert.Single(source.StateStore.Load().Records);
+        var originalContent = PayloadHasher.HashFolder(original.CanonicalPath);
+        source.AddSourceSkill("skills/gamma", "Gamma Display");
+        source.SetCommit(GitHubProviderFixture.LaterCommitSha);
+
+        using var profile = PreparePackagedState(source.StatePath);
+        var tools = Path.Combine(profile.Root, "tools");
+        Directory.CreateDirectory(tools);
+        CopyFakeGh(tools);
+        using var app = SkillyInstance.Start(Fixture.ExePath, profile, profile.Root, new Dictionary<string, string?>
+        {
+            ["USERPROFILE"] = source.Home,
+            ["PATH"] = tools + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH"),
+            ["FAKE_GH_FIXTURE_ROOT"] = source.FixtureRoot,
+            ["FAKE_GH_STATE_PATH"] = profile.StateFilePath,
+        });
+        var main = AutomationElement.FromHandle(app.WaitForMainWindow(TimeSpan.FromMinutes(2)));
+        try
+        {
+            var status = Find(main, "Skilly.StatusMessage");
+            WaitUntil(() => status.Current.Name.Contains("Checked 1 managed Skill(s)"), TimeSpan.FromSeconds(30),
+                "Startup checks did not finish.", () => status.Current.Name + ReadLogs(profile.LogsDirectory));
+            Assert.False(Find(main, "Skilly.UpdateAll").Current.IsEnabled);
+            // The library action must use its own recorded source, not the source-entry field.
+            SetValue(Find(main, "Skilly.SourceReference"), "https://github.com/unrelated/other");
+            ((TogglePattern)Find(main, "Skilly.GroupByLibrary").GetCurrentPattern(TogglePattern.Pattern)).Toggle();
+
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                var refresh = Find(main, "Skilly.UpdateLibrary");
+                Assert.True(refresh.Current.IsEnabled);
+                var invoking = Task.Run(() => ((InvokePattern)refresh.GetCurrentPattern(InvokePattern.Pattern)).Invoke());
+                var picker = WaitForWindow(app.Process.Id, ["Source inspector", "Inspect Skill Library"], TimeSpan.FromSeconds(30),
+                    () => status.Current.Name + ReadLogs(profile.LogsDirectory));
+                var list = Find(picker, "Skilly.SourceSkills");
+                var checkboxes = list.FindAll(TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.CheckBox)).Cast<AutomationElement>().ToList();
+                Assert.Equal(3, checkboxes.Count);
+                Assert.Single(checkboxes, checkbox => !checkbox.Current.IsEnabled);
+                SetValue(Find(picker, "Skilly.ExactSelection"), "Gamma Display");
+                ((InvokePattern)Find(picker, "Skilly.SelectExact").GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                Assert.True(Find(picker, "Skilly.InstallSelected").Current.IsEnabled);
+                if (attempt == 0)
+                {
+                    ((InvokePattern)Find(picker, "Skilly.CloseInspector").GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                    await invoking.WaitAsync(TimeSpan.FromSeconds(10));
+                    WaitUntil(() => Find(main, "Skilly.UpdateLibrary").Current.IsEnabled, TimeSpan.FromSeconds(10),
+                        "Cancelled library refresh did not finish.");
+                    Assert.Single(ReadState(profile.StateFilePath).Records);
+                    Assert.False(Directory.Exists(source.CanonicalPath("gamma")));
+                }
+                else
+                {
+                    ((InvokePattern)Find(picker, "Skilly.InstallSelected").GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                    WaitUntil(() => status.Current.Name.Contains("Installed 1 Skill(s)"), TimeSpan.FromSeconds(40),
+                        "The selected new Skill was not installed.", () => ReadLogs(profile.LogsDirectory));
+                    await invoking.WaitAsync(TimeSpan.FromSeconds(10));
+                    var state = ReadState(profile.StateFilePath);
+                    Assert.Equal(2, state.Records.Count);
+                    var added = state.Records.Single(record => Path.GetFileName(record.CanonicalPath) == "gamma");
+                    Assert.Equal(GitHubProviderFixture.LaterCommitSha, added.InstalledRevision);
+                    Assert.Equal("skills", added.Provenance.RequestedPath);
+                    Assert.Equal("feature/windows", added.Provenance.TrackingRule);
+                    Assert.True(Junction.IsJunctionTo(Path.Combine(source.Home, ".claude", "skills", "gamma"), added.CanonicalPath));
+                    Assert.Null(state.PendingOperation);
+                    Assert.False(Directory.Exists(source.CanonicalPath("beta")));
+                }
+                var existing = ReadState(profile.StateFilePath).Records.Single(record => record.InstallationId == original.InstallationId);
+                Assert.Equal(original.InstalledRevision, existing.InstalledRevision);
+                Assert.Equal(originalContent, PayloadHasher.HashFolder(existing.CanonicalPath));
+                Assert.Equal("https://github.com/unrelated/other",
+                    ((ValuePattern)Find(main, "Skilly.SourceReference").GetCurrentPattern(ValuePattern.Pattern)).Current.Value);
+            }
+
+            // Refresh must still offer additions before reviewing updates for existing Skills.
+            File.AppendAllText(Path.Combine(source.FixtureRoot, "files", "skills", "alpha", "SKILL.md"), "\nUpdated library instruction.\n");
+            source.AddSourceSkill("skills/delta", "Delta Display");
+            source.SetCommit("fedcba9876543210fedcba9876543210fedcba98");
+            ((InvokePattern)Find(main, "Skilly.RefreshChecks").GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+            WaitUntil(() => Find(main, "Skilly.UpdateAll").Current.IsEnabled, TimeSpan.FromSeconds(30), "Library update check did not finish.");
+            var updating = Task.Run(() => ((InvokePattern)Find(main, "Skilly.UpdateLibrary").GetCurrentPattern(InvokePattern.Pattern)).Invoke());
+            var additions = WaitForWindow(app.Process.Id, ["Source inspector", "Inspect Skill Library"], TimeSpan.FromSeconds(30),
+                () => status.Current.Name + ReadLogs(profile.LogsDirectory));
+            SetValue(Find(additions, "Skilly.ExactSelection"), "Delta Display");
+            ((InvokePattern)Find(additions, "Skilly.SelectExact").GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+            Assert.True(Find(additions, "Skilly.InstallSelected").Current.IsEnabled);
+            ((InvokePattern)Find(additions, "Skilly.CloseInspector").GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+            var review = WaitForWindow(app.Process.Id, ["Review updates"], TimeSpan.FromSeconds(30),
+                () => status.Current.Name + ReadLogs(profile.LogsDirectory));
+            Assert.Contains("Updated library instruction.", ((ValuePattern)Find(review, "Skilly.PreviewDiff").GetCurrentPattern(ValuePattern.Pattern)).Current.Value);
+            ((InvokePattern)Find(review, "Skilly.ApplyReviewedUpdates").GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+            await updating.WaitAsync(TimeSpan.FromSeconds(10));
+            WaitUntil(() => status.Current.Name.Contains("Updated 1/1 Skills"), TimeSpan.FromSeconds(40), "Library update did not finish.");
+            Assert.NotEqual(originalContent, PayloadHasher.HashFolder(original.CanonicalPath));
+            Assert.False(Directory.Exists(source.CanonicalPath("delta")));
+            Assert.Equal(2, ReadState(profile.StateFilePath).Records.Count);
+        }
+        finally
+        {
+            app.CloseMainWindowAndWait();
+        }
+    }
+
+    private static SkillyState ReadState(string path)
+        => JsonSerializer.Deserialize<SkillyState>(File.ReadAllText(path), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+
+    [InteractiveUiFact]
     public async Task Workbench_Managed_Reinstall_confirmation_shows_exact_path_and_revision_and_cancel_preserves_local_content()
     {
         using var source = new GitHubProviderFixture();

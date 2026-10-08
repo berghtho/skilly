@@ -685,7 +685,8 @@
                                             Margin="8,3,10,3"
                                             VerticalAlignment="Center"
                                             Click="OnUpdateLibrary"
-                                            IsEnabled="{Binding DataContext.MutationsAllowed, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            IsEnabled="{Binding DataContext.CanMaintainLibraries, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            ToolTip="Refresh this source to choose additional Skills, then review updates for installed Skills."
                                             Visibility="{Binding CanUpdateLibrary, Converter={StaticResource BoolToVisibility}}"
                                             AutomationProperties.Name="{Binding Label, StringFormat='Update Skill Library {0}'}"
                                             AutomationProperties.AutomationId="Skilly.UpdateLibrary">
@@ -700,7 +701,7 @@
                                                           StrokeLineJoin="Round" />
                                                 </Canvas>
                                             </Viewbox>
-                                            <TextBlock Text="{Binding UpdatableCount, StringFormat='Update Library ({0})'}" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding UpdateLabel}" VerticalAlignment="Center" />
                                         </StackPanel>
                                     </Button>
                                     <ToggleButton IsChecked="{Binding IsExpanded, Mode=TwoWay}"

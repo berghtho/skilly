@@ -167,12 +167,12 @@ public partial class MainWindow : Window
         var viewModel = (ViewModels.MainViewModel)DataContext;
         if (string.Equals(viewModel.SelectedSourceProvider, SkillsCliClient.Package, StringComparison.Ordinal))
         {
-            await InspectSkillsSource(viewModel);
+            await InspectSkillsSource(viewModel, viewModel.SourceText);
             return;
         }
         if (string.Equals(viewModel.SelectedSourceProvider, ApmClient.Provider, StringComparison.Ordinal))
         {
-            await InspectApmSource(viewModel);
+            await InspectApmSource(viewModel, viewModel.SourceText);
             return;
         }
         if (!GitHubSourceReference.TryParse(viewModel.SourceText, out var reference, out var parseError))
@@ -181,10 +181,15 @@ public partial class MainWindow : Window
             return;
         }
 
+        await InspectGitHubSource(viewModel, reference);
+    }
+
+    private async Task<bool> InspectGitHubSource(ViewModels.MainViewModel viewModel, GitHubSourceReference reference)
+    {
         if (!await _maintenanceGate.WaitAsync(0))
         {
             viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
-            return;
+            return false;
         }
 
         viewModel.InspectionInProgress = true;
@@ -195,7 +200,7 @@ public partial class MainWindow : Window
             if (!inspectionResult.Succeeded)
             {
                 viewModel.Announce($"GitHub source inspection failed. {inspectionResult.Diagnostics} Nothing changed.");
-                return;
+                return false;
             }
 
             var inspection = inspectionResult.Value!;
@@ -219,11 +224,13 @@ public partial class MainWindow : Window
                     + (discovery.Diagnostics.Count == 0 ? string.Empty : $" {discovery.Diagnostics[0]}"));
             }
             ApplyRecoveryMode(viewModel);
+            return !_closing && !viewModel.RecoveryRequired;
         }
         catch (Exception exception)
         {
             _log.Error("GitHub source inspection failed.", exception);
             viewModel.Announce($"GitHub source inspection failed. {exception.Message} Nothing changed.");
+            return false;
         }
         finally
         {
@@ -232,23 +239,23 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task InspectApmSource(ViewModels.MainViewModel viewModel)
+    private async Task<bool> InspectApmSource(ViewModels.MainViewModel viewModel, string source)
     {
         if (!await _maintenanceGate.WaitAsync(0))
         {
             viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
-            return;
+            return false;
         }
         viewModel.InspectionInProgress = true;
         viewModel.Announce("Inspecting source through Microsoft APM in an isolated home. User state has not changed.");
         try
         {
-            var result = await Task.Run(() => _apmProvider.Inspect(viewModel.SourceText));
+            var result = await Task.Run(() => _apmProvider.Inspect(source));
             if (!result.Succeeded)
             {
                 viewModel.SetApmReadiness(new ProviderReadiness(false, ApmClient.Provider, $"Microsoft APM source readiness failed: {result.Diagnostics}"));
                 viewModel.Announce($"Microsoft APM source inspection failed. {result.Diagnostics} Nothing changed.");
-                return;
+                return false;
             }
             viewModel.SetApmReadiness(_apmProvider.GetReadiness());
             var inspection = result.Value!;
@@ -261,11 +268,13 @@ public partial class MainWindow : Window
                 ? $"Installed {dialog.InstalledCount} Skill(s) through Microsoft APM; manifest, lock, canonical content, state, and Harness Exposures were verified."
                 : $"Read-only Microsoft APM inspection found {inspection.Skills.Count} Source Skill(s). User state was not changed.");
             ApplyRecoveryMode(viewModel);
+            return !_closing && !viewModel.RecoveryRequired;
         }
         catch (Exception exception)
         {
             _log.Error("Microsoft APM source inspection failed.", exception);
             viewModel.Announce($"Microsoft APM source inspection failed. {exception.Message} Nothing changed.");
+            return false;
         }
         finally
         {
@@ -274,18 +283,18 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task InspectSkillsSource(ViewModels.MainViewModel viewModel)
+    private async Task<bool> InspectSkillsSource(ViewModels.MainViewModel viewModel, string source)
     {
         if (!await _maintenanceGate.WaitAsync(0))
         {
             viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
-            return;
+            return false;
         }
         viewModel.InspectionInProgress = true;
         viewModel.Announce($"Inspecting source read-only through {SkillsCliClient.Package}. Nothing has changed.");
         try
         {
-            var result = await Task.Run(() => _skillsProvider.Inspect(viewModel.SourceText));
+            var result = await Task.Run(() => _skillsProvider.Inspect(source));
             if (!result.Succeeded)
             {
                 viewModel.SetSkillsReadiness(new Providers.ProviderReadiness(
@@ -293,7 +302,7 @@ public partial class MainWindow : Window
                     SkillsCliClient.Package,
                     $"{SkillsCliClient.Package} source readiness failed: {result.Diagnostics}"));
                 viewModel.Announce($"{SkillsCliClient.Package} source inspection failed. {result.Diagnostics} Nothing changed.");
-                return;
+                return false;
             }
             viewModel.SetSkillsReadiness(_skillsProvider.GetReadiness());
             var inspection = result.Value!;
@@ -306,11 +315,13 @@ public partial class MainWindow : Window
                 ? $"Installed {dialog.InstalledCount} Skill(s) through {SkillsCliClient.Package}; canonical content, provider lock, authority, and Harness Exposures were verified."
                 : $"Read-only {SkillsCliClient.Package} inspection found {inspection.Skills.Count} Source Skill(s). Nothing changed.");
             ApplyRecoveryMode(viewModel);
+            return !_closing && !viewModel.RecoveryRequired;
         }
         catch (Exception exception)
         {
             _log.Error($"{SkillsCliClient.Package} source inspection failed.", exception);
             viewModel.Announce($"{SkillsCliClient.Package} source inspection failed. {exception.Message} Nothing changed.");
+            return false;
         }
         finally
         {
@@ -450,8 +461,45 @@ public partial class MainWindow : Window
     {
         var vm = (ViewModels.MainViewModel)DataContext;
         if ((sender as FrameworkElement)?.DataContext is not ViewModels.LibraryGroupRow { Key: { } key } group) return;
-        await RunUpdateBatch(vm.LibraryMembers(key).Where(row => row.CanUpdate)
-            .Select(row => row.Entry.ManagementRecord!).ToList(), "Update Library " + group.Label);
+        if (!vm.CanMaintainLibraries || _closing) return;
+        var members = vm.LibraryMembers(key);
+        var sourceRow = members.FirstOrDefault(row => row.Entry.ManagementRecord is not null)
+            ?? members.FirstOrDefault(row => row.LibraryProviderLabel.Length > 0 && row.Source != "Not recorded");
+        if (sourceRow is null) return;
+        var provenance = (sourceRow.Entry.ManagementRecord ?? sourceRow.Entry.AdoptionEvidence?.ProposedRecord)?.Provenance;
+        bool inspected;
+        if (sourceRow.LibraryProviderLabel == "GitHub")
+        {
+            // Use the recorded tracking rule and subtree, including branch names containing '/'.
+            if (!GitHubSourceReference.TryParse(sourceRow.Source, out var reference, out var error))
+            {
+                vm.Announce($"Skill Library refresh failed. {error} Nothing changed.");
+                return;
+            }
+            if (provenance is not null)
+            {
+                var segments = provenance.TrackingRule.Split('/')
+                    .Concat((provenance.RequestedPath ?? string.Empty).Split('/', StringSplitOptions.RemoveEmptyEntries)).ToArray();
+                var source = $"https://{reference.Host}/{reference.Owner}/{reference.Repository}/tree/"
+                    + string.Join('/', segments.Select(Uri.EscapeDataString));
+                if (!GitHubSourceReference.TryParse(source, out reference, out error))
+                {
+                    vm.Announce($"Skill Library refresh failed. {error} Nothing changed.");
+                    return;
+                }
+            }
+            inspected = await InspectGitHubSource(vm, reference);
+        }
+        else if (sourceRow.LibraryProviderLabel == "skills")
+            inspected = await InspectSkillsSource(vm, sourceRow.Source);
+        else if (sourceRow.LibraryProviderLabel == "Microsoft APM")
+            inspected = await InspectApmSource(vm, sourceRow.Source);
+        else return;
+
+        if (!inspected || !vm.CanMaintainLibraries || _closing) return;
+        var updates = vm.LibraryMembers(key).Where(row => row.CanUpdate)
+            .Select(row => row.Entry.ManagementRecord!).ToList();
+        if (updates.Count > 0) await RunUpdateBatch(updates, "Update Library " + group.Label);
     }
 
     private async Task RunUpdateBatch(IReadOnlyList<State.ManagementRecord> requested, string operation)

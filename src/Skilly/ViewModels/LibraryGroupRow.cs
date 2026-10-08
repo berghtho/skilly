@@ -37,7 +37,10 @@ public sealed class LibraryGroupRow : INotifyPropertyChanged
 
     public int UpdatableCount { get; }
 
-    public bool CanUpdateLibrary => Key is not null && UpdatableCount > 0;
+    public bool CanUpdateLibrary => Key is not null && Members.Any(static member =>
+        member.LibraryProviderLabel.Length > 0 && member.Source != "Not recorded");
+
+    public string UpdateLabel => UpdatableCount == 0 ? "Update Library" : $"Update Library ({UpdatableCount})";
 
     public string CountLabel => UpdatableCount == 0
         ? $"{Members.Count} Skill(s)"
