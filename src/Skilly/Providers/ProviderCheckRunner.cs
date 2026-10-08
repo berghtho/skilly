@@ -22,7 +22,7 @@ public sealed class ProviderCheckRunner
         _apmProvider = apmProvider;
     }
 
-    public CheckRefreshResult Refresh()
+    public CheckRefreshResult Refresh(CancellationToken cancellationToken = default, Action<int, int, string>? progress = null)
     {
         var state = _stateStore.Load();
         if (state.PendingOperation is not null)
@@ -33,17 +33,28 @@ public sealed class ProviderCheckRunner
         var checkedCount = 0;
         var failureCount = 0;
         var commitCache = new CommitResolutionCache();
-        foreach (var record in state.Records.Where(record =>
+        var skillsChecks = new Dictionary<string, ProviderResult<CheckResult>>();
+        var records = state.Records.Where(record =>
                       string.Equals(record.Provenance.SourceProvider, "github", StringComparison.Ordinal)
                      || (_skillsProvider is not null && string.Equals(record.Provenance.SourceProvider, "skills", StringComparison.Ordinal))
-                     || (_apmProvider is not null && string.Equals(record.Provenance.SourceProvider, ApmClient.ProviderId, StringComparison.Ordinal))))
+                     || (_apmProvider is not null && string.Equals(record.Provenance.SourceProvider, ApmClient.ProviderId, StringComparison.Ordinal))).ToList();
+        foreach (var record in records)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            progress?.Invoke(checkedCount, records.Count, record.Provenance.OriginalReference);
+            if (record.Provenance.SourceProvider == "skills" && !skillsChecks.ContainsKey(record.InstallationId))
+            {
+                var library = records.Where(candidate => candidate.Provenance.SourceProvider == "skills"
+                    && candidate.Provenance.OriginalReference.Equals(record.Provenance.OriginalReference, StringComparison.Ordinal)).ToList();
+                foreach (var check in _skillsProvider!.CheckLibrary(library, cancellationToken))
+                    skillsChecks.Add(check.Key, check.Value);
+            }
             checkedCount++;
             var result = string.Equals(record.Provenance.SourceProvider, "skills", StringComparison.Ordinal)
-                ? _skillsProvider!.Check(record)
+                ? skillsChecks[record.InstallationId]
                 : string.Equals(record.Provenance.SourceProvider, ApmClient.ProviderId, StringComparison.Ordinal)
-                    ? _apmProvider!.Check(record)
-                    : _provider.Check(record, commitCache);
+                    ? _apmProvider!.Check(record, cancellationToken)
+                    : _provider.Check(record, commitCache, cancellationToken);
             if (result.Succeeded)
             {
                 var check = result.Value!;
@@ -82,6 +93,7 @@ public sealed class ProviderCheckRunner
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         _stateStore.Save(state);
         return new CheckRefreshResult(checkedCount, failureCount);
     }

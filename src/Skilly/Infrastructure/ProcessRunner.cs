@@ -14,19 +14,28 @@ public sealed record ProcessResult(int ExitCode, string StandardOutput, string S
 
 public sealed class ProcessRunner(
     RollingLog log,
-    IReadOnlyDictionary<string, string?>? environment = null)
+    IReadOnlyDictionary<string, string?>? environment = null,
+    CancellationToken defaultCancellation = default)
 {
+    internal ProcessRunner WithCancellation(CancellationToken token) => new(log, environment, token);
+
     public ProcessResult Run(
         string fileName,
         IReadOnlyList<string> arguments,
         TimeSpan? timeout = null,
-        IReadOnlyDictionary<string, string?>? additionalEnvironment = null)
+        IReadOnlyDictionary<string, string?>? additionalEnvironment = null,
+        CancellationToken cancellationToken = default)
     {
+        using var runCancellation = CancellationTokenSource.CreateLinkedTokenSource(defaultCancellation, cancellationToken);
+        cancellationToken = runCancellation.Token;
+        cancellationToken.ThrowIfCancellationRequested();
         var startInfo = new ProcessStartInfo(fileName)
         {
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
             CreateNoWindow = true,
         };
         foreach (var argument in arguments)
@@ -60,7 +69,13 @@ public sealed class ProcessRunner(
         var stdoutTask = process.StandardOutput.ReadToEndAsync();
         var stderrTask = process.StandardError.ReadToEndAsync();
         var effectiveTimeout = timeout ?? TimeSpan.FromSeconds(60);
-        if (!process.WaitForExit((int)effectiveTimeout.TotalMilliseconds))
+        using var timeoutCancellation = new CancellationTokenSource(effectiveTimeout);
+        using var waitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCancellation.Token);
+        try
+        {
+            process.WaitForExitAsync(waitCancellation.Token).GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException)
         {
             try
             {
@@ -69,9 +84,10 @@ public sealed class ProcessRunner(
             }
             catch (Exception exception)
             {
-                log.Error($"Process '{fileName}' exceeded timeout and could not be killed cleanly.", exception);
+                log.Error($"Process '{fileName}' was cancelled or exceeded its timeout and could not be killed cleanly.", exception);
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             throw new TimeoutException($"'{fileName}' did not finish within {effectiveTimeout.TotalSeconds:F0}s.");
         }
 

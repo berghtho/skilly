@@ -89,16 +89,17 @@ public sealed class ApmProvider(
     public ProviderResult<ApmInstallResult> Install(ApmInspection inspection, IReadOnlyList<ApmSourceSkill> selected, CancellationToken cancellationToken = default)
         => Wrap(() => InstallCore(inspection, selected, cancellationToken), "Installed through Microsoft APM and reconciled manifest, lock, payload, Provenance, state, and exposures.");
 
-    public ProviderResult<CheckResult> Check(ManagementRecord record)
+    public ProviderResult<CheckResult> Check(ManagementRecord record, CancellationToken cancellationToken = default)
     {
         try
         {
-            client.RequireSupportedVersion();
+            var checkClient = cancellationToken.CanBeCanceled ? client.WithCancellation(cancellationToken) : client;
+            checkClient.RequireSupportedVersion();
             var current = RequireManagedRecord(record.InstallationId);
             VerifyAllManagedApmState(stateStore.Load());
             var before = ReadOnlyFingerprint();
-            var process = client.Outdated();
-            var rows = client.ParseOutdated(process);
+            var process = checkClient.Outdated();
+            var rows = checkClient.ParseOutdated(process);
             if (!string.Equals(before, ReadOnlyFingerprint(), StringComparison.Ordinal))
                 throw new ProviderFailure("APM outdated changed manifest, lock, payload, or Harness Exposures; Check failed closed.");
             var identity = current.Provenance.Repository;
@@ -130,7 +131,7 @@ public sealed class ApmProvider(
                     status == UpdateStatus.Current ? current.Provenance.SelectedContentIdentity : row.Latest),
                 $"Read-only APM outdated Check reported {row.Status}; installed content was not changed.");
         }
-        catch (Exception exception)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
             return ProviderResult<CheckResult>.Failure(exception.Message);
         }

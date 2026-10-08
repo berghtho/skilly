@@ -61,6 +61,7 @@ public sealed class GhClient(
     string gitExecutable = "git")
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
+    internal GhClient WithCancellation(CancellationToken token) => new(runner.WithCancellation(token), ghExecutable, gitExecutable);
 
     public string GetVersion()
     {

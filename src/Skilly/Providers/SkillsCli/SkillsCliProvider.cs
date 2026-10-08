@@ -125,59 +125,92 @@ public sealed class SkillsCliProvider(
         => Wrap(() => InstallCore(inspection, selected, cancellationToken), "Installed through the pinned skills provider and verified every postcondition.");
 
     public ProviderResult<CheckResult> Check(ManagementRecord record)
+        => CheckLibrary([record])[record.InstallationId];
+
+    public IReadOnlyDictionary<string, ProviderResult<CheckResult>> CheckLibrary(
+        IReadOnlyList<ManagementRecord> records, CancellationToken cancellationToken = default)
     {
+        var results = new Dictionary<string, ProviderResult<CheckResult>>();
+        var verified = new List<(ManagementRecord Record, string InstalledHash)>();
         try
         {
-            var current = RequireManagedRecord(record.InstallationId, requireHealthy: true);
-            VerifyCurrentProviderEvidence(current);
-            var installedHash = PayloadHasher.HashFolder(current.CanonicalPath);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (records.Count == 0) return results;
+            var sources = records.Select(record => record.Provenance.OriginalReference).Distinct(StringComparer.Ordinal).ToList();
+            if (sources.Count != 1) throw new ProviderFailure("A library Check requires one exact recorded source reference.");
+            var currentLock = _lock.Read();
+            var currentInventory = client.ListGlobal(cancellationToken: cancellationToken);
+            foreach (var record in records)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    var current = RequireManagedRecord(record.InstallationId, requireHealthy: true);
+                    if (current.Provenance.OriginalReference != sources[0])
+                        throw new ProviderFailure("The recorded Skill Library changed before Check.");
+                    VerifyCurrentProviderEvidence(current, currentLock, currentInventory);
+                    verified.Add((current, PayloadHasher.HashFolder(current.CanonicalPath)));
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    results[record.InstallationId] = ProviderResult<CheckResult>.Failure(exception.Message);
+                }
+            }
+            if (verified.Count == 0) return results;
             var temporaryRoot = Path.Combine(Path.GetDirectoryName(stateStore.FilePath)!, "provider-check-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(temporaryRoot);
             try
             {
                 var environment = IsolatedEnvironment(temporaryRoot);
-                var selectionName = current.Provenance.ProviderSkillName ?? Path.GetFileName(current.CanonicalPath);
-                var process = client.Install(current.Provenance.OriginalReference, selectionName, environment);
+                var names = verified.Select(item => item.Record.Provenance.ProviderSkillName ?? Path.GetFileName(item.Record.CanonicalPath))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                var process = client.AcquireForCheck(sources[0], names, environment, cancellationToken);
                 SkillsCliClient.RequireExit(process, "Read-only isolated provider acquisition");
-
-                var availableCanonical = Path.Combine(temporaryRoot, ".agents", "skills", Path.GetFileName(current.CanonicalPath));
-                var availableClaude = Path.Combine(temporaryRoot, ".claude", "skills", Path.GetFileName(current.CanonicalPath));
                 var temporaryLock = new SkillsCliLock(Path.Combine(temporaryRoot, "state", "skills", ".skill-lock.json"));
-                var evidence = FindLockEntry(temporaryLock.Read(), selectionName, Path.GetFileName(current.CanonicalPath));
-                VerifySourceEvidence(current.Provenance.OriginalReference, evidence);
-                VerifyCanonicalAndExposure(availableCanonical, availableClaude);
-                VerifyListedSkill(client.ListGlobal(environment), availableCanonical);
-                var availableHash = PayloadHasher.HashFolder(availableCanonical);
-                var pinned = current.Provenance.TrackingRuleKind is TrackingRuleKind.Tag or TrackingRuleKind.Commit;
-                var status = pinned
-                    ? UpdateStatus.Pinned
-                    : string.Equals(availableHash, installedHash, StringComparison.OrdinalIgnoreCase)
-                        ? UpdateStatus.Current
-                        : UpdateStatus.UpdateAvailable;
-                return ProviderResult<CheckResult>.Success(
-                    new CheckResult(
-                        status,
-                        current.InstalledRevision,
-                        null,
-                        evidence.SkillFolderHash,
-                        evidence.UpdatedAt ?? evidence.InstalledAt,
-                        availableHash,
-                        DateTimeOffset.Now,
-                        pinned && !string.Equals(evidence.SkillFolderHash, current.InstalledRevision, StringComparison.Ordinal)
-                            ? "The pinned provider ref resolves to different content; Skilly will not update it automatically."
-                            : null,
-                        AvailableContentIdentity: evidence.SkillFolderHash),
-                    $"Read-only {SkillsCliClient.Package} comparison completed in an isolated temporary home; installed content was not changed.");
+                var availableLock = temporaryLock.Read();
+                var availableInventory = client.ListGlobal(environment, cancellationToken);
+                foreach (var (current, installedHash) in verified)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try
+                    {
+                        var selectionName = current.Provenance.ProviderSkillName ?? Path.GetFileName(current.CanonicalPath);
+                        var availableCanonical = Path.Combine(temporaryRoot, ".agents", "skills", Path.GetFileName(current.CanonicalPath));
+                        var availableClaude = Path.Combine(temporaryRoot, ".claude", "skills", Path.GetFileName(current.CanonicalPath));
+                        var evidence = FindLockEntry(availableLock, selectionName, Path.GetFileName(current.CanonicalPath));
+                        VerifySourceEvidence(current.Provenance.OriginalReference, evidence);
+                        VerifyCanonicalAndExposure(availableCanonical, availableClaude);
+                        VerifyListedSkill(availableInventory, availableCanonical);
+                        var availableHash = PayloadHasher.HashFolder(availableCanonical);
+                        var pinned = current.Provenance.TrackingRuleKind is TrackingRuleKind.Tag or TrackingRuleKind.Commit;
+                        var status = pinned ? UpdateStatus.Pinned
+                            : string.Equals(availableHash, installedHash, StringComparison.OrdinalIgnoreCase)
+                                ? UpdateStatus.Current : UpdateStatus.UpdateAvailable;
+                        results[current.InstallationId] = ProviderResult<CheckResult>.Success(new CheckResult(
+                            status, current.InstalledRevision, null, evidence.SkillFolderHash,
+                            evidence.UpdatedAt ?? evidence.InstalledAt, availableHash, DateTimeOffset.Now,
+                            pinned && !string.Equals(evidence.SkillFolderHash, current.InstalledRevision, StringComparison.Ordinal)
+                                ? "The pinned provider ref resolves to different content; Skilly will not update it automatically." : null,
+                            AvailableContentIdentity: evidence.SkillFolderHash),
+                            $"Read-only {SkillsCliClient.Package} library comparison completed in an isolated temporary home; installed content was not changed.");
+                    }
+                    catch (Exception exception) when (exception is not OperationCanceledException)
+                    {
+                        results[current.InstallationId] = ProviderResult<CheckResult>.Failure(exception.Message);
+                    }
+                }
             }
             finally
             {
                 DeleteDirectorySafe(temporaryRoot);
             }
         }
-        catch (Exception exception)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            return ProviderResult<CheckResult>.Failure(exception.Message);
+            foreach (var record in records)
+                results.TryAdd(record.InstallationId, ProviderResult<CheckResult>.Failure(exception.Message));
         }
+        return results;
     }
 
     public ProviderResult<UpdatePreview> PreviewUpdate(ManagementRecord requested)
@@ -692,9 +725,13 @@ public sealed class SkillsCliProvider(
     }
 
     private void VerifyCurrentProviderEvidence(ManagementRecord record)
+        => VerifyCurrentProviderEvidence(record, _lock.Read(), client.ListGlobal());
+
+    private static void VerifyCurrentProviderEvidence(ManagementRecord record,
+        IReadOnlyDictionary<string, SkillsCliLockEntry> entries, IReadOnlyList<SkillsCliListedSkill> inventory)
     {
         var name = record.Provenance.ProviderSkillName ?? Path.GetFileName(record.CanonicalPath);
-        var evidence = FindLockEntry(_lock.Read(), name, Path.GetFileName(record.CanonicalPath));
+        var evidence = FindLockEntry(entries, name, Path.GetFileName(record.CanonicalPath));
         VerifySourceEvidence(record.Provenance.OriginalReference, evidence);
         if (!string.Equals(evidence.Evidence, record.ProviderEvidence, StringComparison.Ordinal)
             || !string.Equals(evidence.SkillFolderHash, record.InstalledRevision, StringComparison.Ordinal)
@@ -702,7 +739,7 @@ public sealed class SkillsCliProvider(
         {
             throw new ProviderFailure("Current provider lock evidence no longer matches recorded Provenance; mutation and Check are blocked.");
         }
-        VerifyListedSkill(client.ListGlobal(), record.CanonicalPath);
+        VerifyListedSkill(inventory, record.CanonicalPath);
     }
 
     private void VerifyProviderAbsence(ManagementRecord record, string providerName)

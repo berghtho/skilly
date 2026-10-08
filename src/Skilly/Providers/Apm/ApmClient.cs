@@ -10,6 +10,7 @@ public sealed class ApmClient(ProcessRunner runner, string executable = "apm.exe
     public const string ProviderId = "apm";
     public static readonly Version MinimumVersion = new(0, 28, 0);
     private readonly string _executable = ResolveExecutable(executable);
+    internal ApmClient WithCancellation(CancellationToken token) => new(runner.WithCancellation(token), _executable);
 
     public ProviderReadiness GetReadiness()
     {
@@ -95,8 +96,12 @@ public sealed class ApmClient(ProcessRunner runner, string executable = "apm.exe
 
     private ProcessResult Run(IReadOnlyList<string> arguments, TimeSpan? timeout = null, IReadOnlyDictionary<string, string?>? environment = null)
     {
-        try { return runner.Run(_executable, arguments, timeout, environment); }
-        catch (Exception exception) when (exception is not ProviderFailure)
+        // Match ProcessRunner's UTF-8 decoder even when Python inherits a Windows codepage.
+        var processEnvironment = environment?.ToDictionary(item => item.Key, item => item.Value) ?? new Dictionary<string, string?>();
+        processEnvironment["PYTHONIOENCODING"] = "utf-8";
+        processEnvironment["PYTHONUTF8"] = "1";
+        try { return runner.Run(_executable, arguments, timeout, processEnvironment); }
+        catch (Exception exception) when (exception is not ProviderFailure and not OperationCanceledException)
         {
             throw new ProviderFailure($"The Microsoft apm executable is unavailable: {exception.Message}");
         }

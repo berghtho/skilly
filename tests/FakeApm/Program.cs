@@ -2,6 +2,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
+if (Environment.GetEnvironmentVariable("PYTHONIOENCODING") == "utf-8") Console.OutputEncoding = new UTF8Encoding(false);
+
 var arguments = args.ToList();
 Record(args);
 if (arguments.SequenceEqual(["--version"]))

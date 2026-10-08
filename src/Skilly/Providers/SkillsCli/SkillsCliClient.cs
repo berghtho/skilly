@@ -86,15 +86,21 @@ public sealed class SkillsCliClient
             TimeSpan.FromMinutes(5),
             environment);
 
+    public ProcessResult AcquireForCheck(string source, IReadOnlyList<string> skillNames,
+        IReadOnlyDictionary<string, string?> environment, CancellationToken cancellationToken = default)
+        => RunPinned(["add", source, "--global", "--yes", "--skill", .. skillNames, .. HarnessArguments],
+            TimeSpan.FromSeconds(60), environment, cancellationToken);
+
     public ProcessResult Update(string skillName)
         => RunPinned(["update", skillName, "--global", "--yes"], TimeSpan.FromMinutes(5));
 
     public ProcessResult Uninstall(string skillName)
         => RunPinned(["remove", skillName, "--global", "--yes"], TimeSpan.FromMinutes(5));
 
-    public IReadOnlyList<SkillsCliListedSkill> ListGlobal(IReadOnlyDictionary<string, string?>? environment = null)
+    public IReadOnlyList<SkillsCliListedSkill> ListGlobal(IReadOnlyDictionary<string, string?>? environment = null,
+        CancellationToken cancellationToken = default)
     {
-        var result = RunPinned(["list", "--global", "--json"], TimeSpan.FromMinutes(2), environment);
+        var result = RunPinned(["list", "--global", "--json"], TimeSpan.FromSeconds(60), environment, cancellationToken);
         RequireExit(result, "Global provider inventory");
         try
         {
@@ -192,8 +198,9 @@ public sealed class SkillsCliClient
     private ProcessResult RunPinned(
         IReadOnlyList<string> arguments,
         TimeSpan? timeout = null,
-        IReadOnlyDictionary<string, string?>? environment = null)
-        => _runner.Run(_npxExecutable, [.. _npxPrefix, "--yes", Package, .. arguments], timeout, environment);
+        IReadOnlyDictionary<string, string?>? environment = null,
+        CancellationToken cancellationToken = default)
+        => _runner.Run(_npxExecutable, [.. _npxPrefix, "--yes", Package, .. arguments], timeout, environment, cancellationToken);
 
     private ProcessResult RunRequired(string executable, IReadOnlyList<string> arguments, string name)
     {

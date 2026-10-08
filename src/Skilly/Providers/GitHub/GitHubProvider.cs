@@ -119,16 +119,19 @@ public sealed class GitHubProvider(
         }
     }
 
-    public ProviderResult<CheckResult> Check(State.ManagementRecord record, CommitResolutionCache? commitCache = null)
+    public ProviderResult<CheckResult> Check(State.ManagementRecord record, CommitResolutionCache? commitCache = null,
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            client.EnsureAuthenticated(record.Provenance.Host);
+            var checkClient = cancellationToken.CanBeCanceled ? client.WithCancellation(cancellationToken) : client;
+            var checkRunner = cancellationToken.CanBeCanceled ? checker.WithCancellation(cancellationToken) : checker;
+            checkClient.EnsureAuthenticated(record.Provenance.Host);
             return ProviderResult<CheckResult>.Success(
-                checker.Check(record, commitCache),
+                checkRunner.Check(record, commitCache),
                 "Read-only selected-content Check completed; nothing changed.");
         }
-        catch (Exception exception)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
             return ProviderResult<CheckResult>.Failure(exception.Message);
         }

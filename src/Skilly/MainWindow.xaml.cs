@@ -24,6 +24,9 @@ public partial class MainWindow : Window
     private IReadOnlyList<AdoptionEvidence> _adoptionEvidence = [];
     private readonly SemaphoreSlim _maintenanceGate = new(1, 1);
     private CancellationTokenSource? _mutationCancellation;
+    private CancellationTokenSource? _checkCancellation;
+    private TaskCompletionSource? _checkCompletion;
+    private bool _backgroundCheck;
     private volatile bool _mutationInProgress;
     private readonly Infrastructure.OperationHistoryStore _historyStore;
     private bool _stopAfterCurrent;
@@ -186,7 +189,7 @@ public partial class MainWindow : Window
 
     private async Task<bool> InspectGitHubSource(ViewModels.MainViewModel viewModel, GitHubSourceReference reference)
     {
-        if (!await _maintenanceGate.WaitAsync(0))
+        if (!await TryBeginMaintenance())
         {
             viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
             return false;
@@ -241,7 +244,7 @@ public partial class MainWindow : Window
 
     private async Task<bool> InspectApmSource(ViewModels.MainViewModel viewModel, string source)
     {
-        if (!await _maintenanceGate.WaitAsync(0))
+        if (!await TryBeginMaintenance())
         {
             viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
             return false;
@@ -253,7 +256,6 @@ public partial class MainWindow : Window
             var result = await Task.Run(() => _apmProvider.Inspect(source));
             if (!result.Succeeded)
             {
-                viewModel.SetApmReadiness(new ProviderReadiness(false, ApmClient.Provider, $"Microsoft APM source readiness failed: {result.Diagnostics}"));
                 viewModel.Announce($"Microsoft APM source inspection failed. {result.Diagnostics} Nothing changed.");
                 return false;
             }
@@ -285,7 +287,7 @@ public partial class MainWindow : Window
 
     private async Task<bool> InspectSkillsSource(ViewModels.MainViewModel viewModel, string source)
     {
-        if (!await _maintenanceGate.WaitAsync(0))
+        if (!await TryBeginMaintenance())
         {
             viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
             return false;
@@ -297,10 +299,6 @@ public partial class MainWindow : Window
             var result = await Task.Run(() => _skillsProvider.Inspect(source));
             if (!result.Succeeded)
             {
-                viewModel.SetSkillsReadiness(new Providers.ProviderReadiness(
-                    false,
-                    SkillsCliClient.Package,
-                    $"{SkillsCliClient.Package} source readiness failed: {result.Diagnostics}"));
                 viewModel.Announce($"{SkillsCliClient.Package} source inspection failed. {result.Diagnostics} Nothing changed.");
                 return false;
             }
@@ -400,6 +398,17 @@ public partial class MainWindow : Window
 
     private InventorySnapshot RefreshInventory() => _refreshInventory(_adoptionEvidence);
 
+    private async Task<bool> TryBeginMaintenance()
+    {
+        if (_backgroundCheck && _checkCancellation is { } check && _checkCompletion is { } completion)
+        {
+            check.Cancel();
+            ((ViewModels.MainViewModel)DataContext).Announce("Stopping the launch Check for the requested operation.");
+            await completion.Task;
+        }
+        return !_closing && await _maintenanceGate.WaitAsync(0);
+    }
+
     private async Task RefreshChecks(bool background)
     {
         var viewModel = (ViewModels.MainViewModel)DataContext;
@@ -421,26 +430,44 @@ public partial class MainWindow : Window
         }
 
         RefreshChecksButton.IsEnabled = false;
+        using var cancellation = new CancellationTokenSource();
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _checkCancellation = cancellation;
+        _checkCompletion = completion;
+        _backgroundCheck = background;
         viewModel.Announce(background
             ? "Running the launch update Check in the background. Nothing has changed."
             : "Refreshing update checks read-only. Nothing has changed.");
         try
         {
-            var result = await Task.Run(_checkRunner.Refresh);
+            var result = await Task.Run(() => _checkRunner.Refresh(cancellation.Token, (count, total, source) =>
+                Dispatcher.BeginInvoke(() =>
+                {
+                    if (_checkCancellation == cancellation && !cancellation.IsCancellationRequested && !_closing)
+                        viewModel.Announce($"Checking {count + 1}/{total} managed Skills: {source}. Installed content is unchanged.");
+                })));
             viewModel.LoadInventory(RefreshInventory());
             viewModel.Announce(result.FailureCount == 0
                 ? $"Checked {result.CheckedCount} managed Skill(s) across available providers. Installed content was not changed."
                 : $"Checked {result.CheckedCount} managed Skill(s); {result.FailureCount} check(s) failed and prior results are stale. Installed content was not changed.");
         }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            viewModel.Announce("Launch Check stopped. Installed content was not changed.");
+        }
         catch (Exception exception)
         {
-            _log.Error("GitHub check refresh failed.", exception);
+            _log.Error("Provider check refresh failed.", exception);
             viewModel.Announce($"Check refresh failed. {exception.Message} Installed content was not changed.");
         }
         finally
         {
             RefreshChecksButton.IsEnabled = true;
+            _checkCancellation = null;
+            _checkCompletion = null;
+            _backgroundCheck = false;
             _maintenanceGate.Release();
+            completion.TrySetResult();
         }
     }
 
@@ -466,15 +493,29 @@ public partial class MainWindow : Window
         var sourceRow = members.FirstOrDefault(row => row.Entry.ManagementRecord is not null)
             ?? members.FirstOrDefault(row => row.LibraryProviderLabel.Length > 0 && row.Source != "Not recorded");
         if (sourceRow is null) return;
+        var inspected = await InspectLibrary(vm, sourceRow);
+        var inspectionFailure = inspected ? null : vm.Status.Message.Replace(" Nothing changed.", string.Empty, StringComparison.Ordinal);
+        if (!vm.CanMaintainLibraries || _closing) return;
+        var updates = vm.LibraryMembers(key).Where(row => row.CanUpdate)
+            .Select(row => row.Entry.ManagementRecord!).ToList();
+        if (updates.Count > 0)
+        {
+            await RunUpdateBatch(updates, "Update Library " + group.Label);
+            if (inspectionFailure is not null && !vm.RecoveryRequired)
+                vm.Announce(vm.Status.Message + " Additional Skill discovery failed: " + inspectionFailure);
+        }
+    }
+
+    private async Task<bool> InspectLibrary(ViewModels.MainViewModel vm, ViewModels.InventoryRow sourceRow)
+    {
         var provenance = (sourceRow.Entry.ManagementRecord ?? sourceRow.Entry.AdoptionEvidence?.ProposedRecord)?.Provenance;
-        bool inspected;
         if (sourceRow.LibraryProviderLabel == "GitHub")
         {
             // Use the recorded tracking rule and subtree, including branch names containing '/'.
             if (!GitHubSourceReference.TryParse(sourceRow.Source, out var reference, out var error))
             {
                 vm.Announce($"Skill Library refresh failed. {error} Nothing changed.");
-                return;
+                return false;
             }
             if (provenance is not null)
             {
@@ -485,35 +526,34 @@ public partial class MainWindow : Window
                 if (!GitHubSourceReference.TryParse(source, out reference, out error))
                 {
                     vm.Announce($"Skill Library refresh failed. {error} Nothing changed.");
-                    return;
+                    return false;
                 }
             }
-            inspected = await InspectGitHubSource(vm, reference);
+            return await InspectGitHubSource(vm, reference);
         }
         else if (sourceRow.LibraryProviderLabel == "skills")
-            inspected = await InspectSkillsSource(vm, sourceRow.Source);
+            return await InspectSkillsSource(vm, sourceRow.Source);
         else if (sourceRow.LibraryProviderLabel == "Microsoft APM")
-            inspected = await InspectApmSource(vm, sourceRow.Source);
-        else return;
-
-        if (!inspected || !vm.CanMaintainLibraries || _closing) return;
-        var updates = vm.LibraryMembers(key).Where(row => row.CanUpdate)
-            .Select(row => row.Entry.ManagementRecord!).ToList();
-        if (updates.Count > 0) await RunUpdateBatch(updates, "Update Library " + group.Label);
+            return await InspectApmSource(vm, sourceRow.Source);
+        return false;
     }
 
     private async Task RunUpdateBatch(IReadOnlyList<State.ManagementRecord> requested, string operation)
     {
         var vm = (ViewModels.MainViewModel)DataContext;
         if (!vm.MutationsAllowed || requested.Count == 0) { vm.Announce("No eligible update is available."); return; }
-        if (!await _maintenanceGate.WaitAsync(0)) { vm.Announce("Another maintenance operation is running."); return; }
+        if (!await TryBeginMaintenance()) { vm.Announce("Another maintenance operation is running."); return; }
         var targets = requested.GroupBy(record => record.Provenance.SourceProvider == ApmClient.ProviderId
             ? "apm:" + record.Provenance.Repository : record.Provenance.SourceProvider + ":" + record.InstallationId,
             StringComparer.OrdinalIgnoreCase).Select(group => group.First()).ToList();
         var prepared = new List<(State.ManagementRecord Record, UpdatePreview Preview)>();
+        var blockedPreviews = new List<UpdatePreview>();
         var runId = Guid.NewGuid().ToString("N");
         var started = DateTimeOffset.Now;
         var completed = 0;
+        var failed = 0;
+        var attempted = 0;
+        var preparing = 0;
         _stopAfterCurrent = false;
         vm.MaintenanceBusy = true;
         RefreshChecksButton.IsEnabled = false;
@@ -532,7 +572,7 @@ public partial class MainWindow : Window
             SaveHistory();
             foreach (var record in targets)
             {
-                vm.OperationProgress = $"Preparing preview {prepared.Count + 1}/{targets.Count}: {System.IO.Path.GetFileName(record.CanonicalPath)}";
+                vm.OperationProgress = $"Preparing preview {++preparing}/{targets.Count}: {System.IO.Path.GetFileName(record.CanonicalPath)}";
                 vm.Announce(vm.OperationProgress);
                 var result = await Task.Run(() => record.Provenance.SourceProvider switch
                 {
@@ -542,56 +582,68 @@ public partial class MainWindow : Window
                     _ => ProviderResult<UpdatePreview>.Failure("Unsupported update provider."),
                 });
                 if (_closing || _stopAfterCurrent) { vm.Announce("Update preparation stopped. Installed content was not changed."); return; }
-                if (!result.Succeeded)
+                if (!result.Succeeded || !result.Value!.CanApply)
                 {
-                    foreach (var affected in known.Where(candidate => candidate.InstallationId == record.InstallationId
+                    if (result.Succeeded) blockedPreviews.Add(result.Value!);
+                    var diagnostic = result.Succeeded ? result.Value!.Blocker ?? "No applicable update was found." : result.Diagnostics;
+                    var affectedRecords = known.Where(candidate => candidate.InstallationId == record.InstallationId
                         || (record.Provenance.SourceProvider == ApmClient.ProviderId && candidate.Provenance.SourceProvider == ApmClient.ProviderId
-                            && candidate.Provenance.Repository.Equals(record.Provenance.Repository, StringComparison.OrdinalIgnoreCase))))
+                            && candidate.Provenance.Repository.Equals(record.Provenance.Repository, StringComparison.OrdinalIgnoreCase))).ToList();
+                    failed += affectedRecords.Count;
+                    foreach (var affected in affectedRecords)
                         QueueHistory(new Infrastructure.OperationEntry(runId, started, operation,
-                            System.IO.Path.GetFileName(affected.CanonicalPath), affected.CanonicalPath, "Preview failed", result.Diagnostics, DateTimeOffset.Now));
+                            System.IO.Path.GetFileName(affected.CanonicalPath), affected.CanonicalPath,
+                            result.Succeeded ? "Blocked" : "Preview failed", diagnostic, DateTimeOffset.Now));
                     SaveHistory();
-                    vm.Announce("Update preview failed. " + result.Diagnostics);
-                    return;
+                    vm.ProgressValue = preparing;
+                    continue;
                 }
                 prepared.Add((record, result.Value!));
                 foreach (var skill in result.Value!.Skills)
                     QueueHistory(new Infrastructure.OperationEntry(runId, started, operation,
                         skill.Name, skill.LocalPath, "Pending", $"{skill.InstalledRevision} → {skill.TargetRevision}"));
                 SaveHistory();
-                vm.ProgressValue = prepared.Count;
+                vm.ProgressValue = preparing;
             }
-            var previews = prepared.Select(item => item.Preview).ToList();
-            if (vm.ReviewUpdatesFirst || previews.Any(preview => !preview.CanApply))
+            var previews = prepared.Select(item => item.Preview).Concat(blockedPreviews).ToList();
+            if (previews.Count == 0)
+            { vm.Announce($"No updates applied; {failed} Skill(s) could not be prepared. See History for each result."); return; }
+            if (vm.ReviewUpdatesFirst || blockedPreviews.Count > 0)
             {
                 vm.OperationProgress = "Review the changes before applying.";
                 if (new UpdatePreviewWindow(previews) { Owner = this }.ShowDialog() != true)
                 { vm.Announce("Update cancelled. Installed content was not changed."); return; }
             }
-            if (_closing) return;
+            if (_closing || prepared.Count == 0) return;
             vm.ProgressValue = 0;
-            vm.ProgressMaximum = previews.Sum(preview => preview.Skills.Count);
+            vm.ProgressMaximum = prepared.Sum(item => item.Preview.Skills.Count);
             SaveHistory();
             BeginMutation();
             foreach (var item in prepared)
             {
                 if (_stopAfterCurrent || _closing) break;
                 var names = string.Join(", ", item.Preview.Skills.Select(skill => skill.Name));
-                var range = item.Preview.Skills.Count == 1 ? $"{completed + 1}" : $"{completed + 1}-{completed + item.Preview.Skills.Count}";
+                var range = item.Preview.Skills.Count == 1 ? $"{attempted + 1}" : $"{attempted + 1}-{attempted + item.Preview.Skills.Count}";
                 vm.OperationProgress = $"Updating Skills {range}/{vm.ProgressMaximum}: {names}";
                 vm.Announce(vm.OperationProgress);
                 SetHistoryResult(runId, item.Preview.Skills, "Running", vm.OperationProgress);
                 var result = await RunProviderUpdate(item.Record, item.Preview);
+                attempted += item.Preview.Skills.Count;
+                vm.ProgressValue = attempted;
                 if (!result.Succeeded)
                 {
+                    failed += item.Preview.Skills.Count;
                     SetHistoryResult(runId, item.Preview.Skills, "Failed", result.Diagnostics);
-                    vm.Announce($"Stopped after {completed}/{vm.ProgressMaximum} Skills. {result.Diagnostics} See History for each result.");
-                    return;
+                    ApplyRecoveryMode(vm);
+                    if (vm.RecoveryRequired) return;
+                    continue;
                 }
                 completed += item.Preview.Skills.Count;
-                vm.ProgressValue = completed;
                 SetHistoryResult(runId, item.Preview.Skills, "Updated", "Reviewed content and provider postconditions verified.");
             }
-            vm.Announce($"Updated {completed}/{vm.ProgressMaximum} Skills. " + (completed < vm.ProgressMaximum ? "Remaining updates were not run. " : string.Empty) + "See History for each result.");
+            vm.Announce($"Updated {completed}/{known.Count} Skills. "
+                + (failed > 0 ? $"{failed} Skill(s) failed or were blocked. " : string.Empty)
+                + (attempted < vm.ProgressMaximum ? "Remaining updates were not run. " : string.Empty) + "See History for each result.");
         }
         catch (Exception exception)
         {
@@ -684,7 +736,7 @@ public partial class MainWindow : Window
             viewModel.Announce("Adoption is unavailable for the selected Skill(s). Nothing changed.");
             return;
         }
-        if (!await _maintenanceGate.WaitAsync(0))
+        if (!await TryBeginMaintenance())
         {
             viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
             return;
@@ -755,7 +807,7 @@ public partial class MainWindow : Window
             viewModel.Announce("Managed Reinstall is unavailable for the selected Skill. Nothing changed.");
             return;
         }
-        if (!await _maintenanceGate.WaitAsync(0))
+        if (!await TryBeginMaintenance())
         {
             viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
             return;
@@ -820,7 +872,7 @@ public partial class MainWindow : Window
             viewModel.Announce("Healthy Managed uninstall is unavailable for the selected Skill. Nothing changed.");
             return;
         }
-        if (!await _maintenanceGate.WaitAsync(0))
+        if (!await TryBeginMaintenance())
         {
             viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
             return;
@@ -873,7 +925,7 @@ public partial class MainWindow : Window
             viewModel.Announce("Remove Local Folder cancelled. Nothing changed.");
             return;
         }
-        if (!await _maintenanceGate.WaitAsync(0))
+        if (!await TryBeginMaintenance())
         {
             viewModel.Announce("Another maintenance operation is already running. Nothing changed.");
             return;
@@ -931,6 +983,7 @@ public partial class MainWindow : Window
     protected override void OnClosing(CancelEventArgs e)
     {
         _closing = true;
+        _checkCancellation?.Cancel();
         if (_mutationInProgress)
         {
             _mutationCancellation?.Cancel();

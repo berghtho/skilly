@@ -119,8 +119,7 @@ public sealed class SkillUsabilityUiTests
                 var workflow = typeof(MainWindow).GetMethod("RunUpdateBatch", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
                 RunWorkflow((Task)workflow.Invoke(main, [records, "Update all"])!);
                 Assert.Equal(2, mainModel.OperationHistory.Count);
-                Assert.Single(mainModel.OperationHistory, row => row.Status == "Preview failed");
-                Assert.Single(mainModel.OperationHistory, row => row.Status == "Not run");
+                Assert.All(mainModel.OperationHistory, row => Assert.Equal("Preview failed", row.Status));
                 foreach (var record in records) Assert.Equal(record.InstalledPayloadHash, PayloadHasher.HashFolder(record.CanonicalPath));
 
                 foreach (var record in records)
@@ -155,6 +154,8 @@ public sealed class SkillUsabilityUiTests
                 Assert.Equal(updatedPath, mainModel.OperationHistory[0].Path);
                 Assert.Equal(GitHubProviderFixture.LaterCommitSha, github.StateStore.Load().Records.Single(record => record.CanonicalPath == updatedPath).InstalledRevision);
                 main.Close();
+                VerifyIndependentUpdateFailures(skills, apm);
+                VerifyLibraryFailureAndLaunchCheckYield(github, apm);
                 var historyWindow = new OperationHistoryWindow(mainModel.OperationHistory, null) { Width = 920, Height = 600 };
                 Render(historyWindow, "update-history.png");
                 var historyRows = Find<DataGrid>(historyWindow, "Skilly.OperationHistory");
@@ -175,6 +176,14 @@ public sealed class SkillUsabilityUiTests
                 Render(blocked, "update-blocked.png");
                 Assert.False(Find<Button>(blocked, "Skilly.ApplyReviewedUpdates").IsEnabled);
                 blocked.Close();
+                var mixed = new UpdatePreviewWindow([update, update with { Blocker = "APM membership changed." }]);
+                Render(mixed, "update-partially-blocked.png");
+                Assert.Equal(2, Find<ListBox>(mixed, "Skilly.PreviewSkills").Items.Count);
+                var applyMixed = Find<Button>(mixed, "Skilly.ApplyReviewedUpdates");
+                Assert.True(applyMixed.IsEnabled);
+                Assert.Contains("(1)", applyMixed.Content.ToString());
+                Assert.Contains(Descendants((DependencyObject)mixed.Content).OfType<TextBlock>(), text => text.Text.EndsWith(" (blocked)"));
+                mixed.Close();
                 var library = new LibraryChangesWindow("acme/skills", 2, new LibraryChangeSummary(["skills/new-review"], ["skills/old-review"]));
                 Render(library, "library-changes.png");
                 library.Close();
@@ -270,11 +279,99 @@ public sealed class SkillUsabilityUiTests
         });
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
-        Assert.True(thread.Join(TimeSpan.FromSeconds(90)), "WPF rendering and workflows did not finish.");
+        Assert.True(thread.Join(TimeSpan.FromMinutes(3)), "WPF rendering and workflows did not finish.");
         if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
     private static void Pump() => Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+
+    private static void VerifyIndependentUpdateFailures(SkillsCliProviderFixture skills, ApmProviderFixture apm)
+    {
+        foreach (var failDuringApply in new[] { false, true }) VerifyFailure(failDuringApply);
+
+        void VerifyFailure(bool failDuringApply)
+        {
+            using var github = new GitHubProviderFixture();
+            var inspection = github.Provider.Inspect(github.Reference).ValueOrThrow();
+            github.Provider.Install(inspection, inspection.Skills).ValueOrThrow();
+            foreach (var record in github.StateStore.Load().Records)
+                File.AppendAllText(Path.Combine(github.FixtureRoot, "files", "skills", Path.GetFileName(record.CanonicalPath), "SKILL.md"), "\nIndependent update.\n");
+            github.SetCommit(GitHubProviderFixture.LaterCommitSha);
+            new ProviderCheckRunner(github.Provider, github.StateStore).Refresh();
+            var records = github.StateStore.Load().Records.OrderBy(record => record.CanonicalPath).ToList();
+            if (!failDuringApply) File.AppendAllText(Path.Combine(records[0].CanonicalPath, "SKILL.md"), "\nLocal edit after Check.\n");
+            var model = new MainViewModel { ReviewUpdatesFirst = false };
+            if (failDuringApply) model.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(model.OperationProgress) && model.OperationProgress.StartsWith("Updating Skills"))
+                    github.FailRequestsContaining(model.OperationProgress.EndsWith("alpha") ? "scripts/" : null);
+            };
+            InventorySnapshot Scan() => new InventoryScanner().Scan(github.Home, github.StateStore.Load());
+            model.LoadInventory(Scan());
+            var window = new MainWindow(github.Log, model, github.Provider, skills.Provider, apm.Provider,
+                new ProviderCheckRunner(github.Provider, github.StateStore), _ => Scan(),
+                new Skilly.Infrastructure.OperationHistoryStore(Path.Combine(github.Root, "history.json")));
+            var workflow = typeof(MainWindow).GetMethod("RunUpdateBatch", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            RunWorkflow((Task)workflow.Invoke(window, [records, "Update all"])!);
+            Assert.Single(model.OperationHistory, row => row.Status == (failDuringApply ? "Failed" : "Preview failed") && row.Skill == "alpha");
+            Assert.Single(model.OperationHistory, row => row.Status == "Updated" && row.Skill == "beta");
+            Assert.Contains("Independent update", File.ReadAllText(Path.Combine(github.Home, ".agents", "skills", "beta", "SKILL.md")));
+            Assert.DoesNotContain("Independent update", File.ReadAllText(Path.Combine(github.Home, ".agents", "skills", "alpha", "SKILL.md")));
+            Assert.False(model.RecoveryRequired);
+            Assert.Contains("Updated 1/2 Skills", model.Status.Message);
+            Assert.Null(github.StateStore.Load().PendingOperation);
+            window.Close();
+        }
+    }
+
+    private static void VerifyLibraryFailureAndLaunchCheckYield(GitHubProviderFixture github, ApmProviderFixture apm)
+    {
+        using var skills = new SkillsCliProviderFixture();
+        var inspection = skills.Provider.Inspect(SkillsCliProviderFixture.Source).ValueOrThrow();
+        skills.Provider.Install(inspection, inspection.Skills).ValueOrThrow();
+        foreach (var name in new[] { "alpha", "beta" }) skills.WriteSkill(name, "Updated Skill.");
+        var runner = new ProviderCheckRunner(github.Provider, skills.StateStore, skills.Provider);
+        runner.Refresh();
+        var model = new MainViewModel { ReviewUpdatesFirst = false, GroupByLibrary = true };
+        model.SetSkillsReadiness(new ProviderReadiness(true, SkillsCliClient.Package, "Provider ready."));
+        InventorySnapshot Scan() => new InventoryScanner().Scan(skills.Home, skills.StateStore.Load());
+        model.LoadInventory(Scan());
+        var window = new MainWindow(skills.Log, model, github.Provider, skills.Provider, apm.Provider, runner, _ => Scan(),
+            new Skilly.Infrastructure.OperationHistoryStore(Path.Combine(skills.Root, "history.json")));
+        skills.Set("FAKE_SKILLS_INSPECTION_FAILURE", "1");
+        var group = Assert.Single(model.Rows.OfType<LibraryGroupRow>());
+        typeof(MainWindow).GetMethod("OnUpdateLibrary", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .Invoke(window, [new Button { DataContext = group }, new RoutedEventArgs()]);
+        WaitUntil(() => model.OperationHistory.Count == 2 && !model.MaintenanceBusy);
+        Assert.All(model.OperationHistory, row => Assert.Equal("Updated", row.Status));
+        Assert.Contains("Additional Skill discovery failed", model.Status.Message);
+        Assert.False(model.HasProviderReadinessProblem);
+        Assert.False(model.RecoveryRequired);
+
+        skills.Set("FAKE_SKILLS_INSPECTION_FAILURE", null);
+        foreach (var name in new[] { "alpha", "beta" }) skills.WriteSkill(name, "Second update.");
+        runner.Refresh();
+        model.LoadInventory(Scan());
+        var marker = Path.Combine(skills.Root, "check-started.txt");
+        skills.Set("FAKE_SKILLS_DELAY_COMMAND", "list");
+        skills.Set("FAKE_SKILLS_STARTED_FILE", marker);
+        var launch = (Task)typeof(MainWindow).GetMethod("RefreshChecks", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .Invoke(window, [true])!;
+        WaitUntil(() => File.Exists(marker));
+        skills.Set("FAKE_SKILLS_DELAY_COMMAND", null);
+        var workflow = typeof(MainWindow).GetMethod("RunUpdateBatch", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        RunWorkflow((Task)workflow.Invoke(window, [skills.StateStore.Load().Records, "Update all"])!);
+        RunWorkflow(launch);
+        Assert.All(model.OperationHistory.Take(2), row => Assert.Equal("Updated", row.Status));
+        Assert.All(skills.StateStore.Load().Records, record =>
+        {
+            Assert.Equal(Skilly.State.OperationOutcome.Updated, record.LastOperationOutcome);
+            Assert.Equal(Skilly.State.UpdateStatus.Current, record.LatestCheck!.Status);
+            Assert.Contains("Second update", File.ReadAllText(Path.Combine(record.CanonicalPath, "SKILL.md")));
+        });
+        Assert.Null(skills.StateStore.Load().PendingOperation);
+        window.Close();
+    }
 
     private static void WaitUntil(Func<bool> predicate)
     {

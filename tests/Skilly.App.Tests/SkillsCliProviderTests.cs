@@ -434,6 +434,54 @@ public sealed class SkillsCliProviderTests
     }
 
     [Fact]
+    public void Refresh_acquires_a_shared_Skill_Library_once_and_checks_each_installation()
+    {
+        using var fixture = new SkillsCliProviderFixture();
+        using var github = new GitHubProviderFixture();
+        var inspection = fixture.Provider.Inspect(SkillsCliProviderFixture.Source).ValueOrThrow();
+        fixture.Provider.Install(inspection, inspection.Skills).ValueOrThrow();
+        var before = fixture.StateStore.Load().Records.ToDictionary(record => record.InstallationId,
+            record => PayloadHasher.HashFolder(record.CanonicalPath));
+        var lockBefore = File.ReadAllBytes(fixture.ProviderLockPath);
+        fixture.WriteSkill("beta", "Changed upstream.");
+        var baseline = fixture.Invocations().Count;
+
+        var result = new ProviderCheckRunner(github.Provider, fixture.StateStore, fixture.Provider).Refresh();
+
+        Assert.Equal(new CheckRefreshResult(2, 0), result);
+        var records = fixture.StateStore.Load().Records;
+        Assert.Equal(UpdateStatus.Current, records.Single(record => record.Provenance.ProviderSkillName == "alpha").LatestCheck!.Status);
+        Assert.Equal(UpdateStatus.UpdateAvailable, records.Single(record => record.Provenance.ProviderSkillName == "beta").LatestCheck!.Status);
+        Assert.All(records, record => Assert.Equal(before[record.InstallationId], PayloadHasher.HashFolder(record.CanonicalPath)));
+        Assert.Equal(lockBefore, File.ReadAllBytes(fixture.ProviderLockPath));
+        var calls = fixture.Invocations().Skip(baseline).ToList();
+        var acquisition = Assert.Single(calls, args => args.Length > 2 && args[2] == "add");
+        Assert.Contains("alpha", acquisition);
+        Assert.Contains("beta", acquisition);
+        Assert.Equal(2, calls.Count(args => args.Length > 2 && args[2] == "list"));
+    }
+
+    [Fact]
+    public void A_bad_Skill_in_a_shared_library_does_not_fail_other_checks()
+    {
+        using var fixture = new SkillsCliProviderFixture();
+        using var github = new GitHubProviderFixture();
+        var inspection = fixture.Provider.Inspect(SkillsCliProviderFixture.Source).ValueOrThrow();
+        fixture.Provider.Install(inspection, inspection.Skills).ValueOrThrow();
+        File.WriteAllText(Path.Combine(fixture.SourceRoot, "skills", "alpha", "SKILL.md"), "Invalid upstream metadata.");
+        fixture.WriteSkill("beta", "Updated upstream.");
+
+        var result = new ProviderCheckRunner(github.Provider, fixture.StateStore, fixture.Provider).Refresh();
+
+        Assert.Equal(new CheckRefreshResult(2, 1), result);
+        var records = fixture.StateStore.Load().Records;
+        Assert.Equal(UpdateStatus.CheckFailed, records.Single(record => record.Provenance.ProviderSkillName == "alpha").LatestCheck!.Status);
+        Assert.Equal(UpdateStatus.UpdateAvailable, records.Single(record => record.Provenance.ProviderSkillName == "beta").LatestCheck!.Status);
+        Assert.All(records, record => Assert.Equal(record.InstalledPayloadHash, PayloadHasher.HashFolder(record.CanonicalPath)));
+        Assert.Null(fixture.StateStore.Load().PendingOperation);
+    }
+
+    [Fact]
     public void Inspection_parses_clack_output_with_blank_frame_lines_and_wrapped_descriptions()
     {
         using var fixture = new SkillsCliProviderFixture();

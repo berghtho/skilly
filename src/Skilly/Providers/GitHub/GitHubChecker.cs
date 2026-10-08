@@ -21,6 +21,8 @@ public sealed record GitHubPayload(
 
 public sealed class GitHubChecker(GhClient client)
 {
+    internal GitHubChecker WithCancellation(CancellationToken token) => new(client.WithCancellation(token));
+
     public CheckResult Check(ManagementRecord record, CommitResolutionCache? commitCache = null)
     {
         if (!string.Equals(record.Provenance.SourceProvider, "github", StringComparison.Ordinal))

@@ -103,6 +103,8 @@ New installations live in `~/.agents/skills`, with a Claude Code junction exposi
 
 Turn on **Group by Library**, then click **Update Library** to refresh the source and choose additional Skills, even when installed Skills are already current. Skills already present locally stay checked and cannot be installed again. After closing the inspector, available updates for installed Skills follow the usual update workflow.
 
+Discovery errors do not prevent updates to installed Skills. Update batches continue past individual failures; each result appears in History. A launch Check yields to requested maintenance. The skills provider checks shared libraries with one isolated acquisition per exact source reference, while still verifying each installation's content, lock evidence, and exposure.
+
 Skilly currently manages **global Skills on Windows 11 x64**. Project-level Skills are outside its scope. APM updates that add or remove Skills from a package can be previewed, but cannot yet be applied by the managed updater.
 
 ## Development and feedback

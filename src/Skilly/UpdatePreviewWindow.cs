@@ -11,17 +11,20 @@ public sealed class UpdatePreviewWindow : Window
     {
         Title = "Review updates";
         Width = 1000; Height = 720; MinWidth = 720; MinHeight = 520;
-        var skills = previews.SelectMany(preview => preview.Skills.Select(skill => (Skill: skill, preview.Provider))).ToList();
+        var skills = previews.SelectMany(preview => preview.Skills.Select(skill => (Skill: skill, preview.Provider, preview.CanApply))).ToList();
+        var applicableCount = skills.Count(item => item.CanApply);
         var root = WorkbenchWindow.Shell(this, "REVIEW UPDATES", $"{skills.Count} Skills · {previews.Count} provider operations");
-        WorkbenchWindow.Intro(root, "Select a Skill, then a file. No installed content has changed.");
+        WorkbenchWindow.Intro(root, applicableCount == skills.Count
+            ? "Select a Skill, then a file. No installed content has changed."
+            : $"Blocked Skills remain unchanged. Apply updates the other {applicableCount} Skill(s).");
         var footer = new DockPanel { Margin = new Thickness(20, 0, 20, 18) };
         DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         var cancel = WorkbenchWindow.Button(this, "_Cancel");
         cancel.IsCancel = true; cancel.Margin = new Thickness(0, 0, 8, 0);
         cancel.Click += (_, _) => Close();
-        var apply = WorkbenchWindow.Button(this, $"Apply reviewed updates ({skills.Count})", "PrimaryButton");
-        apply.IsEnabled = previews.Count > 0 && previews.All(preview => preview.CanApply);
+        var apply = WorkbenchWindow.Button(this, $"Apply reviewed updates ({applicableCount})", "PrimaryButton");
+        apply.IsEnabled = applicableCount > 0;
         AutomationProperties.SetAutomationId(apply, "Skilly.ApplyReviewedUpdates");
         apply.Click += (_, _) => DialogResult = true;
         buttons.Children.Add(cancel); buttons.Children.Add(apply);
@@ -39,12 +42,12 @@ public sealed class UpdatePreviewWindow : Window
         DockPanel.SetDock(heading, Dock.Top); left.Children.Add(heading);
         var skillList = WorkbenchWindow.List(this);
         AutomationProperties.SetAutomationId(skillList, "Skilly.PreviewSkills");
-        foreach (var (skill, provider) in skills)
+        foreach (var (skill, provider, canApply) in skills)
         {
             var row = new StackPanel();
             var nameLine = new DockPanel();
             var tag = WorkbenchWindow.Tag(provider); DockPanel.SetDock(tag, Dock.Right); nameLine.Children.Add(tag);
-            var name = WorkbenchWindow.Text(skill.Name, 13); name.FontWeight = FontWeights.SemiBold;
+            var name = WorkbenchWindow.Text(skill.Name + (canApply ? string.Empty : " (blocked)"), 13); name.FontWeight = FontWeights.SemiBold;
             name.Margin = new Thickness(0, 0, 6, 0); nameLine.Children.Add(name); row.Children.Add(nameLine);
             var revision = WorkbenchWindow.Text($"{Short(skill.InstalledRevision)} → {Short(skill.TargetRevision)}", 10.5, "Text55Brush", mono: true);
             revision.Margin = new Thickness(0, 5, 0, 3); row.Children.Add(revision);

@@ -1,8 +1,24 @@
 using System.Text.Json;
+using System.Text;
 using Skilly.Infrastructure;
 using Skilly.Skills;
 
+Console.OutputEncoding = new UTF8Encoding(false);
 RecordInvocation(args);
+
+if (args is ["--utf8-probe"])
+{
+    Console.Write("│    alpha\n");
+    Console.Error.Write("✓");
+    return 0;
+}
+
+if (args is ["--delay-probe", var markerPath])
+{
+    File.WriteAllText(markerPath, Environment.ProcessId.ToString());
+    Thread.Sleep(TimeSpan.FromSeconds(30));
+    return 0;
+}
 
 if (args is ["--version"])
 {
@@ -17,6 +33,11 @@ if (args.Length < 3 || args[0] != "--yes" || args[1] != "skills@1.5.23")
 }
 
 var command = args[2];
+if (command == Environment.GetEnvironmentVariable("FAKE_SKILLS_DELAY_COMMAND"))
+{
+    if (Environment.GetEnvironmentVariable("FAKE_SKILLS_STARTED_FILE") is { } marker) File.WriteAllText(marker, command);
+    Thread.Sleep(TimeSpan.FromSeconds(30));
+}
 if (command == "--version")
 {
     if (ShouldFail("readiness")) return 17;
@@ -45,6 +66,7 @@ var lockPath = string.IsNullOrWhiteSpace(stateHome)
 
 if (command == "add" && args.Contains("--list", StringComparer.Ordinal))
 {
+    if (Environment.GetEnvironmentVariable("FAKE_SKILLS_INSPECTION_FAILURE") == "1") return 17;
     // Mirrors the real skills CLI shape: a source title line without indentation
     // and blank clack frame lines between every name and description.
     Console.WriteLine("◇ Available Skills");
@@ -72,9 +94,9 @@ if (command == "add")
 {
     RequireExactAddArguments(args);
     var source = args[3];
-    var selected = ValueAfter(args, "--skill");
-    Install(selected, source);
-    Console.WriteLine($"Installed {selected}");
+    var selected = args.Skip(Array.IndexOf(args, "--skill") + 1).TakeWhile(arg => !arg.StartsWith('-')).ToList();
+    foreach (var name in selected) Install(name, source);
+    Console.WriteLine($"Installed {string.Join(", ", selected)}");
     return 0;
 }
 
@@ -201,12 +223,6 @@ static void RequireArguments(string[] arguments, params string[] required)
     {
         if (!arguments.Contains(value, StringComparer.Ordinal)) throw new InvalidOperationException($"Required argument '{value}' is missing.");
     }
-}
-
-static string ValueAfter(string[] arguments, string option)
-{
-    var index = Array.IndexOf(arguments, option);
-    return index >= 0 && index + 1 < arguments.Length ? arguments[index + 1] : throw new InvalidOperationException($"{option} has no value.");
 }
 
 static string Sanitize(string name)
