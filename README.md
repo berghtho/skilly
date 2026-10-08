@@ -72,6 +72,10 @@ See which files were added, changed, or removed, then inspect the diff or either
 
 Locally modified content is protected from routine updates. Skilly checks the installed and available content again when applying, so a stale preview cannot silently authorize a different update. During a batch, **Stop after current** finishes the active provider operation and leaves the rest untouched.
 
+If an update or check fails, **Replace install** fetches a clean copy from the recorded source and shows the replacement paths before applying. It remains available after a failed check. Skills no longer listed upstream show an explanation and can be uninstalled; other Skills in the library can still update.
+
+Use **Hide Skill** in Skill details to hide an installation, including legacy Codex or Claude files. **Show hidden** starts off each launch; enable it to see hidden Skills and choose **Unhide Skill**. Hidden preferences persist locally. Hiding changes only the display; files, agent exposures, and updates continue unchanged.
+
 ## Share Skill sets
 
 Give a teammate your review, testing, and research toolkit in one file.

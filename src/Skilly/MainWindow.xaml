@@ -530,6 +530,11 @@
                                        VerticalAlignment="Center"
                                        Margin="7,0,0,0" />
                         </StackPanel>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,8">
+                            <CheckBox Style="{StaticResource IndustryCheckBox}" IsChecked="{Binding ShowHidden, Mode=TwoWay}"
+                                      AutomationProperties.Name="Show hidden" AutomationProperties.AutomationId="Skilly.ShowHidden" />
+                            <TextBlock Text="Show hidden" FontSize="11.5" Foreground="{StaticResource Text60Brush}" VerticalAlignment="Center" Margin="7,0,0,0" />
+                        </StackPanel>
                         <TextBlock Text="{Binding ListSummary}"
                                    FontSize="11.5"
                                    Foreground="{StaticResource Text45Brush}"
@@ -638,6 +643,10 @@
                                     <StackPanel Grid.Column="4" HorizontalAlignment="Right" VerticalAlignment="Center" IsEnabled="{Binding DataContext.MutationsAllowed, RelativeSource={RelativeSource AncestorType=Window}}">
                                         <Button Content="Update" Style="{StaticResource RowActionButton}" Click="OnRowUpdate" Visibility="{Binding CanUpdate, Converter={StaticResource BoolToVisibility}}" AutomationProperties.AutomationId="Skilly.RowUpdate" AutomationProperties.Name="{Binding Name, StringFormat=Update {0}}" />
                                         <Button Content="Adopt" Style="{StaticResource RowActionButton}" Click="OnRowAdopt" Visibility="{Binding CanAdopt, Converter={StaticResource BoolToVisibility}}" AutomationProperties.AutomationId="Skilly.RowAdopt" AutomationProperties.Name="{Binding Name, StringFormat=Adopt {0}}" />
+                                        <Button Content="Replace" Style="{StaticResource RowActionButton}" Click="OnRowReplace"
+                                                Visibility="{Binding CanReplaceFromRow, Converter={StaticResource BoolToVisibility}}"
+                                                ToolTip="Replace install: fetch a clean copy from the recorded source and review the replacement paths."
+                                                AutomationProperties.AutomationId="Skilly.RowReplace" AutomationProperties.Name="{Binding Name, StringFormat=Replace installation of {0}}" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
                                         <ItemsControl ItemsSource="{Binding ExposureCells}" Focusable="False" VerticalAlignment="Center">
@@ -843,6 +852,9 @@
                                             Style="{StaticResource QuickActionButton}" AutomationProperties.AutomationId="Skilly.OpenSource" />
                                     <Button Content="Copy _path" Click="OnCopySkillPath"
                                             Style="{StaticResource QuickActionButton}" AutomationProperties.AutomationId="Skilly.CopyPath" />
+                                    <Button Content="{Binding SelectedRow.HideActionLabel}" Click="OnToggleHiddenSkill"
+                                            ToolTip="Hide this installation in Skilly. Files, harness exposures, and updates are unchanged."
+                                            Style="{StaticResource QuickActionButton}" AutomationProperties.AutomationId="Skilly.HideSkill" />
                                     <Button Content="Read SKILL._md" Click="OnReadSkillMarkdown" IsEnabled="{Binding SelectedRow.CanReadSkillMarkdown}"
                                             Style="{StaticResource QuickActionButton}" AutomationProperties.AutomationId="Skilly.ReadSkillMarkdown" />
                                 </WrapPanel>
@@ -982,10 +994,11 @@
                                             AutomationProperties.AutomationId="Skilly.UpdateSkill" />
                                     <Button Grid.Row="2" Grid.Column="0"
                                             Style="{StaticResource SecondaryActionButton}"
-                                            Content="Managed _Reinstall"
+                                            Content="_Replace install"
                                             Click="OnManagedReinstallSelected"
                                             IsEnabled="{Binding SelectedRow.CanManagedReinstall}"
-                                            AutomationProperties.Name="Managed Reinstall selected Skill"
+                                            ToolTip="Fetch a clean copy from the recorded source. Review the replacement paths before applying. Available even when the last check failed."
+                                            AutomationProperties.Name="Replace selected Skill installation"
                                             AutomationProperties.AutomationId="Skilly.ManagedReinstall" />
                                     <Button Grid.Row="2" Grid.Column="2"
                                             Style="{StaticResource SecondaryActionButton}"

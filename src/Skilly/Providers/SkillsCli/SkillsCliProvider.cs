@@ -165,9 +165,35 @@ public sealed class SkillsCliProvider(
                 var names = verified.Select(item => item.Record.Provenance.ProviderSkillName ?? Path.GetFileName(item.Record.CanonicalPath))
                     .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 var process = client.AcquireForCheck(sources[0], names, environment, cancellationToken);
+                IReadOnlyList<SkillsCliSourceSkill>? sourceSkills = null;
+                void MarkMissingSkills()
+                {
+                    sourceSkills ??= client.ParseInspection(sources[0], client.Inspect(sources[0], cancellationToken)).Skills;
+                    foreach (var (current, _) in verified.ToList())
+                    {
+                        var name = current.Provenance.ProviderSkillName ?? Path.GetFileName(current.CanonicalPath);
+                        if (sourceSkills.Any(skill => skill.Name.Equals(name, StringComparison.Ordinal))) continue;
+                        var warning = $"Skill '{name}' is no longer listed by the recorded source '{sources[0]}'. It may have been removed or renamed upstream. "
+                            + "Your installed copy was kept. Use Uninstall to remove it, or Hide Skill to keep it out of the list. Update Library to choose available Skills.";
+                        results[current.InstallationId] = ProviderResult<CheckResult>.Success(new CheckResult(
+                            UpdateStatus.SourceUnavailable, current.InstalledRevision, null, null, null, null, DateTimeOffset.Now, warning), warning);
+                        verified.RemoveAll(item => item.Record.InstallationId == current.InstallationId);
+                    }
+                }
+                if (!process.Succeeded)
+                {
+                    MarkMissingSkills();
+                    if (verified.Count == 0) return results;
+                    var remaining = verified.Select(item => item.Record.Provenance.ProviderSkillName ?? Path.GetFileName(item.Record.CanonicalPath)).ToList();
+                    if (remaining.Count != names.Count)
+                        process = client.AcquireForCheck(sources[0], remaining, environment, cancellationToken);
+                }
                 SkillsCliClient.RequireExit(process, "Read-only isolated provider acquisition");
                 var temporaryLock = new SkillsCliLock(Path.Combine(temporaryRoot, "state", "skills", ".skill-lock.json"));
                 var availableLock = temporaryLock.Read();
+                if (verified.Any(item => !availableLock.Values.Any(entry =>
+                    entry.Name.Equals(item.Record.Provenance.ProviderSkillName ?? Path.GetFileName(item.Record.CanonicalPath), StringComparison.OrdinalIgnoreCase))))
+                    MarkMissingSkills();
                 var availableInventory = client.ListGlobal(environment, cancellationToken);
                 foreach (var (current, installedHash) in verified)
                 {
@@ -361,7 +387,10 @@ public sealed class SkillsCliProvider(
             VerifyManagedTopology(record);
             SavePhase(state, pending, PendingOperationPhase.MutationStarted);
             var name = record.Provenance.ProviderSkillName ?? Path.GetFileName(record.CanonicalPath);
-            var process = client.Update(name);
+            // The CLI's update command may silently skip a Skill and also removes
+            // missing siblings from the same source. Re-add only this recorded
+            // selection, exactly as Check and preview acquired it.
+            var process = client.Install(record.Provenance.OriginalReference, name);
             SkillsCliClient.RequireExit(process, $"Update of '{name}'");
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -373,7 +402,11 @@ public sealed class SkillsCliProvider(
             if (!string.Equals(actualHash, check.AvailablePayloadHash, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(evidence.SkillFolderHash, check.AvailableRevision, StringComparison.Ordinal))
             {
-                throw new ProviderFailure("Provider update did not produce the exact payload and lock evidence verified by Check.");
+                var unchanged = string.Equals(actualHash, startingRecord.InstalledPayloadHash, StringComparison.OrdinalIgnoreCase);
+                throw new ProviderFailure("Provider update did not produce the exact payload and lock evidence verified by Check. "
+                    + (unchanged ? "The provider left the installed content unchanged. " : "The downloaded content differed from the checked version. ")
+                    + $"Expected revision {check.AvailableRevision}; provider returned {evidence.SkillFolderHash}. "
+                    + "Refresh checks and review the update again, or use Replace install to fetch a clean copy. This is not evidence that the Skill was removed upstream.");
             }
 
             SavePhase(state, pending, PendingOperationPhase.Verified);

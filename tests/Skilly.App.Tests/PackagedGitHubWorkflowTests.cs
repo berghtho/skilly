@@ -313,7 +313,7 @@ public sealed class PackagedGitHubWorkflowTests(PackagedAppFixture fixture)
             var invoke = Task.Run(() => ((InvokePattern)reinstall.GetCurrentPattern(InvokePattern.Pattern)).Invoke());
             var confirmation = WaitForWindow(
                 app.Process.Id,
-                ["Confirm Managed Reinstall"],
+                ["Review replacement installation"],
                 TimeSpan.FromSeconds(30),
                 () => $"Invoke completed={invoke.IsCompleted}; fault={invoke.Exception}; status={status.Current.Name}; logs={ReadLogs(profile.LogsDirectory)}");
             var confirmationText = string.Join("\n", confirmation.FindAll(TreeScope.Descendants, Condition.TrueCondition)
@@ -440,7 +440,7 @@ public sealed class PackagedGitHubWorkflowTests(PackagedAppFixture fixture)
             var invoke = Task.Run(() => ((InvokePattern)reinstall.GetCurrentPattern(InvokePattern.Pattern)).Invoke());
             var confirmation = WaitForWindow(
                 app.Process.Id,
-                ["Confirm Managed Reinstall"],
+                ["Review replacement installation"],
                 TimeSpan.FromMinutes(1),
                 () => $"Invoke completed={invoke.IsCompleted}; status={status.Current.Name}; logs={ReadLogs(profile.LogsDirectory)}");
             var confirmationText = string.Join("\n", confirmation.FindAll(TreeScope.Descendants, Condition.TrueCondition)

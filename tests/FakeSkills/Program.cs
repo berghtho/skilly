@@ -102,6 +102,7 @@ if (command == "add")
 
 if (command == "update")
 {
+    if (Environment.GetEnvironmentVariable("FAKE_SKILLS_SKIP_UPDATE") == "1") return 0;
     RequireArguments(args, "--global", "--yes");
     var selected = args[3];
     var lockEntries = ReadLock();

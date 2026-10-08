@@ -1,11 +1,65 @@
 using Skilly.Skills;
 using Skilly.State;
 using Skilly.ViewModels;
+using Skilly.Infrastructure;
+using System.IO;
 
 namespace Skilly.App.Tests;
 
 public sealed class LibraryGroupingTests
 {
+    [Theory]
+    [InlineData("github")]
+    [InlineData("skills")]
+    [InlineData("apm")]
+    public void Failed_check_offers_replacement_and_uninstall_for_a_healthy_managed_skill(string provider)
+    {
+        var record = Record(provider, "acme", "toolbox", "source", "alpha");
+        record.LatestCheck = new CheckSnapshot { Status = UpdateStatus.Current, InstalledRevision = "v1", CheckedAt = DateTimeOffset.Now, IsStale = true, Failure = "Malformed provider response" };
+        var row = new InventoryRow(Entry("alpha", record));
+        Assert.True(row.CanManagedReinstall);
+        Assert.True(row.CanReplaceFromRow);
+        Assert.True(row.CanUninstall);
+        Assert.False(row.CanUpdate);
+        Assert.Contains("Replace install", row.ActionState);
+        Assert.StartsWith("Check Failed", row.UpdateStatus);
+    }
+
+    [Fact]
+    public void Hidden_skills_survive_reload_and_restart_and_show_hidden_defaults_off()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "skilly-hidden-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new HiddenSkillsStore(Path.Combine(root, "hidden.json"));
+            var model = new MainViewModel(store) { GroupByLibrary = true };
+            var snapshot = Snapshot(Entry("alpha"), Entry("beta"));
+            model.LoadInventory(snapshot);
+            model.SelectedRow = model.Rows.OfType<InventoryRow>().Single(row => row.Name == "alpha");
+            model.ToggleHidden(model.SelectedRow);
+            Assert.Null(model.SelectedRow);
+            Assert.Equal("beta", Assert.Single(model.Rows.OfType<InventoryRow>()).Name);
+            Assert.Equal(1, model.Filters[0].Count);
+            Assert.Equal(2, model.AllEntries.Count);
+            model.LoadInventory(snapshot);
+            Assert.Single(model.Rows.OfType<InventoryRow>());
+            var restarted = new MainViewModel(store);
+            restarted.LoadInventory(snapshot);
+            Assert.False(restarted.ShowHidden);
+            Assert.Single(restarted.Rows);
+            restarted.ShowHidden = true;
+            Assert.Equal(2, restarted.Rows.Count);
+            var hidden = restarted.Rows.OfType<InventoryRow>().Single(row => row.Name == "alpha");
+            Assert.True(hidden.IsHidden);
+            Assert.Equal("Unhide Skill", hidden.HideActionLabel);
+            restarted.ToggleHidden(hidden);
+            restarted.ShowHidden = false;
+            Assert.Equal(2, restarted.Rows.Count);
+            Assert.Empty(store.Load());
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
+    }
+
     [Fact]
     public void Status_sort_prioritizes_health_then_updates_and_keeps_stale_checks_visible()
     {

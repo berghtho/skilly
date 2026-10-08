@@ -73,6 +73,23 @@ public sealed class SkillUsabilityUiTests
                 Assert.True(Find<Button>(main, "Skilly.ReadSkillMarkdown").IsEnabled);
                 Assert.True(Find<Button>(main, "Skilly.CopyPath").IsEnabled);
                 Assert.False(Find<Button>(main, "Skilly.OpenSource").IsEnabled);
+                var showHidden = Find<CheckBox>(main, "Skilly.ShowHidden");
+                Assert.False(showHidden.IsChecked);
+                Find<Button>(main, "Skilly.HideSkill").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Pump();
+                Assert.Empty(mainModel.Rows);
+                Assert.Null(mainModel.SelectedRow);
+                Assert.True(Directory.Exists(entry.LocalPath));
+                showHidden.IsChecked = true;
+                Pump();
+                mainModel.SelectedRow = Assert.IsType<InventoryRow>(Assert.Single(mainModel.Rows));
+                Pump();
+                Assert.Equal("Unhide Skill", Find<Button>(main, "Skilly.HideSkill").Content);
+                Render(main, "workbench-show-hidden.png");
+                Find<Button>(main, "Skilly.HideSkill").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                showHidden.IsChecked = false;
+                Pump();
+                Assert.Single(mainModel.Rows);
                 main.Width = 1024; main.Height = 720; mainModel.ShowDetails = false;
                 Render(main, "workbench-laptop.png");
                 main.Width = 920; main.Height = 600;
@@ -86,6 +103,18 @@ public sealed class SkillUsabilityUiTests
                 mainModel.SelectedRow = mainModel.Rows.OfType<InventoryRow>().Single(row => row.Name == "code-review");
                 main.Width = 1520; main.Height = 850; mainModel.ShowDetails = true;
                 Render(main, "workbench-redesign.png");
+                mainModel.SelectedRow = mainModel.Rows.OfType<InventoryRow>().Single(row => row.Name == "domain-modeling");
+                Pump();
+                Assert.True(Find<Button>(main, "Skilly.ManagedReinstall").IsEnabled);
+                var replaceAction = Descendants((DependencyObject)main.Content).OfType<Button>()
+                    .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "Skilly.RowReplace"
+                        && button.DataContext is InventoryRow { Name: "domain-modeling" });
+                Assert.True(replaceAction.IsEnabled);
+                Assert.Equal(Visibility.Visible, replaceAction.Visibility);
+                Assert.Equal("domain-modeling", Assert.IsType<InventoryRow>(replaceAction.DataContext).Name);
+                Assert.Contains("Replace install", Find<Button>(main, "Skilly.ManagedReinstall").Content.ToString());
+                Render(main, "workbench-failed-check-replacement.png");
+                mainModel.SelectedRow = mainModel.Rows.OfType<InventoryRow>().Single(row => row.Name == "code-review");
                 var skillRows = Find<ListBox>(main, "Skilly.SkillList");
                 skillRows.SelectAll();
                 var updateAction = Find<Button>(main, "Skilly.RowUpdate");

@@ -90,6 +90,74 @@ public sealed class SkillsCliProviderFixture : IDisposable
 public sealed class SkillsCliProviderTests
 {
     [Fact]
+    public void Replace_install_fetches_fresh_source_content_after_a_failed_check()
+    {
+        using var fixture = new SkillsCliProviderFixture();
+        var inspection = fixture.Provider.Inspect(SkillsCliProviderFixture.Source).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
+        var state = fixture.StateStore.Load();
+        var record = Assert.Single(state.Records);
+        var startingHash = record.InstalledPayloadHash;
+        record.LatestCheck = new CheckSnapshot { Status = UpdateStatus.CheckFailed, InstalledRevision = record.InstalledRevision,
+            CheckedAt = DateTimeOffset.Now, Failure = "Invalid response from provider", IsStale = true };
+        fixture.StateStore.Save(state);
+        fixture.WriteSkill("alpha", "Clean replacement.");
+        Assert.True(new InventoryRow(Assert.Single(new InventoryScanner().Scan(fixture.Home, state).Entries)).CanManagedReinstall);
+        var plan = fixture.Provider.PlanManagedReinstall(record).ValueOrThrow();
+        Assert.Equal(startingHash, PayloadHasher.HashFolder(record.CanonicalPath));
+        fixture.Provider.ManagedReinstall(plan).ValueOrThrow();
+        var replaced = Assert.Single(fixture.StateStore.Load().Records);
+        Assert.Equal(OperationOutcome.Reinstalled, replaced.LastOperationOutcome);
+        Assert.Equal(UpdateStatus.Current, replaced.LatestCheck!.Status);
+        Assert.Contains("Clean replacement", File.ReadAllText(Path.Combine(record.CanonicalPath, "SKILL.md")));
+        Assert.True(Junction.IsJunctionTo(record.IntendedClaudeJunctionPath!, record.CanonicalPath));
+    }
+
+    [Fact]
+    public void Removed_upstream_skill_is_explained_without_blocking_other_library_members_or_deleting_files()
+    {
+        using var fixture = new SkillsCliProviderFixture();
+        var inspection = fixture.Provider.Inspect(SkillsCliProviderFixture.Source).ValueOrThrow();
+        fixture.Provider.Install(inspection, inspection.Skills).ValueOrThrow();
+        var records = fixture.StateStore.Load().Records;
+        Directory.Delete(Path.Combine(fixture.SourceRoot, "skills", "alpha"), recursive: true);
+        fixture.WriteSkill("beta", "Updated beta.");
+        var results = fixture.Provider.CheckLibrary(records);
+        var missing = results[records.Single(record => record.Provenance.ProviderSkillName == "alpha").InstallationId].ValueOrThrow();
+        Assert.Equal(UpdateStatus.SourceUnavailable, missing.Status);
+        Assert.Contains("no longer listed", missing.Warning);
+        Assert.Contains("Uninstall", missing.Warning);
+        var beta = results[records.Single(record => record.Provenance.ProviderSkillName == "beta").InstallationId].ValueOrThrow();
+        Assert.Equal(UpdateStatus.UpdateAvailable, beta.Status);
+        Assert.True(Directory.Exists(fixture.Canonical("alpha")));
+        Assert.Equal(2, fixture.StateStore.Load().Records.Count);
+    }
+
+    [Fact]
+    public void Update_uses_the_recorded_source_when_the_cli_update_silently_skips_a_skill()
+    {
+        using var fixture = new SkillsCliProviderFixture();
+        var inspection = fixture.Provider.Inspect(SkillsCliProviderFixture.Source).ValueOrThrow();
+        fixture.Provider.Install(inspection, inspection.Skills).ValueOrThrow();
+        var state = fixture.StateStore.Load();
+        var alpha = state.Records.Single(record => record.Provenance.ProviderSkillName == "alpha");
+        var betaHash = PayloadHasher.HashFolder(fixture.Canonical("beta"));
+        var betaEvidence = new SkillsCliLock(fixture.ProviderLockPath).Read()["beta"].Evidence;
+        fixture.WriteSkill("alpha", "Updated upstream.");
+        alpha.LatestCheck = Snapshot(fixture.Provider.Check(alpha).ValueOrThrow());
+        fixture.StateStore.Save(state);
+        fixture.Set("FAKE_SKILLS_SKIP_UPDATE", "1");
+
+        var result = fixture.Provider.Update(alpha);
+
+        Assert.True(result.Succeeded, result.Diagnostics);
+        Assert.Equal(alpha.LatestCheck.AvailablePayloadHash, PayloadHasher.HashFolder(alpha.CanonicalPath));
+        Assert.Equal(betaHash, PayloadHasher.HashFolder(fixture.Canonical("beta")));
+        Assert.Equal(betaEvidence, new SkillsCliLock(fixture.ProviderLockPath).Read()["beta"].Evidence);
+        Assert.DoesNotContain(fixture.Invocations(), args => args[2] == "update");
+    }
+
+    [Fact]
     public void All_five_operations_use_the_exact_pin_and_reconcile_content_lock_state_and_exposure()
     {
         using var fixture = new SkillsCliProviderFixture();
@@ -158,7 +226,7 @@ public sealed class SkillsCliProviderTests
         };
         Assert.Contains(invocations, args => args.SequenceEqual(exactAdd));
         Assert.DoesNotContain(invocations, static args => args.Length > 2 && args[2] == "check");
-        Assert.Contains(invocations, static args => args.Length > 2 && args[2] == "update");
+        Assert.DoesNotContain(invocations, static args => args.Length > 2 && args[2] == "update");
         Assert.Contains(invocations, static args => args.Length > 2 && args[2] == "remove");
     }
 
@@ -195,7 +263,7 @@ public sealed class SkillsCliProviderTests
         state.Records.Single().LatestCheck = Snapshot(fixture.Provider.Check(state.Records.Single()).ValueOrThrow());
         fixture.StateStore.Save(state);
         var before = PayloadHasher.HashFolder(state.Records.Single().CanonicalPath);
-        fixture.Set("FAKE_SKILLS_FALSE_SUCCESS_OPERATION", "update");
+        fixture.Set("FAKE_SKILLS_FALSE_SUCCESS_OPERATION", "add");
 
         var update = fixture.Provider.Update(state.Records.Single());
 

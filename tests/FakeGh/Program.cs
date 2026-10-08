@@ -45,6 +45,13 @@ if (args.Length != 2 || args[0] != "api")
 }
 
 var endpoint = args[1];
+if (Environment.GetEnvironmentVariable("FAKE_GH_INVALID_JSON_MARKER") is { } invalidMarker
+    && !File.Exists(invalidMarker))
+{
+    File.WriteAllText(invalidMarker, endpoint);
+    Console.WriteLine("<html>Temporary gateway response</html>");
+    return 0;
+}
 var unavailablePattern = Environment.GetEnvironmentVariable("FAKE_GH_CONTENT_UNAVAILABLE_PATTERN");
 if (!string.IsNullOrEmpty(unavailablePattern) && endpoint.Contains(unavailablePattern, StringComparison.Ordinal))
 {

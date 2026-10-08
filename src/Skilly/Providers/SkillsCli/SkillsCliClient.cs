@@ -77,8 +77,8 @@ public sealed class SkillsCliClient
         }
     }
 
-    public ProcessResult Inspect(string source)
-        => RunPinned(["add", source, "--list"], timeout: TimeSpan.FromMinutes(5));
+    public ProcessResult Inspect(string source, CancellationToken cancellationToken = default)
+        => RunPinned(["add", source, "--list"], timeout: TimeSpan.FromSeconds(60), cancellationToken: cancellationToken);
 
     public ProcessResult Install(string source, string skillName, IReadOnlyDictionary<string, string?>? environment = null)
         => RunPinned(
@@ -90,9 +90,6 @@ public sealed class SkillsCliClient
         IReadOnlyDictionary<string, string?> environment, CancellationToken cancellationToken = default)
         => RunPinned(["add", source, "--global", "--yes", "--skill", .. skillNames, .. HarnessArguments],
             TimeSpan.FromSeconds(60), environment, cancellationToken);
-
-    public ProcessResult Update(string skillName)
-        => RunPinned(["update", skillName, "--global", "--yes"], TimeSpan.FromMinutes(5));
 
     public ProcessResult Uninstall(string skillName)
         => RunPinned(["remove", skillName, "--global", "--yes"], TimeSpan.FromMinutes(5));

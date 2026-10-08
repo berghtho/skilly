@@ -95,7 +95,7 @@ public partial class App : Application
             }
         }
 
-        var viewModel = new ViewModels.MainViewModel();
+        var viewModel = new ViewModels.MainViewModel(new HiddenSkillsStore(System.IO.Path.Combine(SkillyPaths.ApplicationRoot, "hidden-skills.json")));
         viewModel.LoadInventory(RefreshInventory());
         if (recovery.Disposition == RecoveryDisposition.RecoveryRequired)
         {

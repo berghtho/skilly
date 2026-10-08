@@ -160,6 +160,7 @@ public sealed class GitHubProviderFixture : IDisposable
     public void ReturnNotFoundFor(string? pattern) => _environment["FAKE_GH_NOT_FOUND_PATTERN"] = pattern;
 
     public void ReturnFalseSuccessFor(string? pattern) => _environment["FAKE_GH_FALSE_SUCCESS_PATTERN"] = pattern;
+    public void ReturnInvalidJsonOnce() => _environment["FAKE_GH_INVALID_JSON_MARKER"] = Path.Combine(Root, "invalid-json-seen");
 
     public void MakeContentUnavailable(string? pattern) => _environment["FAKE_GH_CONTENT_UNAVAILABLE_PATTERN"] = pattern;
 
@@ -241,6 +242,32 @@ public sealed class GitHubSourceReferenceTests
 
 public sealed class GitHubProviderTests
 {
+    [Fact]
+    public void Transient_invalid_github_json_is_retried_without_blocking_source_inspection()
+    {
+        using var fixture = new GitHubProviderFixture();
+        fixture.ReturnInvalidJsonOnce();
+        Assert.True(GitHubSourceReference.TryParse("https://github.com/acme/library", out var reference, out _));
+        var result = fixture.Provider.Inspect(reference);
+        Assert.True(result.Succeeded, result.Diagnostics);
+        Assert.Equal(2, File.ReadAllLines(fixture.GhInvocationsPath)
+            .Count(line => line == "[\"api\",\"repos/acme/library\"]"));
+    }
+
+    [Fact]
+    public void Persistent_invalid_github_json_explains_the_endpoint_and_recovery_actions()
+    {
+        using var fixture = new GitHubProviderFixture();
+        File.WriteAllText(Path.Combine(fixture.FixtureRoot, "repository.json"), "<html>gateway unavailable</html>");
+        Assert.True(GitHubSourceReference.TryParse("https://github.com/acme/library", out var reference, out _));
+        var result = fixture.Provider.Inspect(reference);
+        Assert.False(result.Succeeded);
+        Assert.Contains("repos/acme/library", result.Diagnostics);
+        Assert.Contains("HTML", result.Diagnostics);
+        Assert.Contains("retry", result.Diagnostics);
+        Assert.Contains("authentication", result.Diagnostics);
+    }
+
     private static readonly string[] CursorPstackSkills =
     [
         "architect", "arena", "automate-me", "blast-radius", "bro", "create-verification-skill",
@@ -629,7 +656,8 @@ public sealed class GitHubProviderTests
         Assert.Equal(prior.AvailableRevision, stale.AvailableRevision);
         var row = new InventoryRow(Assert.Single(
             new InventoryScanner().Scan(fixture.Home, fixture.StateStore.Load()).Entries));
-        Assert.Contains("stale", row.UpdateStatus, StringComparison.OrdinalIgnoreCase);
+        Assert.StartsWith("Check Failed", row.UpdateStatus);
+        Assert.Contains("previous result: Current", row.UpdateStatus);
         Assert.Contains("exit code 17", row.CheckNotice);
     }
 
@@ -842,7 +870,8 @@ public sealed class GitHubProviderTests
         Assert.NotNull(viewModel.SelectedRow);
         Assert.Equal("Locally Modified", viewModel.SelectedRow.Health);
         Assert.False(viewModel.SelectedRow.CanUpdate);
-        Assert.Contains("locally modified", viewModel.SelectedRow.ActionState, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Local edits", viewModel.SelectedRow.ActionState, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Replace install", viewModel.SelectedRow.ActionState);
     }
 
     [Fact]

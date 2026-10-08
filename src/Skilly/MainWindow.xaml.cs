@@ -112,6 +112,11 @@ public partial class MainWindow : Window
     private void OnResizeDetails(object sender, System.Windows.Controls.Primitives.DragDeltaEventArgs e)
         => ((ViewModels.MainViewModel)DataContext).ResizeDetails(e.HorizontalChange);
 
+    private void OnToggleHiddenSkill(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is ViewModels.MainViewModel { SelectedRow: { } row } vm) vm.ToggleHidden(row);
+    }
+
     private void OnOpenSkillFolder(object sender, RoutedEventArgs e)
         => NavigateSelected(row =>
         {
@@ -373,6 +378,12 @@ public partial class MainWindow : Window
         return false;
     }
 
+    private void OnRowReplace(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (SelectActionRow(sender)) OnManagedReinstallSelected(sender, e);
+    }
+
     private void OnRowUpdate(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
@@ -449,7 +460,7 @@ public partial class MainWindow : Window
             viewModel.LoadInventory(RefreshInventory());
             viewModel.Announce(result.FailureCount == 0
                 ? $"Checked {result.CheckedCount} managed Skill(s) across available providers. Installed content was not changed."
-                : $"Checked {result.CheckedCount} managed Skill(s); {result.FailureCount} check(s) failed and prior results are stale. Installed content was not changed.");
+                : $"Checked {result.CheckedCount} managed Skill(s); {result.FailureCount} check(s) failed. Select a failed Skill to retry, Replace install, Uninstall, or Hide Skill. Installed content was not changed.");
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
@@ -642,7 +653,7 @@ public partial class MainWindow : Window
                 SetHistoryResult(runId, item.Preview.Skills, "Updated", "Reviewed content and provider postconditions verified.");
             }
             vm.Announce($"Updated {completed}/{known.Count} Skills. "
-                + (failed > 0 ? $"{failed} Skill(s) failed or were blocked. " : string.Empty)
+                + (failed > 0 ? $"{failed} Skill(s) failed or were blocked. Select a failed Skill and use Replace install to fetch a clean copy. " : string.Empty)
                 + (attempted < vm.ProgressMaximum ? "Remaining updates were not run. " : string.Empty) + "See History for each result.");
         }
         catch (Exception exception)
@@ -804,7 +815,7 @@ public partial class MainWindow : Window
         var record = row?.Entry.ManagementRecord;
         if (record is null || row?.CanManagedReinstall != true || !viewModel.MutationsAllowed)
         {
-            viewModel.Announce("Managed Reinstall is unavailable for the selected Skill. Nothing changed.");
+            viewModel.Announce("Replace install is unavailable for the selected Skill. Nothing changed.");
             return;
         }
         if (!await TryBeginMaintenance())
@@ -815,11 +826,11 @@ public partial class MainWindow : Window
 
         try
         {
-            viewModel.Announce("Preparing a verified Managed Reinstall decision. Nothing has changed.");
+            viewModel.Announce("Fetching a clean replacement from the recorded source. Nothing has changed.");
             var planned = await Task.Run(() => _managedReinstall.Plan(record));
             if (!planned.Succeeded)
             {
-                viewModel.Announce($"Managed Reinstall preparation failed. {planned.Diagnostics} Nothing changed.");
+                viewModel.Announce($"Replacement could not be fetched. {planned.Diagnostics} Retry Refresh checks, open the source, or Uninstall this installation. Nothing changed.");
                 return;
             }
 
@@ -827,8 +838,8 @@ public partial class MainWindow : Window
             var affectedPaths = string.Join(Environment.NewLine, plan.AffectedPaths);
             var decision = MessageBox.Show(
                 this,
-                $"Managed Reinstall will replace these exact provider-owned paths:\n\n{affectedPaths}\n\nVerified replacement revision:\n{plan.Revision}\n\nCurrent content and provider state will be snapshotted and replaced cleanly through the owning provider. Files will not be merged.",
-                "Confirm Managed Reinstall",
+                $"Replace install will fetch a clean copy from the recorded source and replace these paths:\n\n{affectedPaths}\n\nReplacement revision:\n{plan.Revision}\n\nLocal edits in these folders will be replaced. Current content and provider state will be backed up for rollback. Files will not be merged.",
+                "Review replacement installation",
                 MessageBoxButton.OKCancel,
                 MessageBoxImage.Warning,
                 MessageBoxResult.Cancel);

@@ -300,7 +300,34 @@ public sealed class GhClient(
 
     private string Api(string endpoint)
     {
-        var result = runner.Run(ghExecutable, ["api", endpoint], TimeSpan.FromSeconds(90));
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var result = ApiRequest(endpoint);
+            try
+            {
+                using var json = JsonDocument.Parse(result);
+                return result;
+            }
+            catch (JsonException exception)
+            {
+                if (attempt == 0) continue;
+                var trimmed = result.TrimStart();
+                var kind = trimmed.Length == 0 ? "an empty response"
+                    : trimmed.StartsWith('<') ? "HTML or XML instead of JSON"
+                    : "malformed JSON";
+                throw new GhInvalidResponseException(
+                    $"GitHub returned {kind} for '{endpoint}' after one retry. "
+                    + "Check GitHub CLI authentication and proxy/network settings, then retry Refresh checks. "
+                    + "Replace install can fetch a clean copy from the recorded source; installed files were kept.", exception);
+            }
+        }
+        throw new InvalidOperationException("GitHub JSON retry exhausted.");
+    }
+
+    private string ApiRequest(string endpoint)
+    {
+        var result = runner.Run(ghExecutable, ["api", endpoint], TimeSpan.FromSeconds(60),
+            new Dictionary<string, string?> { ["GH_HOST"] = "github.com", ["GH_FORCE_TTY"] = null, ["NO_COLOR"] = "1" });
         if (!result.Succeeded)
         {
             if (result.CombinedOutput.Contains("HTTP 404", StringComparison.OrdinalIgnoreCase))

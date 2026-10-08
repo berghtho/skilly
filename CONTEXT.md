@@ -50,6 +50,7 @@ _Avoid_: Import, claim
 
 **Managed Reinstall**:
 The explicit replacement of an existing installation with verified source content when normal Adoption or update is unsafe.
+The workbench calls this action **Replace install**. A failed or stale Check does not prevent preparing a fresh replacement from the recorded source.
 _Avoid_: Update, repair
 
 **Recovery Required**:

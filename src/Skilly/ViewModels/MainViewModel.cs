@@ -7,6 +7,7 @@ using Skilly.Skills;
 using Skilly.State;
 using Skilly.Providers.SkillsCli;
 using Skilly.Providers.Apm;
+using Skilly.Infrastructure;
 
 namespace Skilly.ViewModels;
 
@@ -89,6 +90,8 @@ public sealed class InventoryRow
     public string DisplayName => Entry.DisplayName;
 
     public string RootLabel { get; }
+    public bool IsHidden { get; init; }
+    public string HideActionLabel => IsHidden ? "Unhide Skill" : "Hide Skill";
 
     private ManagementRecord? Record => Entry.ManagementRecord ?? Entry.AdoptionEvidence?.ProposedRecord;
 
@@ -211,7 +214,7 @@ public sealed class InventoryRow
                 State.UpdateStatus.CheckFailed => "Check Failed",
                 _ => "Not checked",
             };
-            return Check?.IsStale == true ? value + " (stale - check failed)" : value;
+            return Check?.IsStale == true ? "Check Failed (previous result: " + value + ")" : value;
         }
     }
 
@@ -238,7 +241,10 @@ public sealed class InventoryRow
 
     public bool CanManagedReinstall => Record?.Provenance.SourceProvider is "github" or "skills" or ApmClient.ProviderId
                                        && Entry.ManagementStatus == ManagementStatus.Managed
-                                       && Entry.Health is InstallationHealth.LocallyModified or InstallationHealth.ExposureProblem;
+                                       && Entry.Health is InstallationHealth.Healthy or InstallationHealth.LocallyModified or InstallationHealth.ExposureProblem;
+
+    public bool CanReplaceFromRow => CanManagedReinstall
+        && (Check?.IsStale == true || Check?.Status is State.UpdateStatus.CheckFailed or State.UpdateStatus.SourceUnavailable);
 
     public bool CanUninstall => Entry.ManagementStatus == ManagementStatus.Managed
                                 && Entry.Health == InstallationHealth.Healthy;
@@ -250,7 +256,7 @@ public sealed class InventoryRow
     {
         InstallationHealth.Collision => $"Compare the conflicting paths listed above. Keep the intended Skill Installation and move the conflicting folder manually, then Refresh checks. Skilly will not overwrite it. Local path: {Entry.LocalPath}",
         InstallationHealth.ExposureProblem => CanManagedReinstall
-            ? "Inspect the affected Harness Exposure above. Managed Reinstall can restore provider content and exposures after you review the replacement paths. It replaces content; preserve any local work first."
+            ? "Use Replace install to restore source content and exposures after reviewing the replacement paths. Local edits will be replaced."
             : "Inspect the affected Harness Exposure and its target above. Resolve the missing or conflicting reference manually, then Refresh checks.",
         InstallationHealth.InvalidMetadata => $"Read SKILL.md and the metadata error above. Correct the file outside Skilly, then Refresh checks. Local path: {Entry.LocalPath}",
         InstallationHealth.Missing => $"Restore the recorded installation from your backup, then Refresh checks. Skilly cannot safely update a missing installation. Expected path: {Entry.LocalPath}",
@@ -259,17 +265,17 @@ public sealed class InventoryRow
             : CanUpdate
             ? "A verified direct update is available."
             : Entry.Health == InstallationHealth.LocallyModified && CanManagedReinstall
-            ? "Normal update is blocked because this Skill Installation is Locally Modified. Managed Reinstall is available."
+            ? "Local edits detected. Use Replace install to fetch a clean copy from the recorded source; review the replacement paths first."
             : Entry.Health == InstallationHealth.LocallyModified
             ? "Normal update is blocked because this Skill Installation is Locally Modified. Its owning provider does not support Managed Reinstall."
                 : Entry.ManagementStatus == ManagementStatus.Unmanaged
                     ? "Inspect the original Skill Library to check for verified Adoption. Skilly needs matching source content before it can manage this installation."
                     : Check?.Status == State.UpdateStatus.SourceUnavailable
-                        ? "Check the source address, network and provider authentication outside Skilly, then Refresh checks. See the check diagnostic above."
+                        ? "See the source diagnostic above. Use Replace install to fetch the recorded source again, Uninstall to remove this installation, or Hide Skill to keep it out of the list."
                         : Check?.Status == State.UpdateStatus.CheckFailed
-                            ? "Resolve the provider error above, then Refresh checks. Installed content is unchanged."
+                            ? "Retry Refresh checks, or use Replace install to fetch a clean copy from the recorded source. Installed content is unchanged."
                             : Check?.IsStale == true
-                                ? "Refresh checks successfully before updating."
+                                ? "Retry Refresh checks, or use Replace install to fetch a clean copy from the recorded source."
                             : Check?.Status == State.UpdateStatus.Pinned
                                 ? "This installation tracks an immutable revision. No moving-source update is expected."
                                 : Check is null ? "Run Refresh checks to compare this installation with its source."
@@ -403,12 +409,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         foreach (var property in new[] { nameof(SkillColumnWidth), nameof(ManagementWidth), nameof(StatusWidth), nameof(ActionWidth), nameof(ExposuresWidth), nameof(InventoryMinimumWidth) }) OnPropertyChanged(property);
     }
 
-    public MainViewModel()
+    private readonly HiddenSkillsStore? _hiddenSkillsStore;
+    private HashSet<string> _hiddenPaths = new(StringComparer.OrdinalIgnoreCase);
+    private bool _showHidden;
+
+    public MainViewModel(HiddenSkillsStore? hiddenSkillsStore = null)
     {
+        _hiddenSkillsStore = hiddenSkillsStore;
+        string? preferenceFailure = null;
+        try { _hiddenPaths.UnionWith(hiddenSkillsStore?.Load() ?? []); }
+        catch (Exception exception) { preferenceFailure = "Hidden Skills preferences could not be read: " + exception.Message; }
         _filters = BuildFilters([]);
         _selectedFilter = Filters[0];
         InspectSourceCommand = new RelayCommand(_ => SetStatus("Source inspection is not available yet. Nothing changed."));
         Status = new StatusUpdate("Ready. Nothing changed.", DateTimeOffset.Now);
+        if (preferenceFailure is not null) SetStatus(preferenceFailure);
     }
 
     public IReadOnlyList<FilterCount> Filters
@@ -425,6 +440,35 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     public ObservableCollection<object> Rows { get; } = [];
+
+    public bool ShowHidden
+    {
+        get => _showHidden;
+        set { if (SetProperty(ref _showHidden, value)) RefreshVisibility(); }
+    }
+
+    public void ToggleHidden(InventoryRow row)
+    {
+        var next = new HashSet<string>(_hiddenPaths, StringComparer.OrdinalIgnoreCase);
+        if (row.IsHidden) next.Remove(row.Entry.LocalPath);
+        else next.Add(row.Entry.LocalPath);
+        try { _hiddenSkillsStore?.Save(next); }
+        catch (Exception exception) { SetStatus("Hidden Skills preferences could not be saved: " + exception.Message); return; }
+        _hiddenPaths = next;
+        SelectedRows = [];
+        _allRows = [.. _allRows.Select(item => new InventoryRow(item.Entry) { IsHidden = _hiddenPaths.Contains(item.Entry.LocalPath) })];
+        RefreshVisibility();
+        SelectedRow = Rows.OfType<InventoryRow>().FirstOrDefault(item => string.Equals(item.Entry.LocalPath, row.Entry.LocalPath, StringComparison.OrdinalIgnoreCase));
+        SetStatus(row.IsHidden ? $"{row.Name} shown again. Files unchanged." : $"{row.Name} hidden. Use Show hidden to see it again. Files unchanged.");
+    }
+
+    private IEnumerable<InventoryRow> VisibleRows => _allRows.Where(row => ShowHidden || !row.IsHidden);
+
+    private void RefreshVisibility()
+    {
+        Filters = BuildFilters(VisibleRows.ToList());
+        ApplyView();
+    }
 
     public bool GroupByLibrary
     {
@@ -573,10 +617,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         get
         {
-            var attention = _allRows.Count(static row => row.Entry.NeedsAttention);
+            var visible = VisibleRows.ToList();
+            var attention = visible.Count(static row => row.Entry.NeedsAttention);
+            var hidden = _allRows.Count(static row => row.IsHidden);
+            var hiddenNote = hidden > 0 ? $" · {hidden} hidden" : string.Empty;
             return attention == 0
-                ? $"{_allRows.Count} installations"
-                : $"{_allRows.Count} installations · {attention} need attention";
+                ? $"{visible.Count} installations{hiddenNote}"
+                : $"{visible.Count} installations · {attention} need attention{hiddenNote}";
         }
     }
 
@@ -636,15 +683,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public void LoadInventory(InventorySnapshot snapshot)
     {
         var selectedPath = SelectedRow?.Entry.LocalPath;
-        _allRows = [.. snapshot.Entries.Select(entry => new InventoryRow(entry))];
-        Filters = BuildFilters(_allRows);
+        _allRows = [.. snapshot.Entries.Select(entry => new InventoryRow(entry) { IsHidden = _hiddenPaths.Contains(entry.LocalPath) })];
+        Filters = BuildFilters(VisibleRows.ToList());
         OnPropertyChanged(nameof(CanUpdateAll));
         OnPropertyChanged(nameof(UpdatableCount));
         OnPropertyChanged(nameof(CanExportSet));
         ApplyView();
         if (selectedPath is not null)
         {
-            SelectedRow = _allRows.FirstOrDefault(row =>
+            SelectedRow = Rows.OfType<InventoryRow>().FirstOrDefault(row =>
                 string.Equals(row.Entry.LocalPath, selectedPath, StringComparison.OrdinalIgnoreCase));
         }
         SetStatus(
@@ -682,7 +729,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void ApplyView()
     {
-        var filtered = _allRows.Where(row => MatchesFilter(row) && row.MatchesSearch(SearchText));
+        var filtered = VisibleRows.Where(row => MatchesFilter(row) && row.MatchesSearch(SearchText));
         var sorted = _sortDescending ? filtered.OrderByDescending(KeyFor(_sortColumn)) : filtered.OrderBy(KeyFor(_sortColumn));
         var materialized = sorted.ToList();
 
