@@ -830,7 +830,7 @@ public partial class MainWindow : Window
             var planned = await Task.Run(() => _managedReinstall.Plan(record));
             if (!planned.Succeeded)
             {
-                viewModel.Announce($"Replacement could not be fetched. {planned.Diagnostics} Retry Refresh checks, open the source, or Uninstall this installation. Nothing changed.");
+                viewModel.Announce($"Replacement could not be fetched. {planned.Diagnostics} Open the source to check its availability, or Uninstall or Hide this installation. Nothing changed.");
                 return;
             }
 

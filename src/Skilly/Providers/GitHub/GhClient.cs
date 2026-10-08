@@ -44,7 +44,7 @@ public sealed class GhSourceUnavailableException : GhApiException
     }
 }
 
-public sealed class GhInvalidResponseException : GhApiException
+public class GhInvalidResponseException : GhApiException
 {
     public GhInvalidResponseException(string message) : base(message)
     {
@@ -55,6 +55,8 @@ public sealed class GhInvalidResponseException : GhApiException
     }
 }
 
+public sealed class GhMalformedJsonException(string message, Exception inner) : GhInvalidResponseException(message, inner);
+
 public sealed class GhClient(
     ProcessRunner runner,
     string ghExecutable = "gh",
@@ -62,6 +64,8 @@ public sealed class GhClient(
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
     internal GhClient WithCancellation(CancellationToken token) => new(runner.WithCancellation(token), ghExecutable, gitExecutable);
+    internal GitSourceSnapshot ReadGitSource(Skilly.State.ProvenanceInfo provenance, string? revision = null)
+        => new GitHubGitSource(runner, ghExecutable, gitExecutable).Read(provenance, revision);
 
     public string GetVersion()
     {
@@ -315,10 +319,10 @@ public sealed class GhClient(
                 var kind = trimmed.Length == 0 ? "an empty response"
                     : trimmed.StartsWith('<') ? "HTML or XML instead of JSON"
                     : "malformed JSON";
-                throw new GhInvalidResponseException(
+                throw new GhMalformedJsonException(
                     $"GitHub returned {kind} for '{endpoint}' after one retry. "
-                    + "Check GitHub CLI authentication and proxy/network settings, then retry Refresh checks. "
-                    + "Replace install can fetch a clean copy from the recorded source; installed files were kept.", exception);
+                    + $"Response length {result.Length}; JSON line {exception.LineNumber}, byte {exception.BytePositionInLine}. "
+                    + "Check GitHub CLI authentication and proxy/network settings. Installed files were kept.", exception);
             }
         }
         throw new InvalidOperationException("GitHub JSON retry exhausted.");

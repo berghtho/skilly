@@ -25,6 +25,36 @@ public sealed class GitHubChecker(GhClient client)
 
     public CheckResult Check(ManagementRecord record, CommitResolutionCache? commitCache = null)
     {
+        try { return CheckUsingApi(record, commitCache); }
+        catch (GhMalformedJsonException apiFailure)
+        {
+            try
+            {
+                var source = client.ReadGitSource(record.Provenance);
+                var pinned = record.Provenance.TrackingRuleKind is TrackingRuleKind.Commit or TrackingRuleKind.Tag;
+                var current = record.Provenance.SelectedContentIdentity.StartsWith("payload-sha256:", StringComparison.Ordinal)
+                    ? string.Equals(source.Payload.Hash, record.Provenance.SelectedContentIdentity["payload-sha256:".Length..], StringComparison.OrdinalIgnoreCase)
+                    : string.Equals(source.Payload.ContentIdentity, record.Provenance.SelectedContentIdentity, StringComparison.Ordinal);
+                var warning = "GitHub API returned invalid JSON; source verified through Git recovery.";
+                if (record.Provenance.TrackingRuleKind == TrackingRuleKind.Tag && source.Revision != record.InstalledRevision)
+                    warning += " The pinned tag moved; it will not be updated automatically.";
+                return new CheckResult(pinned ? UpdateStatus.Pinned : current ? UpdateStatus.Current : UpdateStatus.UpdateAvailable,
+                    record.InstalledRevision, null, source.Revision, source.RevisionDate, source.Payload.Hash,
+                    DateTimeOffset.Now, warning, source.Payload.ContentIdentity);
+            }
+            catch (GhSourceUnavailableException exception)
+            {
+                return new CheckResult(UpdateStatus.SourceUnavailable, record.InstalledRevision, null, null, null, null, DateTimeOffset.Now, exception.Message);
+            }
+            catch (GhApiException gitFailure)
+            {
+                throw new GhApiException($"{apiFailure.Message} Independent Git recovery also failed. {gitFailure.Message}", gitFailure);
+            }
+        }
+    }
+
+    private CheckResult CheckUsingApi(ManagementRecord record, CommitResolutionCache? commitCache)
+    {
         if (!string.Equals(record.Provenance.SourceProvider, "github", StringComparison.Ordinal))
         {
             throw new GhApiException("The Management Record is not owned by the GitHub provider.");
@@ -117,6 +147,20 @@ public sealed class GitHubChecker(GhClient client)
     }
 
     public GitHubPayload FetchPayload(ManagementRecord record, string revision)
+    {
+        try { return FetchPayloadUsingApi(record, revision); }
+        catch (GhMalformedJsonException apiFailure)
+        {
+            try { return client.ReadGitSource(record.Provenance, revision).Payload; }
+            catch (GhSourceUnavailableException) { throw; }
+            catch (GhApiException gitFailure)
+            {
+                throw new GhApiException($"{apiFailure.Message} Independent Git recovery also failed. {gitFailure.Message}", gitFailure);
+            }
+        }
+    }
+
+    private GitHubPayload FetchPayloadUsingApi(ManagementRecord record, string revision)
     {
         var provenance = record.Provenance;
         var repositoryPath = RepositoryPath(provenance);

@@ -261,8 +261,16 @@ public sealed class PackagedGitHubWorkflowTests(PackagedAppFixture fixture)
 
     [InteractiveUiFact]
     public async Task Workbench_Managed_Reinstall_confirmation_shows_exact_path_and_revision_and_cancel_preserves_local_content()
+        => await AssertGitHubReplacementConfirmation(malformedApi: false);
+
+    [InteractiveUiFact]
+    public async Task Workbench_Replace_install_recovers_from_malformed_API_JSON_and_cancel_preserves_local_content()
+        => await AssertGitHubReplacementConfirmation(malformedApi: true);
+
+    private async Task AssertGitHubReplacementConfirmation(bool malformedApi)
     {
         using var source = new GitHubProviderFixture();
+        if (malformedApi) source.UseGitTreeIdentities();
         var inspection = source.Provider.Inspect(source.Reference).ValueOrThrow();
         source.Provider.Install(inspection, [inspection.Skills[0]]).ValueOrThrow();
         var record = Assert.Single(source.StateStore.Load().Records);
@@ -277,6 +285,7 @@ public sealed class PackagedGitHubWorkflowTests(PackagedAppFixture fixture)
         Directory.CreateDirectory(workingDirectory);
         Directory.CreateDirectory(tools);
         CopyFakeGh(tools);
+        if (malformedApi) CopyFakeOutput("FakeGit", "net10.0", tools, "git.exe");
         var environment = new Dictionary<string, string?>
         {
             ["USERPROFILE"] = source.Home,
@@ -284,6 +293,8 @@ public sealed class PackagedGitHubWorkflowTests(PackagedAppFixture fixture)
             ["FAKE_GH_FIXTURE_ROOT"] = source.FixtureRoot,
             ["FAKE_GH_STATE_PATH"] = profile.StateFilePath,
             ["FAKE_GH_INVOCATIONS"] = Path.Combine(profile.Root, "gh-invocations.jsonl"),
+            ["FAKE_GH_MALFORMED_JSON_PATTERN"] = malformedApi ? "repos/" : null,
+            ["FAKE_GH_REAL_TREE_IDENTITIES"] = malformedApi ? "1" : null,
         };
 
         using var app = SkillyInstance.Start(Fixture.ExePath, profile, workingDirectory, environment);

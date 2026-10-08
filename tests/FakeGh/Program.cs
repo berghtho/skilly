@@ -45,6 +45,12 @@ if (args.Length != 2 || args[0] != "api")
 }
 
 var endpoint = args[1];
+if (Environment.GetEnvironmentVariable("FAKE_GH_MALFORMED_JSON_PATTERN") is { } malformedPattern
+    && endpoint.Contains(malformedPattern, StringComparison.Ordinal))
+{
+    Console.WriteLine("{truncated");
+    return 0;
+}
 if (Environment.GetEnvironmentVariable("FAKE_GH_INVALID_JSON_MARKER") is { } invalidMarker
     && !File.Exists(invalidMarker))
 {
@@ -170,6 +176,10 @@ static int WriteTree(string fixtureRoot, string endpoint)
     var sha = Uri.UnescapeDataString(encodedSha);
     var filesRoot = Path.GetFullPath(Path.Combine(fixtureRoot, "files"));
     var relativeRoot = sha.StartsWith("tree_", StringComparison.Ordinal) ? DecodeTreePath(sha) : string.Empty;
+    if (Environment.GetEnvironmentVariable("FAKE_GH_REAL_TREE_IDENTITIES") == "1")
+        relativeRoot = Directory.GetDirectories(filesRoot, "*", SearchOption.AllDirectories).Prepend(filesRoot)
+            .Select(path => Path.GetRelativePath(filesRoot, path).Replace('\\', '/').Trim('.'))
+            .FirstOrDefault(path => TreeIdentity(filesRoot, path) == sha) ?? string.Empty;
     var treeRoot = Path.GetFullPath(Path.Combine(filesRoot, relativeRoot.Replace('/', Path.DirectorySeparatorChar)));
     if (!IsBelow(filesRoot, treeRoot) || !Directory.Exists(treeRoot))
     {
@@ -235,6 +245,7 @@ static string TreeIdentity(string filesRoot, string relativePath)
 {
     var normalized = relativePath.Trim('/');
     var directory = Path.Combine(filesRoot, normalized.Replace('/', Path.DirectorySeparatorChar));
+    if (Environment.GetEnvironmentVariable("FAKE_GH_REAL_TREE_IDENTITIES") == "1") return HashGitTree(directory);
     using var sha1 = SHA1.Create();
     var material = string.Join("\n", Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories)
         .OrderBy(static path => path, StringComparer.Ordinal)
@@ -243,6 +254,22 @@ static string TreeIdentity(string filesRoot, string relativePath)
     var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(normalized))
         .TrimEnd('=').Replace('+', '-').Replace('/', '_');
     return $"tree_{encoded}.{digest}";
+}
+
+static string HashGitTree(string folder)
+{
+    using var content = new MemoryStream();
+    foreach (var entry in new DirectoryInfo(folder).EnumerateFileSystemInfos()
+        .OrderBy(entry => entry.Name + (entry is DirectoryInfo ? "/" : string.Empty), StringComparer.Ordinal))
+    {
+        var directory = entry is DirectoryInfo;
+        content.Write(Encoding.ASCII.GetBytes(directory ? "40000 " : "100644 "));
+        content.Write(Encoding.UTF8.GetBytes(entry.Name));
+        content.WriteByte(0);
+        content.Write(Convert.FromHexString(directory ? HashGitTree(entry.FullName) : FileIdentity(entry.FullName)));
+    }
+    var bytes = content.ToArray();
+    return Convert.ToHexString(SHA1.HashData([.. Encoding.ASCII.GetBytes($"tree {bytes.Length}\0"), .. bytes])).ToLowerInvariant();
 }
 
 static string DecodeTreePath(string identity)

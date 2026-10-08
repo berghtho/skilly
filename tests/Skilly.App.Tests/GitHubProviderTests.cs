@@ -80,6 +80,7 @@ public sealed class GitHubProviderFixture : IDisposable
             ["FAKE_GH_INVOCATIONS"] = Path.Combine(FixtureRoot, "gh-invocations.jsonl"),
             ["FAKE_GIT_INVOCATIONS"] = Path.Combine(FixtureRoot, "git-invocations.jsonl"),
             ["FAKE_GIT_FAIL_PATTERN"] = failPattern?.Contains("scripts/", StringComparison.Ordinal) == true ? "checkout" : null,
+            ["FAKE_GIT_SOURCE_REVISION"] = CommitSha,
         };
         Log = new RollingLog(Path.Combine(Root, "logs"));
         var client = new GhClient(new ProcessRunner(Log, _environment), fakeGh, fakeGit);
@@ -140,7 +141,10 @@ public sealed class GitHubProviderFixture : IDisposable
     }
 
     public void SetCommit(string sha)
-        => File.WriteAllText(Path.Combine(FixtureRoot, "commit.json"), $"{{\"sha\":\"{sha}\"}}");
+    {
+        File.WriteAllText(Path.Combine(FixtureRoot, "commit.json"), $"{{\"sha\":\"{sha}\"}}");
+        _environment["FAKE_GIT_SOURCE_REVISION"] = sha;
+    }
 
     public void SetBranch(string name)
         => File.WriteAllText(Path.Combine(FixtureRoot, "heads.json"), $"[{{\"ref\":\"refs/heads/{name}\"}}]");
@@ -161,6 +165,10 @@ public sealed class GitHubProviderFixture : IDisposable
 
     public void ReturnFalseSuccessFor(string? pattern) => _environment["FAKE_GH_FALSE_SUCCESS_PATTERN"] = pattern;
     public void ReturnInvalidJsonOnce() => _environment["FAKE_GH_INVALID_JSON_MARKER"] = Path.Combine(Root, "invalid-json-seen");
+    public void ReturnMalformedJsonFor(string? pattern) => _environment["FAKE_GH_MALFORMED_JSON_PATTERN"] = pattern;
+    public void FailGitRequestsContaining(string? pattern) => _environment["FAKE_GIT_FAIL_PATTERN"] = pattern;
+    public void UseGitTreeIdentities() => _environment["FAKE_GH_REAL_TREE_IDENTITIES"] = "1";
+    public void CorruptGitCheckout() => _environment["FAKE_GIT_CORRUPT_CHECKOUT"] = "1";
 
     public void MakeContentUnavailable(string? pattern) => _environment["FAKE_GH_CONTENT_UNAVAILABLE_PATTERN"] = pattern;
 
@@ -242,6 +250,148 @@ public sealed class GitHubSourceReferenceTests
 
 public sealed class GitHubProviderTests
 {
+    [Theory]
+    [InlineData("/commits/main")]
+    [InlineData("repos/")]
+    public void Replacement_can_recover_when_commit_api_returns_malformed_json(string malformedPattern)
+    {
+        using var fixture = new GitHubProviderFixture();
+        fixture.UseGitTreeIdentities();
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
+        var skill = inspection.Skills.Single(skill => skill.FolderName == "alpha");
+        fixture.Provider.Install(inspection, [skill]).ValueOrThrow();
+        var record = fixture.StateStore.Load().Records.Single();
+        var localFile = Path.Combine(record.CanonicalPath, "SKILL.md");
+        File.AppendAllText(localFile, "\nLocal edit\n");
+        var before = File.ReadAllBytes(localFile);
+        fixture.ReturnMalformedJsonFor(malformedPattern);
+
+        var replacement = fixture.Provider.PlanManagedReinstall(record);
+
+        Assert.True(replacement.Succeeded, replacement.Diagnostics);
+        Assert.Equal(before, File.ReadAllBytes(localFile));
+        var plan = replacement.ValueOrThrow();
+        fixture.Provider.ManagedReinstall(plan).ValueOrThrow();
+        Assert.DoesNotContain("Local edit", File.ReadAllText(localFile));
+        Assert.Equal(GitHubProviderFixture.CommitSha, fixture.StateStore.Load().Records.Single().InstalledRevision);
+    }
+
+    [Fact]
+    public void Git_recovery_allows_check_preview_and_update_when_all_api_json_is_malformed()
+    {
+        using var fixture = new GitHubProviderFixture();
+        fixture.UseGitTreeIdentities();
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills.Single(skill => skill.SkillPath == "alpha")]).ValueOrThrow();
+        fixture.SetCommit(GitHubProviderFixture.LaterCommitSha);
+        var upstream = Path.Combine(fixture.FixtureRoot, "files", "skills", "alpha", "SKILL.md");
+        File.AppendAllText(upstream, "\nUpdated through Git recovery.\n");
+        var binary = new byte[] { 0, 255, 128, 13, 10, 42 };
+        File.WriteAllBytes(Path.Combine(Path.GetDirectoryName(upstream)!, "binary.dat"), binary);
+        fixture.ReturnMalformedJsonFor("repos/");
+
+        new ProviderCheckRunner(fixture.Provider, fixture.StateStore).Refresh();
+        var record = fixture.StateStore.Load().Records.Single();
+        Assert.Equal(UpdateStatus.UpdateAvailable, record.LatestCheck!.Status);
+        Assert.Contains("Git recovery", record.LatestCheck.Warning);
+        var preview = fixture.Provider.PreviewUpdate(record).ValueOrThrow();
+        fixture.Provider.Update(record, preview: preview).ValueOrThrow();
+
+        Assert.Equal(File.ReadAllText(upstream), File.ReadAllText(Path.Combine(record.CanonicalPath, "SKILL.md")));
+        Assert.Equal(binary, File.ReadAllBytes(Path.Combine(record.CanonicalPath, "binary.dat")));
+        Assert.Null(fixture.StateStore.Load().PendingOperation);
+        Assert.Equal(GitHubProviderFixture.LaterCommitSha, fixture.StateStore.Load().Records.Single().InstalledRevision);
+        Assert.Contains("refs/heads/main", File.ReadAllText(fixture.GitInvocationsPath));
+        Assert.DoesNotContain("\"repo\",\"clone\"", File.ReadAllText(fixture.GhInvocationsPath));
+    }
+
+    [Theory]
+    [InlineData("fetch", false)]
+    [InlineData(null, true)]
+    public void Git_recovery_failure_or_wrong_checkout_preserves_local_content(string? failPattern, bool wrongHead)
+    {
+        using var fixture = new GitHubProviderFixture();
+        fixture.UseGitTreeIdentities();
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills.Single(skill => skill.SkillPath == "alpha")]).ValueOrThrow();
+        var record = fixture.StateStore.Load().Records.Single();
+        var stateBefore = File.ReadAllBytes(fixture.StatePath);
+        var hashBefore = PayloadHasher.HashFolder(record.CanonicalPath);
+        fixture.ReturnMalformedJsonFor("repos/");
+        fixture.FailGitRequestsContaining(failPattern);
+        if (wrongHead) fixture.OverrideGitHead(GitHubProviderFixture.LaterCommitSha);
+
+        var result = fixture.Provider.PlanManagedReinstall(record);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("Independent Git recovery also failed", result.Diagnostics);
+        Assert.DoesNotContain("Replace install can", result.Diagnostics);
+        Assert.Equal(stateBefore, File.ReadAllBytes(fixture.StatePath));
+        Assert.Equal(hashBefore, PayloadHasher.HashFolder(record.CanonicalPath));
+    }
+
+    [Fact]
+    public void Git_recovery_explains_removed_source_skill_without_deleting_local_files()
+    {
+        using var fixture = new GitHubProviderFixture();
+        fixture.UseGitTreeIdentities();
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills.Single(skill => skill.SkillPath == "alpha")]).ValueOrThrow();
+        var record = fixture.StateStore.Load().Records.Single();
+        var hashBefore = PayloadHasher.HashFolder(record.CanonicalPath);
+        File.Delete(Path.Combine(fixture.FixtureRoot, "files", "skills", "alpha", "SKILL.md"));
+        fixture.ReturnMalformedJsonFor("repos/");
+
+        var check = fixture.Provider.Check(record).ValueOrThrow();
+
+        Assert.Equal(UpdateStatus.SourceUnavailable, check.Status);
+        Assert.Contains("no longer contains SKILL.md", check.Warning);
+        Assert.Contains("Update Library", check.Warning);
+        Assert.Contains("Uninstall or Hide", check.Warning);
+        Assert.Equal(hashBefore, PayloadHasher.HashFolder(record.CanonicalPath));
+    }
+
+    [Fact]
+    public void Git_recovery_rejects_wrong_blob_content_without_replacing_installation()
+    {
+        using var fixture = new GitHubProviderFixture();
+        fixture.UseGitTreeIdentities();
+        var inspection = fixture.Provider.Inspect(fixture.Reference).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills.Single(skill => skill.SkillPath == "alpha")]).ValueOrThrow();
+        var record = fixture.StateStore.Load().Records.Single();
+        var hashBefore = PayloadHasher.HashFolder(record.CanonicalPath);
+        fixture.ReturnMalformedJsonFor("repos/");
+        fixture.CorruptGitCheckout();
+
+        var result = fixture.Provider.PlanManagedReinstall(record);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("source blob identity", result.Diagnostics);
+        Assert.Equal(hashBefore, PayloadHasher.HashFolder(record.CanonicalPath));
+        Assert.Null(fixture.StateStore.Load().PendingOperation);
+    }
+
+    [Theory]
+    [InlineData("stable", "refs/tags/stable")]
+    [InlineData(GitHubProviderFixture.CommitSha, GitHubProviderFixture.CommitSha)]
+    public void Git_recovery_preserves_recorded_tag_and_commit_pins(string referenceName, string expectedFetchReference)
+    {
+        using var fixture = new GitHubProviderFixture();
+        fixture.UseGitTreeIdentities();
+        fixture.SetTag("stable");
+        Assert.True(GitHubSourceReference.TryParse($"https://github.com/acme/library/tree/{referenceName}/skills", out var reference, out _));
+        var inspection = fixture.Provider.Inspect(reference).ValueOrThrow();
+        fixture.Provider.Install(inspection, [inspection.Skills.Single(skill => skill.SkillPath == "alpha")]).ValueOrThrow();
+        var record = fixture.StateStore.Load().Records.Single();
+        fixture.ReturnMalformedJsonFor("repos/");
+
+        var check = fixture.Provider.Check(record).ValueOrThrow();
+
+        Assert.Equal(UpdateStatus.Pinned, check.Status);
+        Assert.Equal(record.InstalledRevision, check.AvailableRevision);
+        Assert.Contains(expectedFetchReference, File.ReadAllText(fixture.GitInvocationsPath));
+    }
+
     [Fact]
     public void Transient_invalid_github_json_is_retried_without_blocking_source_inspection()
     {
