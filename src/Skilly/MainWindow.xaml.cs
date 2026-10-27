@@ -207,6 +207,7 @@ public partial class MainWindow : Window
             var inspectionResult = await Task.Run(() => _githubProvider.Inspect(reference));
             if (!inspectionResult.Succeeded)
             {
+                _log.Error($"GitHub source inspection failed: {inspectionResult.Diagnostics}");
                 viewModel.Announce($"GitHub source inspection failed. {inspectionResult.Diagnostics} Nothing changed.");
                 return false;
             }
