@@ -166,6 +166,7 @@ public sealed class GitHubProviderFixture : IDisposable
     public void ReturnFalseSuccessFor(string? pattern) => _environment["FAKE_GH_FALSE_SUCCESS_PATTERN"] = pattern;
     public void ReturnInvalidJsonOnce() => _environment["FAKE_GH_INVALID_JSON_MARKER"] = Path.Combine(Root, "invalid-json-seen");
     public void ReturnMalformedJsonFor(string? pattern) => _environment["FAKE_GH_MALFORMED_JSON_PATTERN"] = pattern;
+    public void ForceTerminalColor() => _environment["CLICOLOR_FORCE"] = "1";
     public void FailGitRequestsContaining(string? pattern) => _environment["FAKE_GIT_FAIL_PATTERN"] = pattern;
     public void UseGitTreeIdentities() => _environment["FAKE_GH_REAL_TREE_IDENTITIES"] = "1";
     public void CorruptGitCheckout() => _environment["FAKE_GIT_CORRUPT_CHECKOUT"] = "1";
@@ -250,6 +251,18 @@ public sealed class GitHubSourceReferenceTests
 
 public sealed class GitHubProviderTests
 {
+    [Fact]
+    public void Inspection_reads_plain_json_when_the_launching_terminal_forces_color()
+    {
+        using var fixture = new GitHubProviderFixture();
+        fixture.ForceTerminalColor();
+
+        var inspection = fixture.Provider.Inspect(fixture.Reference);
+
+        Assert.True(inspection.Succeeded, inspection.Diagnostics);
+        Assert.Contains(inspection.Value!.Skills, skill => skill.FolderName == "alpha");
+    }
+
     [Theory]
     [InlineData("/commits/main")]
     [InlineData("repos/")]

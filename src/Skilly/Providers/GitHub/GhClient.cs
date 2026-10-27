@@ -331,7 +331,7 @@ public sealed class GhClient(
     private string ApiRequest(string endpoint)
     {
         var result = runner.Run(ghExecutable, ["api", endpoint], TimeSpan.FromSeconds(60),
-            new Dictionary<string, string?> { ["GH_HOST"] = "github.com", ["GH_FORCE_TTY"] = null, ["NO_COLOR"] = "1" });
+            new Dictionary<string, string?> { ["GH_HOST"] = "github.com", ["GH_FORCE_TTY"] = null, ["CLICOLOR_FORCE"] = null, ["NO_COLOR"] = "1" });
         if (!result.Succeeded)
         {
             if (result.CombinedOutput.Contains("HTTP 404", StringComparison.OrdinalIgnoreCase))

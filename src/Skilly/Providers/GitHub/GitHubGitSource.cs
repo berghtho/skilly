@@ -133,7 +133,7 @@ internal sealed class GitHubGitSource(ProcessRunner runner, string ghExecutable,
             ["-c", "credential.helper=", "-c", "credential.helper=!" + helperExecutable + " auth git-credential",
              "-c", "core.autocrlf=false", "-c", "core.symlinks=false", .. arguments], TimeSpan.FromMinutes(2),
             new Dictionary<string, string?> { ["GIT_TERMINAL_PROMPT"] = "0", ["GCM_INTERACTIVE"] = "Never",
-                ["GH_HOST"] = "github.com", ["GH_FORCE_TTY"] = null, ["NO_COLOR"] = "1",
+                ["GH_HOST"] = "github.com", ["GH_FORCE_TTY"] = null, ["CLICOLOR_FORCE"] = null, ["NO_COLOR"] = "1",
                 ["GIT_DIR"] = null, ["GIT_WORK_TREE"] = null, ["GIT_INDEX_FILE"] = null,
                 ["GIT_OBJECT_DIRECTORY"] = null, ["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = null, ["GIT_COMMON_DIR"] = null });
     }

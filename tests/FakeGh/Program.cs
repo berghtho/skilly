@@ -45,6 +45,11 @@ if (args.Length != 2 || args[0] != "api")
 }
 
 var endpoint = args[1];
+// Real gh colorizes JSON when CLICOLOR_FORCE is set, even with NO_COLOR=1.
+if (Environment.GetEnvironmentVariable("CLICOLOR_FORCE") is { Length: > 0 } forceColor && forceColor != "0")
+{
+    Console.Write("\u001b[1;37m");
+}
 if (Environment.GetEnvironmentVariable("FAKE_GH_MALFORMED_JSON_PATTERN") is { } malformedPattern
     && endpoint.Contains(malformedPattern, StringComparison.Ordinal))
 {
