@@ -25,7 +25,7 @@ A managed reference that makes one canonical Skill Installation visible to a Har
 _Avoid_: Replica, copy
 
 **Harness**:
-An agent product that discovers and loads Skill Installations, initially OpenCode, Codex, Claude Code, or GitHub Copilot.
+An agent product that discovers and loads Skill Installations, initially OpenCode, Codex, Claude Code, GitHub Copilot, or Antigravity.
 _Avoid_: Consumer, host, client
 
 **Unmanaged Installation**:

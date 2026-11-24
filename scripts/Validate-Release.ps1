@@ -192,7 +192,7 @@ try {
         try {
             & (Join-Path $PSScriptRoot "Test-CrossHarness.ps1") -EvidencePath $crossEvidence
             if (Test-Path -LiteralPath $crossEvidence) {
-                Add-Result "cross-harness" "PASSED" "One canonical fixture was invoked in real OpenCode, Codex, Claude Code, and GitHub Copilot sessions." $crossEvidence
+                Add-Result "cross-harness" "PASSED" "One canonical fixture was invoked in real OpenCode, Codex, Claude Code, GitHub Copilot, and Antigravity sessions." $crossEvidence
             } else {
                 Add-Result "cross-harness" "FAILED" "Cross-Harness sessions completed without revision evidence."
             }
@@ -200,7 +200,7 @@ try {
             Add-Result "cross-harness" "FAILED" $_.Exception.Message
         }
     } else {
-        Add-Result "cross-harness" "SKIPPED" "Explicit prerequisite missing: pass -RunCrossHarness after confirming all four Harness sessions are authenticated and may consume AI credits."
+        Add-Result "cross-harness" "SKIPPED" "Explicit prerequisite missing: pass -RunCrossHarness after confirming all five Harness sessions are authenticated and may consume AI credits."
     }
 
     $portableProof = Join-Path $evidenceDirectory "portable-runtime-proof.json"

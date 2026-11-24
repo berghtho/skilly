@@ -17,7 +17,7 @@ public record StatusUpdate(string Message, DateTimeOffset Timestamp);
 
 public sealed record ExposureRow(string Harness, string Mode, string ModeKind, string Detail)
 {
-    public string Abbreviation => Harness switch { "OpenCode" => "OC", "Codex" => "CX", "Claude Code" => "CC", _ => "GH" };
+    public string Abbreviation => Harness switch { "OpenCode" => "OC", "Codex" => "CX", "Claude Code" => "CC", "Antigravity" => "AG", _ => "GH" };
     public string Label => Harness switch { "Claude Code" => "CLAUDE", "GitHub Copilot" => "COPILOT", _ => Harness.ToUpperInvariant() };
     public bool IsExposed => ModeKind is "Tinted" or "Outline";
     public bool HasProblem => ModeKind == "Problem";
@@ -35,15 +35,19 @@ public sealed class InventoryRow
             RootKind.CopilotSkills => ".copilot\\skills",
             RootKind.OpenCodeConfigSkills => ".config\\opencode\\skills",
             RootKind.CodexLegacySkills => ".codex\\skills (legacy)",
+            RootKind.AntigravityConfigSkills => ".gemini\\config\\skills",
+            RootKind.GeminiSkills => ".gemini\\skills (CLI only)",
+            RootKind.AntigravityLegacySkills => ".gemini\\antigravity\\skills (legacy)",
             _ => entry.RootKind.ToString(),
         };
-        ExposuresSummary = $"{entry.Exposures.Values.Count(static value => IsExposed(value.State))} of 4 harnesses exposed";
+        ExposuresSummary = $"{entry.Exposures.Values.Count(static value => IsExposed(value.State))} of {HarnessCount} harnesses exposed";
         ExposureDisplay = new Dictionary<string, HarnessExposure>
         {
             ["OpenCode"] = entry.Exposures[Harness.OpenCode],
             ["Codex"] = entry.Exposures[Harness.Codex],
             ["ClaudeCode"] = entry.Exposures[Harness.ClaudeCode],
             ["GitHubCopilot"] = entry.Exposures[Harness.GitHubCopilot],
+            ["Antigravity"] = entry.Exposures[Harness.Antigravity],
         };
         (Harness Harness, string Label)[] harnesses =
         [
@@ -51,10 +55,11 @@ public sealed class InventoryRow
             (Harness.Codex, "Codex"),
             (Harness.ClaudeCode, "Claude Code"),
             (Harness.GitHubCopilot, "GitHub Copilot"),
+            (Harness.Antigravity, "Antigravity"),
         ];
         ExposureCells = [.. harnesses.Select(harness => IsExposed(entry.Exposures[harness.Harness].State))];
         ExposedCount = ExposureCells.Count(static exposed => exposed);
-        ExposuresLabel = $"{ExposedCount}/4";
+        ExposuresLabel = $"{ExposedCount}/{HarnessCount}";
         ExposureRows = [.. harnesses.Select(harness =>
         {
             var exposure = entry.Exposures[harness.Harness];
@@ -69,6 +74,8 @@ public sealed class InventoryRow
             return new ExposureRow(harness.Label, mode, kind, exposure.Detail);
         })];
     }
+
+    private static readonly int HarnessCount = Enum.GetValues<Harness>().Length;
 
     private static bool IsExposed(ExposureState state)
         => state is ExposureState.Canonical or ExposureState.Direct or ExposureState.VerifiedJunction;

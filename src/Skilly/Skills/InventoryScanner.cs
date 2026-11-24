@@ -46,6 +46,9 @@ public sealed class InventoryScanner
             HarnessRoot.Create(RootKind.CopilotSkills, home),
             HarnessRoot.Create(RootKind.OpenCodeConfigSkills, home),
             HarnessRoot.Create(RootKind.CodexLegacySkills, home),
+            HarnessRoot.Create(RootKind.AntigravityConfigSkills, home),
+            HarnessRoot.Create(RootKind.GeminiSkills, home),
+            HarnessRoot.Create(RootKind.AntigravityLegacySkills, home),
         };
 
         var candidates = new List<Candidate>();
@@ -202,6 +205,16 @@ public sealed class InventoryScanner
         if (candidate.Root.Kind == RootKind.CodexLegacySkills && health == InstallationHealth.Healthy)
         {
             detail = "Located under the deprecated Codex compatibility root.";
+        }
+
+        if (candidate.Root.Kind == RootKind.GeminiSkills && health == InstallationHealth.Healthy)
+        {
+            detail = "Located under a root that only the Antigravity CLI reads; the Antigravity app does not.";
+        }
+
+        if (candidate.Root.Kind == RootKind.AntigravityLegacySkills && health == InstallationHealth.Healthy)
+        {
+            detail = "Located under the legacy Antigravity root; the Antigravity CLI does not read it.";
         }
 
         if (candidate.ClaudeExposure is { } claude)
@@ -451,7 +464,9 @@ public sealed class InventoryScanner
 
         foreach (var harness in link.Root.DirectHarnesses())
         {
-            exposures[harness] = new HarnessExposure(state, detail);
+            exposures[harness] = harness == Harness.Antigravity
+                ? AntigravitySkipsLinks()
+                : new HarnessExposure(state, detail);
         }
 
         return new InventoryEntry
@@ -485,7 +500,7 @@ public sealed class InventoryScanner
 
         if (candidate.Root.Kind == RootKind.CanonicalAgents)
         {
-            foreach (var harness in new[] { Harness.OpenCode, Harness.Codex, Harness.GitHubCopilot })
+            foreach (var harness in new[] { Harness.OpenCode, Harness.Codex, Harness.GitHubCopilot, Harness.Antigravity })
             {
                 exposures[harness] = HarnessExposure.Canonical();
             }
@@ -493,6 +508,10 @@ public sealed class InventoryScanner
 
         return exposures;
     }
+
+    // Antigravity discovers only real folders: it skips junctions and symbolic links in every Skill root.
+    private static HarnessExposure AntigravitySkipsLinks()
+        => new(ExposureState.None, "Antigravity skips linked Skill folders; only real folders are discovered");
 
     private static string? ResolveFinalTarget(Candidate link)
     {

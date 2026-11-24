@@ -4,7 +4,7 @@
 
 **One home for every agent Skill.**
 
-Find, install, update, and share Skills across **OpenCode, Codex, Claude Code, and GitHub Copilot** from one Windows app. Keep a single copy of each Skill, see where it came from, and review what changes before updating.
+Find, install, update, and share Skills across **OpenCode, Codex, Claude Code, GitHub Copilot, and Antigravity** from one Windows app. Keep a single copy of each Skill, see where it came from, and review what changes before updating.
 
 A Skill is a folder of instructions and optional scripts, references, or assets that gives your coding agent a reusable workflow. Skilly helps you keep that collection organized as it grows.
 
@@ -45,7 +45,7 @@ On first launch, Skilly discovers your existing global Skills. Select one to rea
 | Feature | What it does |
 | --- | --- |
 | **Browse before installing** | Inspect a source, search by name, path, or description, and choose only the Skills you want. GitHub and Microsoft APM sources include a `SKILL.md` preview. |
-| **Manage one collection** | See installed Skills, source information, health, and availability across all four agents in one workbench. Filter, sort, and select multiple rows. |
+| **Manage one collection** | See installed Skills, source information, health, and availability across all five agents in one workbench. Filter, sort, and select multiple rows. |
 | **Review updates** | Compare installed and available files, including scripts, before applying an update. Track batch progress and per-Skill results in History. |
 | **Bring existing Skills along** | Discover manually installed Skills and adopt them into managed updates when Skilly can verify their source. |
 | **Share complete sets** | Bundle selected Skill folders into a ZIP, then import a whole toolkit or just the pieces you need. |
@@ -88,7 +88,7 @@ Give a teammate your review, testing, and research toolkit in one file.
 | --- | --- |
 | ![Export dialog with six Skills selected for a team development toolkit](assets/skilly-export.png) | ![Import dialog with five Skills selected and an existing Skill skipped](assets/skilly-import.png) |
 
-Imports work offline and do not execute bundled scripts or provider commands. New Skills are available to all four agents. They start as **Unmanaged** snapshots of the shared files; source updates require a later, verified Adoption. Sharing a set does not transfer account settings, credentials, or management records.
+Imports work offline and do not execute bundled scripts or provider commands. New Skills are available to all five agents. They start as **Unmanaged** snapshots of the shared files; source updates require a later, verified Adoption. Sharing a set does not transfer account settings, credentials, or management records.
 
 <details>
 <summary>Archive format and validation</summary>
