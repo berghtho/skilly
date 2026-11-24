@@ -73,6 +73,7 @@ $commands = @{
     Codex = Resolve-NativeCommand "codex"
     ClaudeCode = Resolve-NativeCommand "claude"
     GitHubCopilot = Resolve-NativeCommand "copilot"
+    Antigravity = Resolve-NativeCommand "agy"
 }
 $missing = @($commands.GetEnumerator() | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.Value) } | ForEach-Object Key)
 if ($missing.Count -gt 0) { throw "Missing Harness commands: $($missing -join ', ')." }
@@ -110,6 +111,7 @@ Do not use tools and do not modify files.
     $results += Invoke-HarnessWithRetry "Codex" $commands.Codex @("exec", "--ephemeral", "--skip-git-repo-check", "-C", $working, ('$' + $skillName + ' ' + $prompt)) $working $token
     $results += Invoke-HarnessWithRetry "Claude Code" $commands.ClaudeCode @("-p", "--no-session-persistence", ('/' + $skillName + ' ' + $prompt)) $working $token
     $results += Invoke-HarnessWithRetry "GitHub Copilot" $commands.GitHubCopilot @("-p", ('$' + $skillName + ' ' + $prompt), "--allow-all-tools", "--disable-builtin-mcps", "--silent") $working $token
+    $results += Invoke-HarnessWithRetry "Antigravity" $commands.Antigravity @("-p", ('/' + $skillName + ' ' + $prompt)) $working $token
 
     $evidence = [ordered]@{
         gate = "cross-harness"
@@ -125,6 +127,7 @@ Do not use tools and do not modify files.
             Codex = (& $commands.Codex --version 2>&1 | Out-String).Trim()
             ClaudeCode = (& $commands.ClaudeCode --version 2>&1 | Out-String).Trim()
             GitHubCopilot = (& $commands.GitHubCopilot --version 2>&1 | Out-String).Trim()
+            Antigravity = (& $commands.Antigravity --version 2>&1 | Out-String).Trim()
         }
         results = $results
     }

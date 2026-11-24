@@ -863,7 +863,7 @@
 
                                 <Border Style="{StaticResource SectionHeader}"><TextBlock Style="{StaticResource SectionKicker}" Text="HARNESS EXPOSURES" /></Border>
                                 <ItemsControl ItemsSource="{Binding SelectedRow.ExposureRows}" Focusable="False" AutomationProperties.AutomationId="Skilly.ExposureDiagram">
-                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="4" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="5" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate><DataTemplate>
                                         <StackPanel Margin="0,0,6,0" ToolTip="{Binding Detail}" AutomationProperties.Name="{Binding Harness}">
                                             <Grid Height="44" x:Name="Cell" Opacity="0.4">

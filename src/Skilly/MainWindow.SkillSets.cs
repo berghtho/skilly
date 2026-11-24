@@ -82,7 +82,7 @@ public partial class MainWindow
             vm.Announce($"Importing {selected.Count} Skill(s)…");
             var count = await Task.Run(() => _skillSets!.Import(preview, selected, _mutationCancellation!.Token));
             vm.LoadInventory(RefreshInventory());
-            vm.Announce($"Imported {count} Skill(s) as Unmanaged; available to all four Harnesses.");
+            vm.Announce($"Imported {count} Skill(s) as Unmanaged; available to all five Harnesses.");
         }
         finally { EndMutation(); }
     }

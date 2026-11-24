@@ -77,6 +77,7 @@ public sealed class InventoryScannerTests : IDisposable
         Assert.Equal(ExposureState.Canonical, alpha.Exposures[Harness.OpenCode].State);
         Assert.Equal(ExposureState.Canonical, alpha.Exposures[Harness.Codex].State);
         Assert.Equal(ExposureState.Canonical, alpha.Exposures[Harness.GitHubCopilot].State);
+        Assert.Equal(ExposureState.Canonical, alpha.Exposures[Harness.Antigravity].State);
         Assert.Equal(ExposureState.VerifiedJunction, alpha.Exposures[Harness.ClaudeCode].State);
 
         Assert.DoesNotContain(snapshot.Entries, entry => entry.Kind == EntryKind.LinkEntry && entry.FolderName == "alpha");
@@ -193,6 +194,67 @@ public sealed class InventoryScannerTests : IDisposable
         var theta = Assert.Single(snapshot.Entries, entry => entry.FolderName == "theta");
         Assert.Equal(ExposureState.Direct, theta.Exposures[Harness.Codex].State);
         Assert.Contains("deprecated", theta.HealthDetail);
+        Assert.All([zeta, eta, theta], entry => Assert.Equal(ExposureState.None, entry.Exposures[Harness.Antigravity].State));
+    }
+
+    [Fact]
+    public void Classifies_antigravity_roots_as_direct_antigravity_discovery_only()
+    {
+        _fixture.WriteSkill(".gemini/config/skills", "iota", "iota", "Antigravity skill.");
+        _fixture.WriteSkill(".gemini/skills", "kappa", "kappa", "Antigravity CLI skill.");
+        _fixture.WriteSkill(".gemini/antigravity/skills", "lambda", "lambda", "Legacy Antigravity skill.");
+
+        var snapshot = new InventoryScanner().Scan(_fixture.Home);
+
+        var iota = Assert.Single(snapshot.Entries, entry => entry.FolderName == "iota");
+        Assert.Equal(RootKind.AntigravityConfigSkills, iota.RootKind);
+        Assert.Equal(InstallationHealth.Healthy, iota.Health);
+        Assert.Equal(ExposureState.Direct, iota.Exposures[Harness.Antigravity].State);
+        Assert.Equal(ExposureState.None, iota.Exposures[Harness.OpenCode].State);
+        Assert.Equal(ExposureState.None, iota.Exposures[Harness.Codex].State);
+        Assert.Equal(ExposureState.None, iota.Exposures[Harness.ClaudeCode].State);
+        Assert.Equal(ExposureState.None, iota.Exposures[Harness.GitHubCopilot].State);
+
+        var kappa = Assert.Single(snapshot.Entries, entry => entry.FolderName == "kappa");
+        Assert.Equal(ExposureState.Direct, kappa.Exposures[Harness.Antigravity].State);
+        Assert.Contains("only the Antigravity CLI", kappa.HealthDetail);
+
+        var lambda = Assert.Single(snapshot.Entries, entry => entry.FolderName == "lambda");
+        Assert.Equal(ExposureState.Direct, lambda.Exposures[Harness.Antigravity].State);
+        Assert.Contains("legacy", lambda.HealthDetail);
+    }
+
+    [Fact]
+    public void Canonical_skill_copied_into_antigravity_root_is_a_collision()
+    {
+        _fixture.WriteSkill(".agents/skills", "mu", "mu", "Canonical mu.");
+        _fixture.WriteSkill(".gemini/config/skills", "mu", "mu", "Antigravity copy of mu.");
+
+        var snapshot = new InventoryScanner().Scan(_fixture.Home);
+
+        var mus = snapshot.Entries.Where(entry => entry.FolderName == "mu").ToList();
+        Assert.Equal(2, mus.Count);
+        Assert.All(mus, mu => Assert.Equal(InstallationHealth.Collision, mu.Health));
+    }
+
+    [Fact]
+    public void Linked_folders_are_not_exposed_to_antigravity()
+    {
+        var target = _fixture.WriteSkill("elsewhere", "nu", "nu", "Linked skill.");
+        _fixture.CreateJunction(".agents/skills/nu", target);
+        _fixture.CreateJunction(".gemini/config/skills/xi", target);
+
+        var snapshot = new InventoryScanner().Scan(_fixture.Home);
+
+        var nu = Assert.Single(snapshot.Entries, entry => entry.FolderName == "nu" && entry.RootKind == RootKind.CanonicalAgents);
+        Assert.Equal(EntryKind.LinkEntry, nu.Kind);
+        Assert.Equal(ExposureState.ForeignLink, nu.Exposures[Harness.Codex].State);
+        Assert.Equal(ExposureState.None, nu.Exposures[Harness.Antigravity].State);
+        Assert.Contains("skips linked", nu.Exposures[Harness.Antigravity].Detail);
+
+        var xi = Assert.Single(snapshot.Entries, entry => entry.FolderName == "xi");
+        Assert.Equal(EntryKind.LinkEntry, xi.Kind);
+        Assert.Equal(ExposureState.None, xi.Exposures[Harness.Antigravity].State);
     }
 
     [Fact]

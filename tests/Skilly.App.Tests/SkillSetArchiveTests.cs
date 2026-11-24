@@ -126,6 +126,9 @@ public sealed class SkillSetArchiveTests
     [InlineData(RootKind.CodexLegacySkills)]
     [InlineData(RootKind.CopilotSkills)]
     [InlineData(RootKind.OpenCodeConfigSkills)]
+    [InlineData(RootKind.AntigravityConfigSkills)]
+    [InlineData(RootKind.GeminiSkills)]
+    [InlineData(RootKind.AntigravityLegacySkills)]
     public void Existing_paths_in_any_discovery_root_are_skipped_and_preserved(RootKind kind)
     {
         using var source = new SetFixture(); using var receiver = new SetFixture();

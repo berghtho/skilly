@@ -23,7 +23,7 @@ public sealed class SkillSetWindow : Window
         Width = 800; Height = 660; MinWidth = 580; MinHeight = 430;
         var root = WorkbenchWindow.Shell(this, importing ? "IMPORT SKILL SET" : "EXPORT SKILL SET", importing ? name : "Share your Skills");
         WorkbenchWindow.Intro(root, importing
-            ? "Review the Skills below. Existing names are skipped. Imported Skills are Unmanaged and available to all four Harnesses. Source updates require verified Adoption. Only import files you trust."
+            ? "Review the Skills below. Existing names are skipped. Imported Skills are Unmanaged and available to all five Harnesses. Source updates require verified Adoption. Only import files you trust."
             : "Share complete Skill folders, including scripts and assets. All files inside the selected folders are included. Check for private files before sharing. Account settings and management records are not included.");
         var footer = new StackPanel { Margin = new Thickness(20, 10, 20, 18) };
         DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);

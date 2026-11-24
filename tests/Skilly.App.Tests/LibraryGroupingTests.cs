@@ -272,6 +272,7 @@ public sealed class LibraryGroupingTests
                 [Harness.Codex] = HarnessExposure.Canonical(),
                 [Harness.ClaudeCode] = HarnessExposure.Canonical(),
                 [Harness.GitHubCopilot] = HarnessExposure.Canonical(),
+                [Harness.Antigravity] = HarnessExposure.Canonical(),
             },
             ManagementRecord = record,
             ProviderAttribution = attribution,
